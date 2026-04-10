@@ -10,9 +10,11 @@ from pathlib import Path
 from typing import Optional
 
 from dashboard.db import EventDB
+from dashboard.config import BulwarkConfig, AVAILABLE_INTEGRATIONS, IntegrationConfig
 
 app = FastAPI(title="Bulwark Dashboard", version="0.1.0")
 db = EventDB()
+config = BulwarkConfig.load()
 
 # SSE subscribers
 _subscribers: list[asyncio.Queue] = []
@@ -164,6 +166,57 @@ async def test_pipeline(request: Request):
         "blocked": blocked,
         "blocked_at": next((t["name"] for t in trace if t["verdict"] == "blocked"), None),
         "trace": trace,
+    }
+
+
+@app.get("/api/config")
+async def get_config():
+    """Get current Bulwark configuration."""
+    return config.to_dict()
+
+
+@app.put("/api/config")
+async def update_config(request: Request):
+    """Update Bulwark configuration (partial update)."""
+    data = await request.json()
+    config.update_from_dict(data)
+    config.save()
+    return config.to_dict()
+
+
+@app.get("/api/integrations")
+async def list_integrations():
+    """List available integrations with their status."""
+    result = {}
+    for key, info in AVAILABLE_INTEGRATIONS.items():
+        int_config = config.integrations.get(key, IntegrationConfig())
+        result[key] = {
+            **info,
+            "enabled": int_config.enabled,
+            "installed": int_config.installed,
+            "last_used": int_config.last_used,
+        }
+    return result
+
+
+@app.put("/api/integrations/{name}")
+async def update_integration(name: str, request: Request):
+    """Enable/disable an integration."""
+    if name not in AVAILABLE_INTEGRATIONS:
+        return {"error": f"Unknown integration: {name}"}, 404
+    data = await request.json()
+    if name not in config.integrations:
+        config.integrations[name] = IntegrationConfig()
+    for k, v in data.items():
+        if hasattr(config.integrations[name], k):
+            setattr(config.integrations[name], k, v)
+    config.save()
+    int_config = config.integrations[name]
+    return {
+        **AVAILABLE_INTEGRATIONS[name],
+        "enabled": int_config.enabled,
+        "installed": int_config.installed,
+        "last_used": int_config.last_used,
     }
 
 

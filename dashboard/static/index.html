@@ -317,52 +317,13 @@
     <div>
       <div class="config-section">
         <h2>Defense Layers</h2>
-        <div class="toggle-row">
-          <div class="toggle-label"><span class="name">Sanitizer</span><span class="desc">Strip steganography, hidden text, control characters</span></div>
-          <div class="toggle on" onclick="this.classList.toggle('on')"></div>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-label"><span class="name">Trust Boundary</span><span class="desc">Wrap untrusted content in XML boundary tags</span></div>
-          <div class="toggle on" onclick="this.classList.toggle('on')"></div>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-label"><span class="name">Bridge Guard (AnalysisGuard)</span><span class="desc">Check Phase 1 output for injection patterns before Phase 2</span></div>
-          <div class="toggle on" onclick="this.classList.toggle('on')"></div>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-label"><span class="name">Bridge Sanitizer</span><span class="desc">Sanitize analysis output between phases</span></div>
-          <div class="toggle on" onclick="this.classList.toggle('on')"></div>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-label"><span class="name">Require JSON</span><span class="desc">Enforce JSON output from Phase 1</span></div>
-          <div class="toggle" onclick="this.classList.toggle('on')"></div>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-label"><span class="name">Canary Tokens</span><span class="desc">Detect data exfiltration with embedded tripwires</span></div>
-          <div class="toggle on" onclick="this.classList.toggle('on')"></div>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-label"><span class="name">Encoding-Resistant Canaries</span><span class="desc">Check base64, hex, reversed, case-insensitive variants</span></div>
-          <div class="toggle on" onclick="this.classList.toggle('on')"></div>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-label"><span class="name">NFKC Normalization</span><span class="desc">Map Unicode homoglyphs to canonical forms</span></div>
-          <div class="toggle" onclick="this.classList.toggle('on')"></div>
-        </div>
+        <div id="config-toggles"></div>
       </div>
 
       <div class="config-section">
         <h2>AnalysisGuard Patterns</h2>
         <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 12px;">Regex patterns checked against Phase 1 output before it reaches Phase 2. Hit count shows how many times each pattern has matched.</p>
-        <div class="pattern-list">
-          <div class="pattern-row"><span class="pattern-text">(?i)\bignore\s+(all\s+)?previous\s+instructions?\b</span><span class="pattern-hits">12 hits</span><span class="pattern-remove">&#10005;</span></div>
-          <div class="pattern-row"><span class="pattern-text">(?i)\bdisregard\b.*\binstructions?\b</span><span class="pattern-hits">3 hits</span><span class="pattern-remove">&#10005;</span></div>
-          <div class="pattern-row"><span class="pattern-text">(?i)\byou\s+are\s+now\b</span><span class="pattern-hits">7 hits</span><span class="pattern-remove">&#10005;</span></div>
-          <div class="pattern-row"><span class="pattern-text">&lt;/analysis_output&gt;</span><span class="pattern-hits">1 hit</span><span class="pattern-remove">&#10005;</span></div>
-          <div class="pattern-row"><span class="pattern-text">(?i)\btool_use\b</span><span class="pattern-hits">0 hits</span><span class="pattern-remove">&#10005;</span></div>
-          <div class="pattern-row"><span class="pattern-text">(?i)\bfunction_call\b</span><span class="pattern-hits">0 hits</span><span class="pattern-remove">&#10005;</span></div>
-          <div class="pattern-add">+ Add pattern</div>
-        </div>
+        <div id="config-patterns"></div>
       </div>
 
       <div class="config-section">
@@ -390,43 +351,7 @@
     <div>
       <div class="config-section">
         <h2>Integrations</h2>
-        <h3>Detection (plug into AnalysisGuard)</h3>
-        <div class="integration-grid">
-          <div class="integration-card">
-            <div class="integration-header"><span class="integration-name">PromptGuard-86M</span><span class="integration-badge detection">Detection</span></div>
-            <div class="integration-desc">Meta's fine-tuned mDeBERTa classifier. Detects prompt injection and jailbreak attempts in analysis output.</div>
-            <div class="integration-footer"><span class="integration-latency">~50ms latency, 184MB model</span><button class="integration-btn">Enable</button></div>
-          </div>
-          <div class="integration-card">
-            <div class="integration-header"><span class="integration-name">PIGuard</span><span class="integration-badge detection">Detection</span></div>
-            <div class="integration-desc">Lower false-positive rate than PromptGuard. MOF training strategy. Drop-in replacement.</div>
-            <div class="integration-footer"><span class="integration-latency">~45ms latency, 184MB model</span><button class="integration-btn">Enable</button></div>
-          </div>
-          <div class="integration-card enabled">
-            <div class="integration-header"><span class="integration-name">LLM Guard</span><span class="integration-badge active">Active</span></div>
-            <div class="integration-desc">Input/output scanners for PII, toxicity, and prompt injection. Runs as pre-pipeline filter.</div>
-            <div class="integration-footer"><span class="integration-latency">~120ms latency</span><button class="integration-btn enabled">Enabled</button></div>
-          </div>
-          <div class="integration-card">
-            <div class="integration-header"><span class="integration-name">NeMo Guardrails</span><span class="integration-badge detection">Detection</span></div>
-            <div class="integration-desc">NVIDIA's programmable rails for multi-turn conversation flow control.</div>
-            <div class="integration-footer"><span class="integration-latency">~200ms latency</span><button class="integration-btn">Enable</button></div>
-          </div>
-        </div>
-
-        <h3 style="margin-top: 24px;">Red-Teaming</h3>
-        <div class="integration-grid">
-          <div class="integration-card">
-            <div class="integration-header"><span class="integration-name">Garak</span><span class="integration-badge testing">Testing</span></div>
-            <div class="integration-desc">LLM vulnerability scanner with hundreds of attack probes. Schedule automated red-team runs.</div>
-            <div class="integration-footer"><span class="integration-latency">Runs on demand</span><button class="integration-btn">Configure</button></div>
-          </div>
-          <div class="integration-card">
-            <div class="integration-header"><span class="integration-name">Promptfoo</span><span class="integration-badge testing">Testing</span></div>
-            <div class="integration-desc">LLM testing framework. Add Bulwark assertions to your CI pipeline.</div>
-            <div class="integration-footer"><span class="integration-latency">CI integration</span><button class="integration-btn">Configure</button></div>
-          </div>
-        </div>
+        <div id="config-integrations"></div>
       </div>
     </div>
   </div>
@@ -463,6 +388,169 @@ let eventSource = null;
 let currentFilter = '';
 let eventsData = [];
 let metricsRefreshTimer = null;
+let configData = {};
+let integrationsData = {};
+
+// ============================================================
+// Config & Integrations API
+// ============================================================
+async function fetchConfig() {
+  try {
+    const res = await fetch('/api/config');
+    if (res.ok) configData = await res.json();
+    renderConfigToggles();
+    renderPatterns();
+  } catch(e) {}
+}
+
+async function updateConfig(partial) {
+  try {
+    const res = await fetch('/api/config', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(partial)
+    });
+    if (res.ok) configData = await res.json();
+  } catch(e) {}
+}
+
+async function fetchIntegrations() {
+  try {
+    const res = await fetch('/api/integrations');
+    if (res.ok) integrationsData = await res.json();
+    renderIntegrations();
+  } catch(e) {}
+}
+
+async function toggleIntegration(name, enabled) {
+  try {
+    const res = await fetch('/api/integrations/' + name, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled: enabled})
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      integrationsData[name] = updated;
+      renderIntegrations();
+    }
+  } catch(e) {}
+}
+
+// ============================================================
+// Config toggle rendering
+// ============================================================
+const CONFIG_TOGGLES = [
+  {key: 'sanitizer_enabled', name: 'Sanitizer', desc: 'Strip steganography, hidden text, control characters'},
+  {key: 'trust_boundary_enabled', name: 'Trust Boundary', desc: 'Wrap untrusted content in XML boundary tags'},
+  {key: 'guard_bridge_enabled', name: 'Bridge Guard (AnalysisGuard)', desc: 'Check Phase 1 output for injection patterns before Phase 2'},
+  {key: 'sanitize_bridge_enabled', name: 'Bridge Sanitizer', desc: 'Sanitize analysis output between phases'},
+  {key: 'require_json', name: 'Require JSON', desc: 'Enforce JSON output from Phase 1'},
+  {key: 'canary_enabled', name: 'Canary Tokens', desc: 'Detect data exfiltration with embedded tripwires'},
+  {key: 'encoding_resistant', name: 'Encoding-Resistant Canaries', desc: 'Check base64, hex, reversed, case-insensitive variants'},
+  {key: 'strip_emoji_smuggling', name: 'Emoji Smuggling Defense', desc: 'Strip variation selectors and tag characters'},
+  {key: 'strip_bidi', name: 'Bidirectional Override Defense', desc: 'Strip bidi override and embedding characters'},
+  {key: 'normalize_unicode', name: 'NFKC Normalization', desc: 'Map Unicode homoglyphs to canonical forms'},
+];
+
+function renderConfigToggles() {
+  const el = document.getElementById('config-toggles');
+  if (!el) return;
+  el.innerHTML = CONFIG_TOGGLES.map(t => {
+    const on = configData[t.key] !== false;
+    return `<div class="toggle-row">
+      <div class="toggle-label">
+        <span class="name">${t.name}</span>
+        <span class="desc">${t.desc}</span>
+      </div>
+      <div class="toggle ${on ? 'on' : ''}" onclick="handleToggle('${t.key}', this)"></div>
+    </div>`;
+  }).join('');
+}
+
+function handleToggle(key, el) {
+  const isOn = el.classList.toggle('on');
+  updateConfig({[key]: isOn});
+}
+
+// ============================================================
+// Pattern list rendering
+// ============================================================
+function renderPatterns() {
+  const el = document.getElementById('config-patterns');
+  if (!el) return;
+  const patterns = configData.guard_patterns || [];
+  el.innerHTML = '<div class="pattern-list">' +
+    patterns.map((p, i) =>
+      `<div class="pattern-row">
+        <span class="pattern-text">${escapeHtml(p)}</span>
+        <span class="pattern-remove" onclick="removePattern(${i})">&#10005;</span>
+      </div>`
+    ).join('') +
+    `<div class="pattern-add" onclick="addPattern()">+ Add pattern</div>` +
+    '</div>';
+}
+
+function removePattern(index) {
+  const patterns = [...(configData.guard_patterns || [])];
+  patterns.splice(index, 1);
+  updateConfig({guard_patterns: patterns});
+  configData.guard_patterns = patterns;
+  renderPatterns();
+}
+
+function addPattern() {
+  const pattern = prompt('Enter regex pattern:');
+  if (pattern) {
+    const patterns = [...(configData.guard_patterns || []), pattern];
+    updateConfig({guard_patterns: patterns});
+    configData.guard_patterns = patterns;
+    renderPatterns();
+  }
+}
+
+// ============================================================
+// Integration cards rendering
+// ============================================================
+function renderIntegrations() {
+  const el = document.getElementById('config-integrations');
+  if (!el) return;
+
+  const detection = Object.entries(integrationsData).filter(([k,v]) => v.type === 'detection');
+  const testing = Object.entries(integrationsData).filter(([k,v]) => v.type === 'testing');
+
+  function cardHtml([key, info]) {
+    const enabled = info.enabled;
+    const badgeClass = enabled ? 'active' : info.type === 'testing' ? 'testing' : 'detection';
+    const badgeText = enabled ? 'Active' : info.type === 'testing' ? 'Testing' : 'Detection';
+    const latency = info.latency_ms ? `~${info.latency_ms}ms latency` : 'Runs on demand';
+    const size = info.size_mb ? `, ${info.size_mb}MB model` : '';
+
+    return `<div class="integration-card ${enabled ? 'enabled' : ''}">
+      <div class="integration-header">
+        <span class="integration-name">${escapeHtml(info.name)}</span>
+        <span class="integration-badge ${badgeClass}">${badgeText}</span>
+      </div>
+      <div class="integration-desc">${escapeHtml(info.description)}</div>
+      <div class="integration-footer">
+        <span class="integration-latency">${latency}${size}</span>
+        <button class="integration-btn ${enabled ? 'enabled' : ''}" onclick="toggleIntegration('${key}', ${!enabled})">${enabled ? 'Enabled' : 'Enable'}</button>
+      </div>
+    </div>`;
+  }
+
+  let html = '<h3>Detection (plug into AnalysisGuard)</h3><div class="integration-grid">';
+  html += detection.map(cardHtml).join('');
+  html += '</div>';
+
+  if (testing.length > 0) {
+    html += '<h3 style="margin-top: 24px;">Red-Teaming</h3><div class="integration-grid">';
+    html += testing.map(cardHtml).join('');
+    html += '</div>';
+  }
+
+  el.innerHTML = html;
+}
 
 // ============================================================
 // Presets
@@ -506,6 +594,10 @@ function showPage(name) {
   if (pageEl) pageEl.classList.add('active');
   const tabEl = document.querySelector(`.tab[data-page="${name}"]`);
   if (tabEl) tabEl.classList.add('active');
+  if (name === 'configure') {
+    fetchConfig();
+    fetchIntegrations();
+  }
 }
 
 // ============================================================
@@ -846,6 +938,8 @@ window.addEventListener('DOMContentLoaded', () => {
   fetchEvents({}).then(() => renderActivityFeed(eventsData));
   connectSSE();
   initPresets();
+  fetchConfig();
+  fetchIntegrations();
   metricsRefreshTimer = setInterval(fetchMetrics, 10000);
 });
 </script>
