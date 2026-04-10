@@ -16,11 +16,16 @@ DEFAULT_PATTERNS = [
     r'(?i)\byou\s+are\s+now\b',
     r'(?i)\badmin\s+mode\b',
     r'</analysis_output>',
+    r'</untrusted_',
     r'</?system',
     r'</?trusted',
+    r'(?i)^SYSTEM\s*:', r'(?i)\nSYSTEM\s*:',
     r'(?i)\btool_use\b',
     r'(?i)\bfunction_call\b',
     r'(?i)\btool_calls?\b',
+    r'忽略.*指令', r'تجاهل.*تعليمات',
+    r'(?i)\bforward\s+all\b.*\b(email|data|contact)',
+    r'(?i)\bsend\s+all\b.*\b(data|email|contact)',
 ]
 
 AVAILABLE_INTEGRATIONS = {

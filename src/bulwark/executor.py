@@ -55,12 +55,18 @@ class AnalysisGuard:
         r'(?i)\badmin\s+mode\b',
         # Trust boundary escape attempts
         r'</analysis_output>',
+        r'</untrusted_',
         r'</?system',
         r'</?trusted',
+        r'(?i)^SYSTEM\s*:', r'(?i)\nSYSTEM\s*:',
         # Tool call manipulation
         r'(?i)\btool_use\b',
         r'(?i)\bfunction_call\b',
         r'(?i)\btool_calls?\b',
+        # Multilingual instruction overrides
+        r'忽略.*指令', r'تجاهل.*تعليمات',
+        r'(?i)\bforward\s+all\b.*\b(email|data|contact)',
+        r'(?i)\bsend\s+all\b.*\b(data|email|contact)',
     ])
     custom_checks: list[Callable[[str], None]] = field(default_factory=list)
     emitter: Optional[EventEmitter] = None

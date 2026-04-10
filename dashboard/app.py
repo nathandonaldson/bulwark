@@ -106,57 +106,69 @@ async def test_pipeline(request: Request):
 
     collector = CollectorEmitter()
     trace = []
+    neutralized = False  # True if any layer stripped/modified malicious content
 
-    # Step 1: Sanitizer
-    sanitizer = Sanitizer(emitter=collector)
-    cleaned = sanitizer.clean(payload)
-    san_events = [e for e in collector.events if e.layer == Layer.SANITIZER]
-    trace.append({
-        "step": 1, "name": "Sanitizer", "layer": "sanitizer",
-        "verdict": san_events[-1].verdict.value if san_events else "passed",
-        "detail": san_events[-1].detail if san_events else "No emitter",
-        "output_preview": cleaned[:200],
-    })
-
-    # Step 2: Trust Boundary
-    collector.clear()
-    boundary = TrustBoundary(emitter=collector)
-    wrapped = boundary.wrap(cleaned, source="test", label="input")
-    tb_events = [e for e in collector.events if e.layer == Layer.TRUST_BOUNDARY]
-    trace.append({
-        "step": 2, "name": "Trust Boundary", "layer": "trust_boundary",
-        "verdict": "passed",
-        "detail": tb_events[-1].detail if tb_events else "Wrapped",
-        "output_preview": wrapped[:200],
-    })
-
-    # Step 3: Analysis Guard
-    collector.clear()
+    # Step 1: Analysis Guard (check RAW input BEFORE sanitization)
+    # This catches patterns that the sanitizer would strip (like </analysis_output>)
     guard = AnalysisGuard(emitter=collector)
     guard_verdict = "passed"
     guard_detail = ""
     try:
-        guard.check(cleaned)
+        guard.check(payload)
         guard_events = [e for e in collector.events if e.layer == Layer.ANALYSIS_GUARD]
         guard_detail = guard_events[-1].detail if guard_events else "All patterns passed"
     except AnalysisSuspiciousError as ex:
         guard_verdict = "blocked"
         guard_detail = str(ex)
     trace.append({
-        "step": 3, "name": "Analysis Guard", "layer": "analysis_guard",
+        "step": 1, "name": "Analysis Guard", "layer": "analysis_guard",
         "verdict": guard_verdict,
         "detail": guard_detail,
     })
 
-    # Step 4: Canary Check
+    # Step 2: Sanitizer
     collector.clear()
-    canary = CanarySystem(emitter=collector)
-    canary.generate("test_data")
-    result = canary.check(cleaned)
+    sanitizer = Sanitizer(emitter=collector)
+    cleaned = sanitizer.clean(payload)
+    san_events = [e for e in collector.events if e.layer == Layer.SANITIZER]
+    san_verdict = san_events[-1].verdict.value if san_events else "passed"
+    if san_verdict == "modified":
+        neutralized = True
+    trace.append({
+        "step": 2, "name": "Sanitizer", "layer": "sanitizer",
+        "verdict": san_verdict,
+        "detail": san_events[-1].detail if san_events else "Clean",
+        "output_preview": cleaned[:200],
+    })
+
+    # Step 3: Trust Boundary
+    collector.clear()
+    boundary = TrustBoundary(emitter=collector)
+    wrapped = boundary.wrap(cleaned, source="test", label="input")
+    tb_events = [e for e in collector.events if e.layer == Layer.TRUST_BOUNDARY]
+    trace.append({
+        "step": 3, "name": "Trust Boundary", "layer": "trust_boundary",
+        "verdict": "passed",
+        "detail": tb_events[-1].detail if tb_events else "Wrapped",
+        "output_preview": wrapped[:200],
+    })
+
+    # Step 4: Canary Check (use real canary tokens if available)
+    collector.clear()
+    canary_file = Path(__file__).parent.parent.parent / "knowledge" / "comms" / "canaries.json"
+    if canary_file.exists():
+        canary = CanarySystem.from_file(str(canary_file))
+    else:
+        canary = CanarySystem()
+        canary.generate("test_data")
+    canary.emitter = collector
+    result = canary.check(payload)  # Check raw input (encoding-resistant catches base64)
+    if not result.leaked:
+        result = canary.check(cleaned)  # Also check cleaned
     trace.append({
         "step": 4, "name": "Canary Check", "layer": "canary",
         "verdict": "blocked" if result.leaked else "passed",
-        "detail": f"{'Leaked from: ' + ', '.join(result.sources) if result.leaked else 'Clean: no tokens found'}",
+        "detail": f"{'Leaked from: ' + ', '.join(result.sources) if result.leaked else 'Clean: 0/' + str(len(canary.tokens)) + ' tokens found'}",
     })
 
     blocked = guard_verdict == "blocked" or result.leaked
@@ -164,7 +176,9 @@ async def test_pipeline(request: Request):
     return {
         "payload_length": len(payload),
         "blocked": blocked,
+        "neutralized": neutralized and not blocked,  # Modified but not blocked
         "blocked_at": next((t["name"] for t in trace if t["verdict"] == "blocked"), None),
+        "neutralized_by": "Sanitizer" if neutralized and not blocked else None,
         "trace": trace,
     }
 
