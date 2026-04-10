@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from typing import Optional
 from enum import Enum
 
+from bulwark.events import EventEmitter, BulwarkEvent, Layer, Verdict, _now
+
 
 class BoundaryFormat(Enum):
     XML = "xml"
@@ -30,6 +32,7 @@ class TrustBoundary:
     format: BoundaryFormat = BoundaryFormat.XML
     include_source_attr: bool = True
     include_treat_as_attr: bool = True
+    emitter: Optional[EventEmitter] = None
 
     def wrap(self, content: str, source: str = "external",
              label: Optional[str] = None) -> str:
@@ -47,11 +50,22 @@ class TrustBoundary:
         tag_name = f"{self.tag_prefix}_{label or source}"
 
         if self.format == BoundaryFormat.XML:
-            return self._wrap_xml(content, tag_name, source)
+            result = self._wrap_xml(content, tag_name, source)
         elif self.format == BoundaryFormat.MARKDOWN_FENCE:
-            return self._wrap_markdown(content, tag_name, source)
+            result = self._wrap_markdown(content, tag_name, source)
         elif self.format == BoundaryFormat.DELIMITER:
-            return self._wrap_delimiter(content, tag_name, source)
+            result = self._wrap_delimiter(content, tag_name, source)
+        else:
+            result = content
+
+        if self.emitter:
+            self.emitter.emit(BulwarkEvent(
+                timestamp=_now(), layer=Layer.TRUST_BOUNDARY,
+                verdict=Verdict.PASSED,
+                detail=f"Wrapped in <{tag_name}> (source={source})",
+            ))
+
+        return result
 
     def wrap_batch(self, items: list, source: str = "external",
                    label: Optional[str] = None) -> list:

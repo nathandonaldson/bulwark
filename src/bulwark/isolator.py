@@ -7,6 +7,7 @@ import concurrent.futures
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from bulwark.events import EventEmitter, BulwarkEvent, Layer, Verdict, _now
 from bulwark.sanitizer import Sanitizer
 from bulwark.trust_boundary import TrustBoundary
 
@@ -71,6 +72,7 @@ class MapReduceIsolator:
     timeout: float = 30.0
     output_parser: Optional[Callable[[str], Any]] = None
     prompt_template: str = "{tagged_item}"
+    emitter: Optional[EventEmitter] = None
 
     def process(self, items: list[str],
                 source: str = "external",
@@ -87,6 +89,8 @@ class MapReduceIsolator:
         """
         if not items:
             return IsolatorResult(items=[])
+
+        _start = _now() if self.emitter else 0
 
         # Pre-process each item (sanitize, wrap, template) before submitting
         # to the executor. This keeps the map_fn call as the only work inside
@@ -146,7 +150,18 @@ class MapReduceIsolator:
         # Sort by original index to maintain order
         results.sort(key=lambda r: r.index)
 
-        return IsolatorResult(items=results)
+        result = IsolatorResult(items=results)
+
+        if self.emitter:
+            self.emitter.emit(BulwarkEvent(
+                timestamp=_now(), layer=Layer.ISOLATOR,
+                verdict=Verdict.PASSED,
+                detail=f"{len(result.successful)} processed, {len(result.failed)} failed, {len(result.suspicious_items)} suspicious",
+                duration_ms=(_now() - _start) * 1000,
+                metadata={"total": len(items), "suspicious": len(result.suspicious_items)},
+            ))
+
+        return result
 
     def process_single(self, item: str, source: str = "external",
                        label: Optional[str] = None) -> ItemResult:

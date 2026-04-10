@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from bulwark.canary import CanarySystem, CanaryCheckResult, CanaryLeakError
+from bulwark.events import EventEmitter, BulwarkEvent, Layer, Verdict, _now
 from bulwark.sanitizer import Sanitizer
 
 
@@ -62,6 +63,7 @@ class AnalysisGuard:
         r'(?i)\btool_calls?\b',
     ])
     custom_checks: list[Callable[[str], None]] = field(default_factory=list)
+    emitter: Optional[EventEmitter] = None
 
     def check(self, analysis: str) -> None:
         """Raise AnalysisSuspiciousError if patterns found. No-op if clean.
@@ -71,16 +73,36 @@ class AnalysisGuard:
         AnalysisSuspiciousError (or any exception) if suspicious.
         """
         if len(analysis) > self.max_length:
+            if self.emitter:
+                self.emitter.emit(BulwarkEvent(
+                    timestamp=_now(), layer=Layer.ANALYSIS_GUARD,
+                    verdict=Verdict.BLOCKED,
+                    detail=f"Exceeds max length: {len(analysis)} > {self.max_length}",
+                ))
             raise AnalysisSuspiciousError(
                 f"Analysis output exceeds maximum length ({len(analysis)} > {self.max_length})"
             )
         for pattern in self.block_patterns:
             if re.search(pattern, analysis):
+                if self.emitter:
+                    self.emitter.emit(BulwarkEvent(
+                        timestamp=_now(), layer=Layer.ANALYSIS_GUARD,
+                        verdict=Verdict.BLOCKED,
+                        detail=f"Pattern match: {pattern}",
+                        metadata={"pattern": pattern},
+                    ))
                 raise AnalysisSuspiciousError(
                     f"Suspicious pattern in analysis output: {pattern}"
                 )
         for check_fn in self.custom_checks:
             check_fn(analysis)
+
+        if self.emitter:
+            self.emitter.emit(BulwarkEvent(
+                timestamp=_now(), layer=Layer.ANALYSIS_GUARD,
+                verdict=Verdict.PASSED,
+                detail=f"All {len(self.block_patterns)} patterns + {len(self.custom_checks)} custom checks passed",
+            ))
 
 
 @dataclass
@@ -144,6 +166,7 @@ class TwoPhaseExecutor:
     guard_bridge: bool = True
     analysis_guard: Optional[AnalysisGuard] = None
     require_json: bool = False
+    emitter: Optional[EventEmitter] = None
 
     def run(self, analyze_prompt: str,
             execute_prompt_template: Optional[str] = None) -> ExecutorResult:
@@ -159,6 +182,7 @@ class TwoPhaseExecutor:
             ExecutorResult with analysis output, execution output, and canary status.
         """
         template = execute_prompt_template or self.execute_prompt_template
+        _start = _now() if self.emitter else 0
 
         # Phase 1: Analyze (read-only, has untrusted content)
         analysis_output = self.analyze_fn(analyze_prompt)
@@ -188,29 +212,55 @@ class TwoPhaseExecutor:
         if self.canary:
             canary_result = self.canary.check(analysis_output)
             if canary_result.leaked:
-                return ExecutorResult(
+                result = ExecutorResult(
                     analysis=analysis_output,
                     execution=None,
                     canary_check=canary_result,
                     blocked=True,
                     block_reason=f"Canary token leaked from: {', '.join(canary_result.sources)}",
                 )
+                if self.emitter:
+                    self.emitter.emit(BulwarkEvent(
+                        timestamp=_now(), layer=Layer.EXECUTOR,
+                        verdict=Verdict.BLOCKED,
+                        detail=f"Blocked: {result.block_reason}",
+                        duration_ms=(_now() - _start) * 1000,
+                    ))
+                return result
 
         # Phase 2: Execute (restricted tools, no raw untrusted content)
         if self.execute_fn is None:
-            return ExecutorResult(
+            result = ExecutorResult(
                 analysis=analysis_output,
                 canary_check=canary_result,
             )
+            if self.emitter:
+                self.emitter.emit(BulwarkEvent(
+                    timestamp=_now(), layer=Layer.EXECUTOR,
+                    verdict=Verdict.PASSED,
+                    detail="Phase 1 complete (analysis only)",
+                    duration_ms=(_now() - _start) * 1000,
+                ))
+            return result
 
         execute_prompt = template.format(analysis=analysis_output)
         execution_output = self.execute_fn(execute_prompt)
 
-        return ExecutorResult(
+        result = ExecutorResult(
             analysis=analysis_output,
             execution=execution_output,
             canary_check=canary_result,
         )
+
+        if self.emitter:
+            self.emitter.emit(BulwarkEvent(
+                timestamp=_now(), layer=Layer.EXECUTOR,
+                verdict=Verdict.BLOCKED if result.blocked else Verdict.PASSED,
+                detail=f"{'Blocked: ' + (result.block_reason or '') if result.blocked else 'Phase 1 -> Phase 2 complete'}",
+                duration_ms=(_now() - _start) * 1000,
+            ))
+
+        return result
 
     def analyze_only(self, prompt: str) -> str:
         """Run Phase 1 only. Useful for classification tasks that don't need execution."""

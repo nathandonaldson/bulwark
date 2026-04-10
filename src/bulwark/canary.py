@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from bulwark.events import EventEmitter, BulwarkEvent, Layer, Verdict, _now
+
 
 @dataclass
 class CanaryCheckResult:
@@ -39,6 +41,7 @@ class CanarySystem:
     tokens: dict[str, str] = field(default_factory=dict)  # source_name -> token
     prefix: str = "BLWK-CANARY"
     encoding_resistant: bool = True
+    emitter: Optional[EventEmitter] = None
 
     def generate(self, source_name: str) -> str:
         """Generate and store a new canary token for a source.
@@ -81,11 +84,28 @@ class CanarySystem:
                 found_tokens.append(token)
                 sources.append(source_name)
 
-        return CanaryCheckResult(
+        result = CanaryCheckResult(
             leaked=bool(found_tokens),
             found_tokens=found_tokens,
             sources=sources,
         )
+
+        if self.emitter:
+            if result.leaked:
+                self.emitter.emit(BulwarkEvent(
+                    timestamp=_now(), layer=Layer.CANARY,
+                    verdict=Verdict.BLOCKED,
+                    detail=f"Canary leaked from: {', '.join(result.sources)}",
+                    metadata={"sources": result.sources, "encoding_resistant": self.encoding_resistant},
+                ))
+            else:
+                self.emitter.emit(BulwarkEvent(
+                    timestamp=_now(), layer=Layer.CANARY,
+                    verdict=Verdict.PASSED,
+                    detail=f"Clean: 0/{len(self.tokens)} tokens found",
+                ))
+
+        return result
 
     def _check_encoded(self, text: str, token: str) -> bool:
         """Check for encoded variants of a canary token.

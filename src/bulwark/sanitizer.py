@@ -6,6 +6,8 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Optional
 
+from bulwark.events import EventEmitter, BulwarkEvent, Layer, Verdict, _now
+
 
 @dataclass
 class Sanitizer:
@@ -26,11 +28,15 @@ class Sanitizer:
     collapse_whitespace: bool = True
     max_length: Optional[int] = 3000
     custom_patterns: list[str] = field(default_factory=list)
+    emitter: Optional[EventEmitter] = None
 
     def clean(self, text: str) -> str:
         """Sanitize a single text input. Returns cleaned text."""
         if not text:
             return text
+
+        _start = _now() if self.emitter else 0
+        _original = text if self.emitter else ""
 
         # Apply each cleaning step in order
         if self.strip_zero_width:
@@ -56,7 +62,18 @@ class Sanitizer:
         if self.max_length:
             text = text[:self.max_length]
 
-        return text.strip()
+        result = text.strip()
+
+        if self.emitter:
+            changed = result != _original
+            self.emitter.emit(BulwarkEvent(
+                timestamp=_now(), layer=Layer.SANITIZER,
+                verdict=Verdict.MODIFIED if changed else Verdict.PASSED,
+                detail=f"{'Modified' if changed else 'Clean'}: {len(_original)} -> {len(result)} chars",
+                duration_ms=(_now() - _start) * 1000,
+            ))
+
+        return result
 
     def clean_batch(self, texts: list[str]) -> list[str]:
         """Sanitize a list of texts."""

@@ -9,6 +9,11 @@ from bulwark.executor import (
     AnalysisGuard, AnalysisSuspiciousError, SECURE_EXECUTE_TEMPLATE,
 )
 from bulwark.isolator import MapReduceIsolator, IsolatorResult, ItemResult
+from bulwark.events import (
+    BulwarkEvent, Layer, Verdict, EventEmitter,
+    NullEmitter, CollectorEmitter, CallbackEmitter,
+    StdoutJsonEmitter, WebhookEmitter, MultiEmitter,
+)
 from bulwark.attacks import AttackSuite
 from bulwark.validator import PipelineValidator, ValidationReport
 
@@ -26,6 +31,16 @@ __all__ = [
     "MapReduceIsolator",
     "IsolatorResult",
     "ItemResult",
+    "BulwarkEvent",
+    "Layer",
+    "Verdict",
+    "EventEmitter",
+    "NullEmitter",
+    "CollectorEmitter",
+    "CallbackEmitter",
+    "StdoutJsonEmitter",
+    "WebhookEmitter",
+    "MultiEmitter",
     "AttackSuite",
     "PipelineValidator",
     "ValidationReport",
