@@ -97,30 +97,45 @@ class StdoutJsonEmitter:
 
 
 class WebhookEmitter:
-    """Posts events to an HTTP endpoint. Non-blocking (fire-and-forget in a thread).
+    """Posts events to an HTTP endpoint.
+
+    Default is synchronous (safe for short-lived scripts like heredocs).
+    Set async_send=True for long-running processes where you don't want
+    to block on each event.
 
     Args:
         url: The endpoint to POST events to.
         timeout: HTTP timeout in seconds.
         batch_size: Buffer events and send in batches. 1 = send immediately.
+        async_send: If True, send in daemon threads (fire-and-forget).
+                    If False (default), send synchronously.
     """
-    def __init__(self, url: str, timeout: float = 5.0, batch_size: int = 1):
+    def __init__(self, url: str, timeout: float = 5.0, batch_size: int = 1,
+                 async_send: bool = False):
         self._url = url
         self._timeout = timeout
         self._batch_size = batch_size
+        self._async = async_send
         self._buffer: list[dict] = []
         self._lock = threading.Lock()
 
     def emit(self, event: BulwarkEvent) -> None:
         if self._batch_size <= 1:
-            self._send_async([event.to_dict()])
+            events = [event.to_dict()]
+            if self._async:
+                self._send_async(events)
+            else:
+                self._post(events)
         else:
             with self._lock:
                 self._buffer.append(event.to_dict())
                 if len(self._buffer) >= self._batch_size:
                     batch = self._buffer[:]
                     self._buffer.clear()
-                    self._send_async(batch)
+                    if self._async:
+                        self._send_async(batch)
+                    else:
+                        self._post(batch)
 
     def flush(self) -> None:
         """Send any buffered events immediately."""
