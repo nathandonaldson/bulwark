@@ -1,1 +1,26 @@
+# macOS
+.DS_Store
+
+# Editor
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Project
 bulwark-dashboard.db
+bulwark-config.yaml
+.gstack/
