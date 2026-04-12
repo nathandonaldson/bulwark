@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 160">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a0e17"/>
+      <stop offset="100%" style="stop-color:#111827"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="160" rx="12" fill="url(#bg)"/>
+
+  <!-- Shield icon -->
+  <g transform="translate(60, 35)">
+    <!-- Outer shield shape -->
+    <path d="M45,8 L80,22 L80,52 C80,72 65,88 45,95 C25,88 10,72 10,52 L10,22 Z"
+          fill="none" stroke="#22c55e" stroke-width="3" opacity="0.9"/>
+    <!-- Middle ring -->
+    <path d="M45,18 L72,29 L72,52 C72,67 60,80 45,86 C30,80 18,67 18,52 L18,29 Z"
+          fill="none" stroke="#06b6d4" stroke-width="2" opacity="0.6"/>
+    <!-- Inner ring -->
+    <path d="M45,28 L64,36 L64,52 C64,63 56,72 45,77 C34,72 26,63 26,52 L26,36 Z"
+          fill="none" stroke="#3b82f6" stroke-width="2" opacity="0.5"/>
+    <!-- Center dot -->
+    <circle cx="45" cy="52" r="6" fill="#22c55e" opacity="0.8"/>
+  </g>
+
+  <!-- Text -->
+  <text x="160" y="75" font-family="-apple-system, 'Inter', system-ui, sans-serif"
+        font-size="42" font-weight="700" fill="#e2e8f0" letter-spacing="-1">Bulwark</text>
+
+  <!-- Tagline -->
+  <text x="160" y="108" font-family="-apple-system, 'Inter', system-ui, sans-serif"
+        font-size="16" fill="#64748b">Architectural defense against prompt injection</text>
+
+  <!-- Badges -->
+  <g transform="translate(160, 120)">
+    <rect width="78" height="22" rx="4" fill="rgba(34,197,94,0.15)"/>
+    <text x="39" y="15" font-family="monospace" font-size="11" fill="#22c55e"
+          text-anchor="middle" font-weight="600">zero deps</text>
+
+    <rect x="86" width="62" height="22" rx="4" fill="rgba(59,130,246,0.15)"/>
+    <text x="117" y="15" font-family="monospace" font-size="11" fill="#3b82f6"
+          text-anchor="middle" font-weight="600">&lt;1ms</text>
+
+    <rect x="156" width="90" height="22" rx="4" fill="rgba(139,92,246,0.15)"/>
+    <text x="201" y="15" font-family="monospace" font-size="11" fill="#8b5cf6"
+          text-anchor="middle" font-weight="600">77 attacks</text>
+
+    <rect x="254" width="98" height="22" rx="4" fill="rgba(245,158,11,0.15)"/>
+    <text x="303" y="15" font-family="monospace" font-size="11" fill="#f59e0b"
+          text-anchor="middle" font-weight="600">597 tests</text>
+  </g>
+</svg>
