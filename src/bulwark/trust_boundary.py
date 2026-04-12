@@ -34,6 +34,16 @@ class TrustBoundary:
     include_treat_as_attr: bool = True
     emitter: Optional[EventEmitter] = None
 
+    @staticmethod
+    def _sanitize_identifier(value: str) -> str:
+        """Sanitize a string for use as an XML tag name or attribute value.
+
+        Strips anything that is not alphanumeric, underscore, or hyphen to
+        prevent XML attribute injection and tag name manipulation.
+        """
+        import re
+        return re.sub(r'[^a-zA-Z0-9_\-]', '', value)
+
     def wrap(self, content: str, source: str = "external",
              label: Optional[str] = None) -> str:
         """Wrap content in trust boundary tags with security instructions.
@@ -47,14 +57,16 @@ class TrustBoundary:
         Returns:
             Tagged content with security instructions
         """
-        tag_name = f"{self.tag_prefix}_{label or source}"
+        safe_source = self._sanitize_identifier(source)
+        safe_label = self._sanitize_identifier(label) if label else None
+        tag_name = f"{self.tag_prefix}_{safe_label or safe_source}"
 
         if self.format == BoundaryFormat.XML:
-            result = self._wrap_xml(content, tag_name, source)
+            result = self._wrap_xml(content, tag_name, safe_source)
         elif self.format == BoundaryFormat.MARKDOWN_FENCE:
-            result = self._wrap_markdown(content, tag_name, source)
+            result = self._wrap_markdown(content, tag_name, safe_source)
         elif self.format == BoundaryFormat.DELIMITER:
-            result = self._wrap_delimiter(content, tag_name, source)
+            result = self._wrap_delimiter(content, tag_name, safe_source)
         else:
             result = content
 
@@ -62,7 +74,7 @@ class TrustBoundary:
             self.emitter.emit(BulwarkEvent(
                 timestamp=_now(), layer=Layer.TRUST_BOUNDARY,
                 verdict=Verdict.PASSED,
-                detail=f"Wrapped in <{tag_name}> (source={source})",
+                detail=f"Wrapped in <{tag_name}> (source={safe_source})",
             ))
 
         return result

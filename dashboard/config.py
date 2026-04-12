@@ -11,7 +11,7 @@ CONFIG_PATH = Path("bulwark-config.yaml")
 # Default AnalysisGuard patterns (must match executor.py defaults)
 DEFAULT_PATTERNS = [
     r'(?i)\bignore\s+(all\s+)?previous\s+instructions?\b',
-    r'(?i)\bdisregard\b.*\binstructions?\b',
+    r'(?i)\bdisregard\b.{0,100}\binstructions?\b',
     r'(?i)\bnew\s+(system\s+)?instructions?\b',
     r'(?i)\byou\s+are\s+now\b',
     r'(?i)\badmin\s+mode\b',
@@ -23,9 +23,9 @@ DEFAULT_PATTERNS = [
     r'(?i)\btool_use\b',
     r'(?i)\bfunction_call\b',
     r'(?i)\btool_calls?\b',
-    r'忽略.*指令', r'تجاهل.*تعليمات',
-    r'(?i)\bforward\s+all\b.*\b(email|data|contact)',
-    r'(?i)\bsend\s+all\b.*\b(data|email|contact)',
+    r'忽略.{0,100}指令', r'تجاهل.{0,100}تعليمات',
+    r'(?i)\bforward\s+all\b.{0,100}\b(email|data|contact)',
+    r'(?i)\bsend\s+all\b.{0,100}\b(data|email|contact)',
 ]
 
 AVAILABLE_INTEGRATIONS = {

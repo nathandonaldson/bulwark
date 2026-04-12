@@ -181,8 +181,31 @@ def _format_attack_line(label: str, payload: str, verdict_text: str, verdict_col
 @main.command()
 @click.option('--full', is_flag=True, help='Run all 77 attacks (default: 8 presets)')
 @click.option('--category', '-c', multiple=True, help='Filter by attack category (implies --full)')
-def test(full, category):
+@click.option('--garak', 'run_garak', is_flag=True, help='Run Garak red-team probes (requires garak installed)')
+@click.option('--garak-import', 'garak_import_path', type=click.Path(), default=None,
+              help='Import results from an externally-run Garak report (.jsonl)')
+def test(full, category, run_garak, garak_import_path):
     """Run attack suite against your pipeline and show scorecard."""
+
+    # Validate mutual exclusivity of --garak and --garak-import
+    if run_garak and garak_import_path:
+        click.echo(click.style(
+            "Cannot use --garak and --garak-import together (mutually exclusive).",
+            fg="red",
+        ))
+        sys.exit(2)
+
+    # ── Garak import mode ──────────────────────────────────────
+    if garak_import_path:
+        _run_garak_import(garak_import_path)
+        return
+
+    # ── Garak live scan mode ───────────────────────────────────
+    if run_garak:
+        _run_garak_live()
+        return
+
+    # ── Built-in attack suite (default) ────────────────────────
     from bulwark.validator import PipelineValidator, DefenseVerdict
     from bulwark.attacks import AttackSuite, AttackCategory
 
@@ -268,3 +291,74 @@ def test(full, category):
         click.echo(click.style(summary, fg="yellow", bold=True))
 
     sys.exit(0 if caught == total else 1)
+
+
+def _run_garak_import(path: str):
+    """Handle `bulwark test --garak-import <path>`."""
+    from pathlib import Path
+    if not Path(path).exists():
+        click.echo(click.style(f"File not found: {path}", fg="red"))
+        sys.exit(2)
+
+    from bulwark.integrations.garak import import_garak_results, GarakScanSummary
+
+    click.echo(click.style("Garak Results Import", bold=True))
+    click.echo(click.style("=" * 40, dim=True))
+    click.echo()
+
+    summary = import_garak_results(path)
+    _display_garak_summary(summary)
+    sys.exit(0 if summary.failed == 0 else 1)
+
+
+def _run_garak_live():
+    """Handle `bulwark test --garak`."""
+    from bulwark.integrations.garak import GarakAdapter
+
+    click.echo(click.style("Garak Red-Team Scan", bold=True))
+    click.echo(click.style("=" * 40, dim=True))
+    click.echo()
+    click.echo("Running Garak probes... (this may take a few minutes)")
+    click.echo()
+
+    try:
+        adapter = GarakAdapter()
+        summary = adapter.run()
+    except RuntimeError as e:
+        click.echo(click.style(f"Garak scan failed: {e}", fg="red"))
+        sys.exit(2)
+
+    _display_garak_summary(summary)
+    sys.exit(0 if summary.failed == 0 else 1)
+
+
+def _display_garak_summary(summary):
+    """Display a GarakScanSummary in a formatted table."""
+    # Per-probe results
+    if summary.results:
+        for result in summary.results:
+            probe_name = result.probe
+            if result.passed:
+                verdict = click.style("PASS", fg="green", bold=True)
+            else:
+                verdict = click.style("FAIL", fg="red", bold=True)
+            prompt_preview = _truncate_payload(result.prompt)
+            click.echo(
+                f"  {probe_name:<40s} {prompt_preview:<40s} {verdict}"
+            )
+        click.echo()
+
+    # Summary line
+    if summary.total == 0:
+        click.echo(click.style("No Garak probe results found.", fg="yellow"))
+        return
+
+    click.echo(f"Probes tested: {', '.join(summary.probes_tested)}")
+    click.echo()
+
+    if summary.failed == 0:
+        msg = f"{summary.passed}/{summary.total} probes passed. No vulnerabilities found."
+        click.echo(click.style(msg, fg="green", bold=True))
+    else:
+        msg = f"{summary.passed}/{summary.total} passed, {summary.failed} failed (vulnerabilities found)."
+        click.echo(click.style(msg, fg="red", bold=True))

@@ -49,7 +49,7 @@ class AnalysisGuard:
     block_patterns: list[str] = field(default_factory=lambda: [
         # Instruction override attempts
         r'(?i)\bignore\s+(all\s+)?previous\s+instructions?\b',
-        r'(?i)\bdisregard\b.*\binstructions?\b',
+        r'(?i)\bdisregard\b.{0,100}\binstructions?\b',
         r'(?i)\bnew\s+(system\s+)?instructions?\b',
         r'(?i)\byou\s+are\s+now\b',
         r'(?i)\badmin\s+mode\b',
@@ -64,9 +64,9 @@ class AnalysisGuard:
         r'(?i)\bfunction_call\b',
         r'(?i)\btool_calls?\b',
         # Multilingual instruction overrides
-        r'忽略.*指令', r'تجاهل.*تعليمات',
-        r'(?i)\bforward\s+all\b.*\b(email|data|contact)',
-        r'(?i)\bsend\s+all\b.*\b(data|email|contact)',
+        r'忽略.{0,100}指令', r'تجاهل.{0,100}تعليمات',
+        r'(?i)\bforward\s+all\b.{0,100}\b(email|data|contact)',
+        r'(?i)\bsend\s+all\b.{0,100}\b(data|email|contact)',
     ])
     custom_checks: list[Callable[[str], None]] = field(default_factory=list)
     emitter: Optional[EventEmitter] = None

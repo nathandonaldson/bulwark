@@ -22,7 +22,8 @@ classifiers = [
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.39.0"]
 cli = ["click>=8.0"]
-all = ["anthropic>=0.39.0", "click>=8.0"]
+testing = ["garak>=0.9,<1.0"]
+all = ["anthropic>=0.39.0", "click>=8.0", "garak>=0.9,<1.0"]
 
 [project.scripts]
 bulwark = "bulwark.cli:main"

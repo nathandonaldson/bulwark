@@ -52,7 +52,7 @@ class CanarySystem:
         Returns:
             The generated token string
         """
-        suffix = secrets.token_hex(3)  # 6 hex chars
+        suffix = secrets.token_hex(8)  # 16 hex chars for sufficient entropy
         tag = source_name.upper().replace(" ", "-").replace("_", "-")[:10]
         token = f"{self.prefix}-{tag}-{suffix}"
         self.tokens[source_name] = token
@@ -130,8 +130,9 @@ class CanarySystem:
         if token[::-1] in text:
             return True
         # Spaced out (with common separators)
+        # Use {0,3} quantifier instead of unbounded to prevent ReDoS
         spaced_pattern = re.compile(
-            r'[\s.\-_]'.join(re.escape(c) for c in token)
+            r'[\s.\-_]{0,3}'.join(re.escape(c) for c in token)
         )
         if spaced_pattern.search(text):
             return True

@@ -108,8 +108,6 @@ async def test_pipeline(request: Request):
     body = await request.json()
     payload = body.get("payload", "")
 
-    import sys
-    sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
     from bulwark.pipeline import Pipeline
     from bulwark import CanarySystem
     from bulwark.events import CollectorEmitter
@@ -142,8 +140,6 @@ async def test_pipeline(request: Request):
 @app.get("/api/pipeline-status")
 async def pipeline_status():
     """Show what layers the pipeline would use based on current config."""
-    import sys
-    sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
     from bulwark.pipeline import Pipeline
 
     try:
@@ -157,8 +153,8 @@ async def pipeline_status():
             "sanitize_bridge": pipeline.sanitize_bridge,
             "require_json": pipeline.require_json,
         }
-    except Exception as e:
-        return {"error": str(e), "using_defaults": True}
+    except Exception:
+        return {"error": "Failed to load pipeline configuration", "using_defaults": True}
 
 
 @app.get("/api/config")

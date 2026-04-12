@@ -104,7 +104,7 @@ class WebhookEmitter:
     to block on each event.
 
     Args:
-        url: The endpoint to POST events to.
+        url: The endpoint to POST events to. Must use http:// or https://.
         timeout: HTTP timeout in seconds.
         batch_size: Buffer events and send in batches. 1 = send immediately.
         async_send: If True, send in daemon threads (fire-and-forget).
@@ -112,6 +112,10 @@ class WebhookEmitter:
     """
     def __init__(self, url: str, timeout: float = 5.0, batch_size: int = 1,
                  async_send: bool = False):
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(f"WebhookEmitter url must use http or https scheme, got {parsed.scheme!r}")
         self._url = url
         self._timeout = timeout
         self._batch_size = batch_size

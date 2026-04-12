@@ -30,6 +30,15 @@ class Sanitizer:
     custom_patterns: list[str] = field(default_factory=list)
     emitter: Optional[EventEmitter] = None
 
+    def __post_init__(self):
+        """Pre-compile custom patterns at init time to catch invalid regexes early."""
+        self._compiled_custom_patterns: list[re.Pattern] = []
+        for pattern in self.custom_patterns:
+            try:
+                self._compiled_custom_patterns.append(re.compile(pattern))
+            except re.error as e:
+                raise ValueError(f"Invalid custom pattern {pattern!r}: {e}") from e
+
     def clean(self, text: str) -> str:
         """Sanitize a single text input. Returns cleaned text."""
         if not text:
@@ -55,8 +64,8 @@ class Sanitizer:
             text = self._strip_emoji_smuggling(text)
         if self.normalize_unicode:
             text = self._normalize_unicode(text)
-        for pattern in self.custom_patterns:
-            text = re.sub(pattern, '', text)
+        for pattern in self._compiled_custom_patterns:
+            text = pattern.sub('', text)
         if self.collapse_whitespace:
             text = self._collapse_whitespace(text)
         if self.max_length:
