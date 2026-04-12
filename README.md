@@ -87,6 +87,41 @@ if result.leaked:
     print(f"ALERT: Data leaked from {result.sources}")
 ```
 
+## Pipeline (recommended)
+
+The Pipeline chains all defense layers into one call with correct ordering:
+
+```python
+from bulwark import Pipeline, CanarySystem
+
+pipeline = Pipeline.default(
+    analyze_fn=my_readonly_llm_call,
+    execute_fn=my_restricted_llm_call,
+    canary=CanarySystem.from_file("canaries.json"),
+)
+
+result = pipeline.run("untrusted email body", source="email")
+
+if result.blocked:
+    print(f"Blocked: {result.block_reason}")
+elif result.neutralized:
+    print("Attack neutralized by sanitizer")
+else:
+    print(f"Analysis: {result.analysis}")
+    print(f"Execution: {result.execution}")
+
+# Full trace of what each layer did
+for step in result.trace:
+    print(f"  {step['layer']}: {step['verdict']} — {step['detail']}")
+```
+
+Load from config (connects to dashboard toggles):
+```python
+pipeline = Pipeline.from_config("bulwark-config.yaml", analyze_fn=my_fn)
+```
+
+For most use cases, use the Pipeline class above. The individual components below are available for custom setups.
+
 ## Pair With Detection Tools
 
 Bulwark's architectural layers are deterministic and zero-latency. For additional

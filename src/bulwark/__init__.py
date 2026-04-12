@@ -16,6 +16,7 @@ from bulwark.events import (
 )
 from bulwark.attacks import AttackSuite
 from bulwark.validator import PipelineValidator, ValidationReport
+from bulwark.pipeline import Pipeline, PipelineResult
 
 __version__ = "0.1.0"
 __all__ = [
@@ -44,4 +45,6 @@ __all__ = [
     "AttackSuite",
     "PipelineValidator",
     "ValidationReport",
+    "Pipeline",
+    "PipelineResult",
 ]

@@ -1,8 +1,8 @@
 # Bulwark Roadmap
 
-## Current State (v0.4)
+## Current State (v0.5)
 
-8 modules, 356 tests, defense-in-depth hardened. All in `bulwark-ai/`.
+9 modules, 410+ tests, defense-in-depth hardened. All in `bulwark-ai/`.
 
 ### Modules shipped:
 | Module | File | Tests | Status |
@@ -15,6 +15,7 @@
 | AttackSuite | `attacks.py` | 35 | ✅ 41 attacks, 10 categories |
 | PipelineValidator | `validator.py` | 29 | ✅ Complete |
 | CLI | `cli.py` | 11 | ✅ sanitize, canary-check, canary-generate, wrap, test |
+| Pipeline | `pipeline.py` | 54+ | ✅ Complete — chains all layers, YAML config, PipelineResult with trace |
 
 ### Also shipped:
 - `README.md` — full docs with quick start
@@ -27,9 +28,9 @@
 ### Ready to ship:
 1. **PyPI publish** — `pip install bulwark-ai`. pyproject.toml is ready. Need to create PyPI account and publish.
 
-2. **Pipeline class** — A convenience wrapper that chains Sanitizer → TrustBoundary → MapReduceIsolator → TwoPhaseExecutor → CanarySystem into one `Pipeline.run()` call. Design exists in the research doc but not yet coded.
+2. ~~**Pipeline class**~~ — ✅ Shipped in v0.5. `Pipeline.default()` chains Sanitizer → TrustBoundary → Phase 1 → Guard Bridge → Sanitize Bridge → Canary Check → Phase 2 into one `Pipeline.run()` call. Returns `PipelineResult` with analysis, execution, blocked, neutralized, and per-layer trace.
 
-3. **YAML config** — `bulwark.yaml` declarative config for all modules. `Pipeline.from_config("bulwark.yaml")`. Design exists but not coded.
+3. ~~**YAML config**~~ — ✅ Shipped in v0.5. `Pipeline.from_config("bulwark-config.yaml")` loads declarative config.
 
 4. **Anthropic SDK integration** — Helper that creates `analyze_fn` and `execute_fn` from an Anthropic client with proper tool restrictions. `from bulwark.integrations.anthropic import make_analyze_fn, make_execute_fn`.
 

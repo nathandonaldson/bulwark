@@ -100,87 +100,55 @@ async def test_pipeline(request: Request):
 
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-    from bulwark import Sanitizer, TrustBoundary, CanarySystem
-    from bulwark.executor import AnalysisGuard, AnalysisSuspiciousError
-    from bulwark.events import CollectorEmitter, Layer
+    from bulwark.pipeline import Pipeline
+    from bulwark import CanarySystem
+    from bulwark.events import CollectorEmitter
 
     collector = CollectorEmitter()
-    trace = []
-    neutralized = False  # True if any layer stripped/modified malicious content
 
-    # Step 1: Analysis Guard (check RAW input BEFORE sanitization)
-    # This catches patterns that the sanitizer would strip (like </analysis_output>)
-    guard = AnalysisGuard(emitter=collector)
-    guard_verdict = "passed"
-    guard_detail = ""
-    try:
-        guard.check(payload)
-        guard_events = [e for e in collector.events if e.layer == Layer.ANALYSIS_GUARD]
-        guard_detail = guard_events[-1].detail if guard_events else "All patterns passed"
-    except AnalysisSuspiciousError as ex:
-        guard_verdict = "blocked"
-        guard_detail = str(ex)
-    trace.append({
-        "step": 1, "name": "Analysis Guard", "layer": "analysis_guard",
-        "verdict": guard_verdict,
-        "detail": guard_detail,
-    })
-
-    # Step 2: Sanitizer
-    collector.clear()
-    sanitizer = Sanitizer(emitter=collector)
-    cleaned = sanitizer.clean(payload)
-    san_events = [e for e in collector.events if e.layer == Layer.SANITIZER]
-    san_verdict = san_events[-1].verdict.value if san_events else "passed"
-    if san_verdict == "modified":
-        neutralized = True
-    trace.append({
-        "step": 2, "name": "Sanitizer", "layer": "sanitizer",
-        "verdict": san_verdict,
-        "detail": san_events[-1].detail if san_events else "Clean",
-        "output_preview": cleaned[:200],
-    })
-
-    # Step 3: Trust Boundary
-    collector.clear()
-    boundary = TrustBoundary(emitter=collector)
-    wrapped = boundary.wrap(cleaned, source="test", label="input")
-    tb_events = [e for e in collector.events if e.layer == Layer.TRUST_BOUNDARY]
-    trace.append({
-        "step": 3, "name": "Trust Boundary", "layer": "trust_boundary",
-        "verdict": "passed",
-        "detail": tb_events[-1].detail if tb_events else "Wrapped",
-        "output_preview": wrapped[:200],
-    })
-
-    # Step 4: Canary Check (use real canary tokens if available)
-    collector.clear()
+    # Load real canary tokens if available
     canary_file = Path(__file__).parent.parent.parent / "knowledge" / "comms" / "canaries.json"
-    if canary_file.exists():
-        canary = CanarySystem.from_file(str(canary_file))
-    else:
-        canary = CanarySystem()
-        canary.generate("test_data")
-    canary.emitter = collector
-    result = canary.check(payload)  # Check raw input (encoding-resistant catches base64)
-    if not result.leaked:
-        result = canary.check(cleaned)  # Also check cleaned
-    trace.append({
-        "step": 4, "name": "Canary Check", "layer": "canary",
-        "verdict": "blocked" if result.leaked else "passed",
-        "detail": f"{'Leaked from: ' + ', '.join(result.sources) if result.leaked else 'Clean: 0/' + str(len(canary.tokens)) + ' tokens found'}",
-    })
+    canary = CanarySystem.from_file(str(canary_file)) if canary_file.exists() else None
 
-    blocked = guard_verdict == "blocked" or result.leaked
+    # Use a mock analyze_fn that returns the input as-is (we're testing defenses, not LLM output)
+    pipeline = Pipeline.default(
+        analyze_fn=lambda prompt: payload,  # Echo payload as "analysis" to test guard
+        canary=canary,
+        emitter=collector,
+    )
+
+    result = pipeline.run(payload, source="test")
 
     return {
         "payload_length": len(payload),
-        "blocked": blocked,
-        "neutralized": neutralized and not blocked,  # Modified but not blocked
-        "blocked_at": next((t["name"] for t in trace if t["verdict"] == "blocked"), None),
-        "neutralized_by": "Sanitizer" if neutralized and not blocked else None,
-        "trace": trace,
+        "blocked": result.blocked,
+        "neutralized": result.neutralized,
+        "blocked_at": result.block_reason.split(":")[0].strip() if result.block_reason else None,
+        "neutralized_by": "Sanitizer" if result.neutralized else None,
+        "trace": result.trace,
     }
+
+
+@app.get("/api/pipeline-status")
+async def pipeline_status():
+    """Show what layers the pipeline would use based on current config."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+    from bulwark.pipeline import Pipeline
+
+    try:
+        pipeline = Pipeline.from_config(str(Path(__file__).parent.parent / "bulwark-config.yaml"))
+        return {
+            "sanitizer": pipeline.sanitizer is not None,
+            "trust_boundary": pipeline.trust_boundary is not None,
+            "analysis_guard": pipeline.analysis_guard is not None,
+            "canary": pipeline.canary is not None,
+            "guard_bridge": pipeline.guard_bridge,
+            "sanitize_bridge": pipeline.sanitize_bridge,
+            "require_json": pipeline.require_json,
+        }
+    except Exception as e:
+        return {"error": str(e), "using_defaults": True}
 
 
 @app.get("/api/config")
