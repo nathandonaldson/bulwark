@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.bulwark.dashboard</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/musicmac/Library/Application Support/bulwark-dashboard/.venv/bin/python3</string>
+        <string>-m</string>
+        <string>dashboard</string>
+        <string>--port</string>
+        <string>3000</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/musicmac/Library/Application Support/bulwark-dashboard</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>/Users/musicmac/Library/Application Support/bulwark-dashboard</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/musicmac/Library/Application Support/bulwark-dashboard/bulwark-dashboard.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/musicmac/Library/Application Support/bulwark-dashboard/bulwark-dashboard.log</string>
+</dict>
+</plist>
