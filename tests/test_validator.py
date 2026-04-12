@@ -343,29 +343,28 @@ class TestCLI:
     def test_bulwark_test_runs_and_produces_output(self, cli_runner):
         from bulwark.cli import main
         result = cli_runner.invoke(main, ['test'])
-        assert "Bulwark Validation Report" in result.output
-        assert "Score:" in result.output
+        assert "Bulwark Defense Test" in result.output
+        assert "attacks caught" in result.output
 
     def test_exit_code_0_when_no_exposed(self, cli_runner):
         """With all defenses, the pipeline should handle most attacks."""
         from bulwark.cli import main
         result = cli_runner.invoke(main, ['test'])
-        # With full pipeline most should be blocked/reduced;
-        # exit 0 only if zero exposed. May be 1 depending on attack mix.
-        # We just check it ran successfully (output present).
-        assert "Score:" in result.output
+        # Default 8-preset mode should catch all 8
+        assert "8/8" in result.output
 
-    def test_verbose_shows_details(self, cli_runner):
+    def test_full_mode_shows_all_attacks(self, cli_runner):
         from bulwark.cli import main
-        result = cli_runner.invoke(main, ['test', '--verbose'])
-        assert "Detailed results:" in result.output
+        result = cli_runner.invoke(main, ['test', '--full'])
+        assert "77 attacks" in result.output
+        assert "BLOCKED" in result.output
 
     def test_category_filter(self, cli_runner):
         from bulwark.cli import main
         result = cli_runner.invoke(main, ['test', '-c', 'steganography'])
-        assert "Score:" in result.output
-        # Steganography attacks should be blocked by sanitizer
         assert "steganography" in result.output
+        # Steganography attacks should be blocked by sanitizer
+        assert "BLOCKED" in result.output
 
 
 # ---------------------------------------------------------------------------

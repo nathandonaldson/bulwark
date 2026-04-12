@@ -95,13 +95,96 @@ def wrap(source, label, fmt):
     click.echo(tb.wrap(text, source=source, label=label))
 
 
+# ── Preset attacks for `bulwark test` (matches dashboard) ──────
+
+PRESET_ATTACKS = [
+    {
+        "label": "Zero-width steganography",
+        "attack_name": "zero_width_instructions",
+    },
+    {
+        "label": "XML boundary escape",
+        "attack_name": "xml_close_reopen",
+    },
+    {
+        "label": "Instruction override",
+        "attack_name": "direct_override",
+    },
+    {
+        "label": "Base64 canary exfil",
+        "attack_name": "base64_canary_bypass",
+    },
+    {
+        "label": "Emoji smuggling",
+        "attack_name": "emoji_smuggling",
+    },
+    {
+        "label": "MCP tool injection",
+        "attack_name": "mcp_tool_injection",
+    },
+    {
+        "label": "Multilingual override",
+        "attack_name": "multilingual_override_chinese",
+    },
+    {
+        "label": "Bridge instruction inject",
+        "attack_name": "bridge_trust_escape",
+    },
+]
+
+PAYLOAD_PREVIEW_MAX = 50
+
+
+def _catching_layer(result) -> str:
+    """Determine which defense layer caught an attack."""
+    from bulwark.validator import DefenseVerdict
+    if result.sanitizer_verdict in (DefenseVerdict.BLOCKED, DefenseVerdict.REDUCED):
+        return "sanitizer"
+    if result.boundary_verdict in (DefenseVerdict.BLOCKED, DefenseVerdict.REDUCED):
+        return "boundary"
+    if result.canary_verdict in (DefenseVerdict.BLOCKED, DefenseVerdict.REDUCED):
+        return "canary"
+    return "pipeline"
+
+
+def _truncate_payload(payload: str, max_len: int = PAYLOAD_PREVIEW_MAX) -> str:
+    """Truncate payload for display, collapsing whitespace."""
+    # Collapse newlines and multiple spaces into single space
+    preview = " ".join(payload.split())
+    if len(preview) > max_len:
+        return preview[:max_len] + "..."
+    return preview
+
+
+def _verdict_label(result) -> tuple[str, str]:
+    """Return (label, color) for a verdict."""
+    from bulwark.validator import DefenseVerdict
+    v = result.overall_verdict
+    if v == DefenseVerdict.BLOCKED:
+        return "BLOCKED", "green"
+    elif v == DefenseVerdict.REDUCED:
+        return "NEUTRALIZED", "yellow"
+    else:
+        return "PASSED", "red"
+
+
+def _format_attack_line(label: str, payload: str, verdict_text: str, verdict_color: str, layer: str) -> str:
+    """Format a single attack result line with color."""
+    name_styled = click.style(f"  {label:<30s}", bold=True)
+    preview = _truncate_payload(payload)
+    preview_styled = click.style(f"{preview:<54s}", dim=True)
+    verdict_styled = click.style(f"{verdict_text:<12s}", fg=verdict_color, bold=True)
+    layer_styled = click.style(f"[{layer}]", dim=True)
+    return f"{name_styled} {preview_styled} {verdict_styled} {layer_styled}"
+
+
 @main.command()
-@click.option('--category', '-c', multiple=True, help='Filter by attack category')
-@click.option('--verbose', '-v', is_flag=True, help='Show details for each attack')
-def test(category, verbose):
+@click.option('--full', is_flag=True, help='Run all 77 attacks (default: 8 presets)')
+@click.option('--category', '-c', multiple=True, help='Filter by attack category (implies --full)')
+def test(full, category):
     """Run attack suite against your pipeline and show scorecard."""
-    from bulwark.validator import PipelineValidator, ValidationReport
-    from bulwark.attacks import AttackCategory
+    from bulwark.validator import PipelineValidator, DefenseVerdict
+    from bulwark.attacks import AttackSuite, AttackCategory
 
     # Build pipeline with all defaults
     validator = PipelineValidator(
@@ -110,19 +193,78 @@ def test(category, verbose):
         canary=CanarySystem(),
     )
 
-    categories = None
+    suite = AttackSuite()
+
+    # Determine which attacks to run
     if category:
+        # --category implies full mode, filtered
+        full = True
         categories = [AttackCategory(c) for c in category]
+        attacks = [a for a in suite.attacks if a.category in categories]
+    elif full:
+        attacks = suite.attacks
+    else:
+        # Default: 8 preset attacks
+        attack_by_name = {a.name: a for a in suite.attacks}
+        attacks = []
+        for preset in PRESET_ATTACKS:
+            attack = attack_by_name.get(preset["attack_name"])
+            if attack:
+                attacks.append(attack)
 
-    report = validator.validate(categories=categories)
-    click.echo(report.summary())
+    # Build preset label lookup
+    preset_label_map = {p["attack_name"]: p["label"] for p in PRESET_ATTACKS}
 
-    if verbose:
-        click.echo("\nDetailed results:")
-        for r in report.results:
-            icon = "\u2705" if r.overall_verdict.value == "blocked" else "\u26a0\ufe0f" if r.overall_verdict.value == "reduced" else "\u274c"
-            click.echo(f"  {icon} {r.attack.name} [{r.attack.severity}]: {r.overall_verdict.value}")
-            if r.details:
-                click.echo(f"     {r.details}")
+    # Header
+    total = len(attacks)
+    if not full and not category:
+        header = f"Bulwark Defense Test — 8 preset attacks"
+    elif category:
+        cats = ", ".join(category)
+        header = f"Bulwark Defense Test — {total} attacks [{cats}]"
+    else:
+        header = f"Bulwark Defense Test — Full suite, {total} attacks"
+    click.echo(click.style(header, bold=True))
+    click.echo(click.style("=" * len(header), dim=True))
+    click.echo()
 
-    sys.exit(0 if report.exposed == 0 else 1)
+    # Run each attack and display
+    caught = 0
+    warnings = []
+    for attack in attacks:
+        result = validator._test_attack(attack)
+        verdict_text, verdict_color = _verdict_label(result)
+        layer = _catching_layer(result)
+
+        # Use preset label if available, otherwise attack name
+        label = preset_label_map.get(attack.name, attack.name)
+
+        is_caught = result.overall_verdict in (DefenseVerdict.BLOCKED, DefenseVerdict.REDUCED)
+        if is_caught:
+            caught += 1
+        else:
+            warnings.append((label, attack.target))
+
+        line = _format_attack_line(label, attack.payload, verdict_text, verdict_color, layer)
+        click.echo(line)
+
+    # Warnings for attacks that passed through
+    if warnings:
+        click.echo()
+        for label, expected_layer in warnings:
+            click.echo(click.style(
+                f"  WARNING: {label} — expected to be caught by {expected_layer}",
+                fg="red",
+            ))
+
+    # Summary
+    click.echo()
+    if caught == total:
+        summary = f"{caught}/{total} attacks caught. Your defenses are working."
+        click.echo(click.style(summary, fg="green", bold=True))
+    else:
+        missed = total - caught
+        summary = f"{caught}/{total} caught, {missed} warning{'s' if missed != 1 else ''}."
+        click.echo(click.style(summary, fg="yellow", bold=True))
+
+    sys.exit(0 if caught == total else 1)
