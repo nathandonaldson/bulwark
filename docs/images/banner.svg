@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 28">
   <rect x="0" y="2" width="24" height="24" rx="4" fill="#22c55e"/>
   <text x="32" y="21" font-family="-apple-system, 'Inter', system-ui, sans-serif"
-        font-size="22" font-weight="700" fill="#111827" letter-spacing="-0.5">Bulwark</text>
+        font-size="22" font-weight="700" fill="#e2e8f0" letter-spacing="-0.5">Bulwark</text>
 </svg>
