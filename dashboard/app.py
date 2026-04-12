@@ -73,6 +73,16 @@ async def get_metrics(hours: int = Query(default=24, le=720)):
     return db.metrics(hours=hours)
 
 
+@app.get("/api/timeseries")
+async def get_timeseries(
+    hours: int = Query(default=24, le=720),
+    buckets: int = Query(default=24, le=100),
+    layer: Optional[str] = None,
+):
+    """Time-series event counts for sparkline charts."""
+    return db.timeseries(hours=hours, buckets=buckets, layer=layer)
+
+
 @app.get("/api/stream")
 async def event_stream():
     """SSE endpoint for real-time event streaming."""

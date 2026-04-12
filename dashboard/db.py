@@ -116,6 +116,44 @@ class EventDB:
             "by_verdict": by_verdict,
         }
 
+    def timeseries(self, hours: int = 24, buckets: int = 24, layer: str = None) -> dict:
+        """Event counts bucketed over time for sparkline charts."""
+        conn = self._get_conn()
+        now = time.time()
+        since = now - (hours * 3600)
+        bucket_size = (hours * 3600) / buckets
+
+        result_buckets = []
+        for i in range(buckets):
+            bucket_start = since + (i * bucket_size)
+            bucket_end = bucket_start + bucket_size
+
+            sql = (
+                "SELECT COUNT(*) as total, "
+                "SUM(CASE WHEN verdict='blocked' THEN 1 ELSE 0 END) as blocked, "
+                "SUM(CASE WHEN verdict='modified' THEN 1 ELSE 0 END) as modified "
+                "FROM events WHERE timestamp >= ? AND timestamp < ?"
+            )
+            params: list = [bucket_start, bucket_end]
+            if layer:
+                sql += " AND layer = ?"
+                params.append(layer)
+
+            row = conn.execute(sql, params).fetchone()
+            result_buckets.append({
+                "t": round(bucket_start),
+                "total": row[0] or 0,
+                "blocked": row[1] or 0,
+                "modified": row[2] or 0,
+            })
+
+        return {
+            "hours": hours,
+            "buckets": buckets,
+            "layer": layer,
+            "data": result_buckets,
+        }
+
     def prune(self, days: int = 30) -> int:
         conn = self._get_conn()
         cutoff = time.time() - (days * 86400)

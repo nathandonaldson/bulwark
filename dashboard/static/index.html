@@ -266,6 +266,10 @@
           <div class="stat-label">Bridge blocks (AnalysisGuard)</div>
         </div>
       </div>
+      <div id="shield-sparkline" style="margin-top:24px;padding:16px 20px;background:var(--surface);border:1px solid var(--border);border-radius:12px;">
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">ACTIVITY (24H)</div>
+        <div class="loading-msg">Loading...</div>
+      </div>
     </div>
 
     <div class="layers-panel">
@@ -667,7 +671,7 @@ function renderLayerCards(metrics) {
   container.innerHTML = layers.map(l => {
     const meta = LAYER_META[l.key] || {};
     const pct = total > 0 ? Math.round((1 - (byLayer[l.key + '_blocked'] || 0) / Math.max(l.stat, 1)) * 100) : 100;
-    return `<div class="layer-card">
+    return `<div class="layer-card" data-layer="${l.key}">
       <div class="layer-dot green"></div>
       <div class="layer-info">
         <div class="layer-name">${meta.name || l.key}</div>
@@ -677,6 +681,7 @@ function renderLayerCards(metrics) {
         <div class="layer-stat-value">${l.stat}</div>
         <div class="layer-stat-label">${l.label}</div>
         <div class="layer-bar"><div class="layer-bar-fill" style="width: ${Math.min(pct, 100)}%"></div></div>
+        <div data-sparkline="${l.key}" style="margin-top:4px;height:16px;"></div>
       </div>
     </div>`;
   }).join('');
@@ -936,16 +941,98 @@ function loadPreset(name) {
 }
 
 // ============================================================
+// Sparklines (time-series)
+// ============================================================
+let timeseriesData = null;
+
+async function fetchTimeseries() {
+  try {
+    const res = await fetch('/api/timeseries?hours=24&buckets=24');
+    if (res.ok) {
+      timeseriesData = await res.json();
+      renderSparklines();
+    }
+  } catch(e) {}
+}
+
+function renderSparklines() {
+  if (!timeseriesData || !timeseriesData.data) return;
+  const data = timeseriesData.data;
+
+  const el = document.getElementById('shield-sparkline');
+  if (!el) return;
+
+  const width = 280;
+  const height = 40;
+  const max = Math.max(...data.map(d => d.total), 1);
+  const points = data.map((d, i) => {
+    const x = (i / (data.length - 1)) * width;
+    const y = height - (d.total / max) * height;
+    return `${x},${y}`;
+  }).join(' ');
+
+  const blockedPoints = data.map((d, i) => {
+    const x = (i / (data.length - 1)) * width;
+    const y = height - (d.blocked / max) * height;
+    return `${x},${y}`;
+  }).join(' ');
+
+  el.innerHTML = `
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">ACTIVITY (24H)</div>
+    <svg width="${width}" height="${height}" style="overflow:visible">
+      <polyline points="${points}" fill="none" stroke="var(--green)" stroke-width="1.5" opacity="0.7"/>
+      <polyline points="${blockedPoints}" fill="none" stroke="var(--red)" stroke-width="1.5" opacity="0.7"/>
+    </svg>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-dim);margin-top:4px;">
+      <span>24h ago</span>
+      <span style="color:var(--green)">&#9632; processed</span>
+      <span style="color:var(--red)">&#9632; blocked</span>
+      <span>now</span>
+    </div>
+  `;
+}
+
+async function fetchLayerSparklines() {
+  const layers = ['sanitizer', 'boundary', 'executor', 'canary', 'isolator'];
+  for (const layer of layers) {
+    try {
+      const res = await fetch(`/api/timeseries?hours=24&buckets=12&layer=${layer}`);
+      if (res.ok) {
+        const data = await res.json();
+        renderMiniSparkline(layer, data.data);
+      }
+    } catch(e) {}
+  }
+}
+
+function renderMiniSparkline(layer, data) {
+  const el = document.querySelector(`[data-sparkline="${layer}"]`);
+  if (!el) return;
+  const w = 60, h = 16;
+  const max = Math.max(...data.map(d => d.total), 1);
+  const pts = data.map((d, i) => `${(i/(data.length-1))*w},${h-(d.total/max)*h}`).join(' ');
+  el.innerHTML = `<svg width="${w}" height="${h}"><polyline points="${pts}" fill="none" stroke="var(--green)" stroke-width="1" opacity="0.6"/></svg>`;
+}
+
+// ============================================================
 // Init
 // ============================================================
 window.addEventListener('DOMContentLoaded', () => {
   fetchMetrics();
-  fetchEvents({}).then(() => renderActivityFeed(eventsData));
+  fetchTimeseries();
+  fetchEvents({}).then(() => {
+    renderActivityFeed(eventsData);
+    fetchLayerSparklines();
+  });
   connectSSE();
   initPresets();
   fetchConfig();
   fetchIntegrations();
-  metricsRefreshTimer = setInterval(fetchMetrics, 10000);
+  metricsRefreshTimer = setInterval(() => {
+    fetchMetrics();
+    fetchTimeseries();
+    fetchLayerSparklines();
+  }, 10000);
 });
 </script>
 </body>

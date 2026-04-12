@@ -1,6 +1,7 @@
 """Pipeline: chain all Bulwark defense layers into one run() call."""
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,6 +14,13 @@ from bulwark.executor import (
     AnalysisGuard, AnalysisSuspiciousError, SECURE_EXECUTE_TEMPLATE,
 )
 from bulwark.events import EventEmitter
+
+
+async def _maybe_await(fn, *args):
+    """Call fn with args. If fn is async, await it. Otherwise call sync."""
+    if asyncio.iscoroutinefunction(fn):
+        return await fn(*args)
+    return fn(*args)
 
 
 @dataclass
@@ -223,6 +231,194 @@ class Pipeline:
             step += 1
             execute_prompt = self.execute_prompt_template.format(analysis=analysis)
             execution = self.execute_fn(execute_prompt)
+            trace.append({
+                "step": step,
+                "layer": "execute",
+                "verdict": "passed",
+                "detail": f"Phase 2 produced {len(execution)} chars",
+            })
+            return PipelineResult(
+                analysis=analysis,
+                execution=execution,
+                neutralized=neutralized,
+                trace=trace,
+            )
+
+        return PipelineResult(
+            analysis=analysis,
+            neutralized=neutralized,
+            trace=trace,
+        )
+
+    async def run_async(self, content: str, source: str = "external",
+                        label: Optional[str] = None) -> PipelineResult:
+        """Async version of run(). Supports both sync and async analyze/execute fns.
+
+        All defense layers (Sanitizer, TrustBoundary, CanarySystem, AnalysisGuard)
+        are called synchronously — they're CPU-bound and fast (<1ms). Only
+        analyze_fn and execute_fn may be async coroutines.
+
+        Args:
+            content: The untrusted input text.
+            source: Where the content came from (e.g. "email", "calendar").
+            label: Optional label for trust boundary tagging.
+
+        Returns:
+            PipelineResult with analysis, optional execution, and trace.
+        """
+        trace: list[dict] = []
+        step = 0
+        neutralized = False
+
+        # Propagate emitter to layers that don't have one
+        self._propagate_emitter()
+
+        # -- Step 1: Sanitize input --
+        cleaned = content
+        if self.sanitizer is not None:
+            step += 1
+            cleaned = self.sanitizer.clean(content)
+            was_modified = cleaned != content
+            neutralized = was_modified
+            trace.append({
+                "step": step,
+                "layer": "sanitizer",
+                "verdict": "modified" if was_modified else "passed",
+                "detail": f"{'Modified' if was_modified else 'Clean'}: {len(content)} -> {len(cleaned)} chars",
+            })
+
+        # -- Step 2: Trust boundary --
+        tagged = cleaned
+        if self.trust_boundary is not None:
+            step += 1
+            tagged = self.trust_boundary.wrap(cleaned, source=source, label=label)
+            trace.append({
+                "step": step,
+                "layer": "trust_boundary",
+                "verdict": "passed",
+                "detail": f"Wrapped with source={source}",
+            })
+
+        # -- Step 3: Phase 1 (analyze) --
+        if self.analyze_fn is None:
+            return PipelineResult(
+                analysis=cleaned,
+                neutralized=neutralized,
+                trace=trace,
+            )
+
+        step += 1
+        analysis = await _maybe_await(self.analyze_fn, tagged)
+        trace.append({
+            "step": step,
+            "layer": "analyze",
+            "verdict": "passed",
+            "detail": f"Phase 1 produced {len(analysis)} chars",
+        })
+
+        # -- Step 4: Guard bridge --
+        if self.guard_bridge and self.analysis_guard is not None:
+            step += 1
+            try:
+                self.analysis_guard.check(analysis)
+                trace.append({
+                    "step": step,
+                    "layer": "analysis_guard",
+                    "verdict": "passed",
+                    "detail": "Analysis passed guard checks",
+                })
+            except AnalysisSuspiciousError as e:
+                trace.append({
+                    "step": step,
+                    "layer": "analysis_guard",
+                    "verdict": "blocked",
+                    "detail": str(e),
+                })
+                return PipelineResult(
+                    analysis=analysis,
+                    blocked=True,
+                    block_reason=f"Analysis guard blocked: {e}",
+                    neutralized=neutralized,
+                    trace=trace,
+                )
+
+        # -- Step 5: Require JSON --
+        if self.require_json:
+            step += 1
+            try:
+                json.loads(analysis)
+                trace.append({
+                    "step": step,
+                    "layer": "require_json",
+                    "verdict": "passed",
+                    "detail": "Valid JSON",
+                })
+            except (json.JSONDecodeError, TypeError) as e:
+                trace.append({
+                    "step": step,
+                    "layer": "require_json",
+                    "verdict": "blocked",
+                    "detail": f"Invalid JSON: {e}",
+                })
+                return PipelineResult(
+                    analysis=analysis,
+                    blocked=True,
+                    block_reason=f"JSON validation failed: {e}",
+                    neutralized=neutralized,
+                    trace=trace,
+                )
+
+        # -- Step 6: Sanitize bridge --
+        if self.sanitize_bridge:
+            step += 1
+            bridge_sanitizer = Sanitizer(
+                strip_html=False,
+                strip_scripts=False,
+                strip_css_hidden=False,
+                collapse_whitespace=False,
+                max_length=None,
+            )
+            sanitized_analysis = bridge_sanitizer.clean(analysis)
+            bridge_modified = sanitized_analysis != analysis
+            analysis = sanitized_analysis
+            trace.append({
+                "step": step,
+                "layer": "sanitize_bridge",
+                "verdict": "modified" if bridge_modified else "passed",
+                "detail": f"{'Modified' if bridge_modified else 'Clean'}: bridge sanitization",
+            })
+
+        # -- Step 7: Canary check --
+        if self.canary is not None:
+            step += 1
+            check_result = self.canary.check(analysis)
+            if check_result.leaked:
+                trace.append({
+                    "step": step,
+                    "layer": "canary",
+                    "verdict": "blocked",
+                    "detail": f"Canary token leaked from: {', '.join(check_result.sources)}",
+                })
+                return PipelineResult(
+                    analysis=analysis,
+                    blocked=True,
+                    block_reason=f"Canary token leaked from: {', '.join(check_result.sources)}",
+                    neutralized=neutralized,
+                    trace=trace,
+                )
+            else:
+                trace.append({
+                    "step": step,
+                    "layer": "canary",
+                    "verdict": "passed",
+                    "detail": f"Clean: 0/{len(self.canary.tokens)} tokens found",
+                })
+
+        # -- Step 8: Phase 2 (execute) --
+        if self.execute_fn is not None:
+            step += 1
+            execute_prompt = self.execute_prompt_template.format(analysis=analysis)
+            execution = await _maybe_await(self.execute_fn, execute_prompt)
             trace.append({
                 "step": step,
                 "layer": "execute",

@@ -17,10 +17,10 @@ class TestAttackSuiteLoading:
         suite = AttackSuite()
         assert len(suite.attacks) > 0
 
-    def test_suite_has_at_least_35_attacks(self):
+    def test_suite_has_at_least_75_attacks(self):
         suite = AttackSuite()
-        assert len(suite.attacks) >= 35, (
-            f"Expected at least 35 attacks, got {len(suite.attacks)}"
+        assert len(suite.attacks) >= 75, (
+            f"Expected at least 75 attacks, got {len(suite.attacks)}"
         )
 
 
