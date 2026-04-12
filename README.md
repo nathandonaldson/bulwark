@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="docs/images/banner.svg" alt="Bulwark — Architectural defense against prompt injection" width="800"/>
-</p>
+<img src="docs/images/banner.svg" alt="Bulwark" height="32"/>
 
 Detection tools try to spot bad input. Bulwark makes it structurally impossible for injected instructions to trigger actions, exfiltrate data, or cross-contaminate other items. Detection is a filter with false negatives. Architecture doesn't have false negatives.
 
