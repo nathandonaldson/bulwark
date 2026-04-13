@@ -300,7 +300,7 @@ class TestGarakAdapter:
     def test_build_command_basic(self):
         adapter = GarakAdapter()
         cmd = adapter._build_command()
-        assert "garak" in cmd[0] or cmd[0].endswith("garak")
+        assert "garak" in " ".join(cmd)  # garak appears in command (either direct or -m garak)
         assert "--model_type" in cmd
         assert "test.Blank" in cmd  # default test generator
         assert "--probes" in cmd

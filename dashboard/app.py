@@ -213,3 +213,36 @@ async def prune_events(days: int = Query(default=30)):
     """Prune events older than N days."""
     count = db.prune(days=days)
     return {"pruned": count}
+
+
+@app.post("/api/garak/run")
+async def run_garak():
+    """Run Garak probes and return results. Events are emitted to the dashboard."""
+    from bulwark.integrations.garak import GarakAdapter
+    from bulwark.events import WebhookEmitter
+
+    emitter = WebhookEmitter("http://127.0.0.1:3000/api/events")
+
+    try:
+        adapter = GarakAdapter(emitter=emitter)
+        summary = adapter.run()
+        # Update integration status
+        if "garak" not in config.integrations:
+            config.integrations["garak"] = IntegrationConfig()
+        config.integrations["garak"].installed = True
+        config.integrations["garak"].last_used = __import__("time").time()
+        config.save()
+        return {
+            "status": "complete",
+            "total": summary.total,
+            "passed": summary.passed,
+            "failed": summary.failed,
+            "pass_rate": summary.pass_rate,
+            "probes_tested": summary.probes_tested,
+        }
+    except FileNotFoundError:
+        return {"status": "error", "message": "Garak not installed. Run: pip install garak"}
+    except RuntimeError as e:
+        return {"status": "error", "message": str(e)}
+    except Exception as e:
+        return {"status": "error", "message": f"Unexpected error: {type(e).__name__}"}

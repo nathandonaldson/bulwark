@@ -214,8 +214,9 @@ class GarakAdapter:
 
     def _build_command(self) -> list[str]:
         """Build the garak CLI command."""
+        import sys
         cmd = [
-            "garak",
+            sys.executable, "-m", "garak",
             "--model_type", self.generator_module,
             "--probes", ",".join(self.probe_families),
         ]

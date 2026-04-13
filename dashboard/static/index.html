@@ -422,6 +422,26 @@ async function fetchIntegrations() {
   } catch(e) {}
 }
 
+async function runGarak() {
+  const btn = document.getElementById('garak-run-btn');
+  const status = document.getElementById('garak-status');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Running...'; }
+  if (status) status.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Running Garak probes... this may take a few minutes.</div>';
+  try {
+    const res = await fetch('/api/garak/run', { method: 'POST' });
+    const data = await res.json();
+    if (data.status === 'complete') {
+      if (status) status.innerHTML = `<div style="font-size:12px;padding:8px 0;color:var(--green)">✓ ${data.total} probes: ${data.passed} defended, ${data.failed} vulnerable (${(data.pass_rate * 100).toFixed(0)}% pass rate)</div>`;
+    } else {
+      if (status) status.innerHTML = `<div style="font-size:12px;padding:8px 0;color:var(--red)">✗ ${data.message || 'Unknown error'}</div>`;
+    }
+  } catch(e) {
+    if (status) status.innerHTML = `<div style="font-size:12px;padding:8px 0;color:var(--red)">✗ Connection failed</div>`;
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '▶ Run'; }
+  fetchIntegrations();
+}
+
 async function toggleIntegration(name, enabled) {
   try {
     const res = await fetch('/api/integrations/' + name, {
@@ -526,15 +546,19 @@ function renderIntegrations() {
     const latency = info.latency_ms ? `~${info.latency_ms}ms latency` : 'Runs on demand';
     const size = info.size_mb ? `, ${info.size_mb}MB model` : '';
 
+    const runBtn = (key === 'garak' && enabled) ?
+      `<button class="integration-btn" id="garak-run-btn" onclick="runGarak()" style="margin-right:8px">▶ Run</button>` : '';
+
     return `<div class="integration-card ${enabled ? 'enabled' : ''}">
       <div class="integration-header">
         <span class="integration-name">${escapeHtml(info.name)}</span>
         <span class="integration-badge ${badgeClass}">${badgeText}</span>
       </div>
       <div class="integration-desc">${escapeHtml(info.description)}</div>
+      <div id="${key}-status"></div>
       <div class="integration-footer">
         <span class="integration-latency">${latency}${size}</span>
-        <button class="integration-btn ${enabled ? 'enabled' : ''}" onclick="toggleIntegration('${key}', ${!enabled})">${enabled ? 'Enabled' : 'Enable'}</button>
+        <div>${runBtn}<button class="integration-btn ${enabled ? 'enabled' : ''}" onclick="toggleIntegration('${key}', ${!enabled})">${enabled ? 'Enabled' : 'Enable'}</button></div>
       </div>
     </div>`;
   }
