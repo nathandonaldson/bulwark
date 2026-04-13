@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.2] - 2026-04-13
+
+### Fixed
+- **Python 3.13 compatibility** — isolator integration test no longer assumes thread execution order. All 3 Python versions now pass CI.
+- **Dashboard auto-sync** — on startup, the dashboard syncs newer files from the repo automatically. No more manual file copying after code changes. Requires a `.source-repo` marker in the runtime directory.
+
 ## [0.2.1] - 2026-04-13
 
 ### Added
