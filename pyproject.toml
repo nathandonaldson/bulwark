@@ -6,6 +6,9 @@ build-backend = "hatchling.build"
 path = "VERSION"
 pattern = "(?P<version>.+)"
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/bulwark"]
+
 [project]
 name = "bulwark-ai"
 dynamic = ["version"]
