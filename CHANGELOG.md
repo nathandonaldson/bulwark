@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **ProtectAI DeBERTa detection** as built-in integration. Ungated, 99.99% accuracy, ~30ms. `detect_and_create()` one-liner.
+- **PromptGuard-86M support** for when HuggingFace approval is granted.
+- **`/api/integrations/{name}/activate` endpoint** loads detection models into memory and registers them as bridge checks.
+- **Dashboard Activate button** replaces the old Enable toggle. Downloads model, shows loading status, reports errors.
+- **Active detection models apply to Test tab** pipeline automatically.
+
+### Fixed
+- Red team progress survives tab switching (fresh DOM refs on each poll tick).
+
 ## [0.2.0] - 2026-04-13
 
 ### Added
