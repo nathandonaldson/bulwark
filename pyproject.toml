@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Architectural defense against prompt injection. Because detection is an arms race."
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 keywords = ["ai", "security", "prompt-injection", "llm", "agent"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -22,8 +22,9 @@ classifiers = [
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.39.0"]
 cli = ["click>=8.0"]
+dashboard = ["fastapi>=0.100.0", "uvicorn>=0.20.0"]
 testing = ["garak>=0.9,<1.0"]
-all = ["anthropic>=0.39.0", "click>=8.0", "garak>=0.9,<1.0"]
+all = ["anthropic>=0.39.0", "click>=8.0", "fastapi>=0.100.0", "uvicorn>=0.20.0", "garak>=0.9,<1.0"]
 
 [project.scripts]
 bulwark = "bulwark.cli:main"
