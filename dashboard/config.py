@@ -29,13 +29,22 @@ DEFAULT_PATTERNS = [
 ]
 
 AVAILABLE_INTEGRATIONS = {
+    "protectai": {
+        "name": "ProtectAI DeBERTa",
+        "type": "detection",
+        "description": "Prompt injection classifier. Ungated, works immediately. Recommended default.",
+        "model": "protectai/deberta-v3-base-prompt-injection-v2",
+        "latency_ms": 30,
+        "size_mb": 180,
+    },
     "promptguard": {
         "name": "PromptGuard-86M",
         "type": "detection",
-        "description": "Meta's fine-tuned mDeBERTa classifier for prompt injection detection",
+        "description": "Meta's mDeBERTa classifier for prompt injection. Requires HuggingFace approval.",
         "model": "meta-llama/Prompt-Guard-86M",
         "latency_ms": 50,
         "size_mb": 184,
+        "gated": True,
     },
     "piguard": {
         "name": "PIGuard",
