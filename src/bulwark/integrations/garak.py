@@ -212,32 +212,18 @@ class GarakAdapter:
         self.report_dir = report_dir or _DEFAULT_REPORT_DIR
         self.emitter = emitter or NullEmitter()
 
-    def _build_command(self) -> list[str]:
+    def _build_command(self, report_prefix: str) -> list[str]:
         """Build the garak CLI command."""
         import sys
         cmd = [
             sys.executable, "-m", "garak",
             "--model_type", self.generator_module,
             "--probes", ",".join(self.probe_families),
+            "--report_prefix", report_prefix,
         ]
         if self.generator_name:
             cmd.extend(["--model_name", self.generator_name])
         return cmd
-
-    def _find_latest_report(self) -> Optional[str]:
-        """Find the most recently modified Garak report file."""
-        report_dir = Path(self.report_dir)
-        if not report_dir.exists():
-            return None
-
-        reports = sorted(
-            report_dir.glob("garak.*.report.jsonl"),
-            key=lambda p: p.stat().st_mtime,
-        )
-        if not reports:
-            return None
-
-        return str(reports[-1])
 
     def run(self) -> GarakScanSummary:
         """Run Garak probes and return a summary.
@@ -251,7 +237,11 @@ class GarakAdapter:
         Raises:
             RuntimeError: If Garak CLI fails or no report is generated.
         """
-        cmd = self._build_command()
+        import tempfile
+        report_prefix = str(Path(tempfile.gettempdir()) / f"bulwark-garak-{int(time.time())}")
+        report_path = f"{report_prefix}.report.jsonl"
+
+        cmd = self._build_command(report_prefix)
 
         result = subprocess.run(
             cmd,
@@ -266,11 +256,10 @@ class GarakAdapter:
                 f"{result.stderr or result.stdout}"
             )
 
-        report_path = self._find_latest_report()
-        if report_path is None:
+        if not Path(report_path).exists():
             raise RuntimeError(
-                f"No Garak report found in {self.report_dir}. "
-                "Check that Garak completed successfully."
+                f"Garak report not found at {report_path}. "
+                f"Garak output: {result.stdout[-500:] if result.stdout else 'none'}"
             )
 
         return import_garak_results(report_path, emitter=self.emitter)

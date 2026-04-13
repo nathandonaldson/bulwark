@@ -299,7 +299,7 @@ class TestGarakAdapter:
 
     def test_build_command_basic(self):
         adapter = GarakAdapter()
-        cmd = adapter._build_command()
+        cmd = adapter._build_command("/tmp/test-report")
         assert "garak" in " ".join(cmd)  # garak appears in command (either direct or -m garak)
         assert "--model_type" in cmd
         assert "test.Blank" in cmd  # default test generator
@@ -307,7 +307,7 @@ class TestGarakAdapter:
 
     def test_build_command_includes_all_probe_families(self):
         adapter = GarakAdapter(probe_families=["promptinject", "knownbadsignatures"])
-        cmd = adapter._build_command()
+        cmd = adapter._build_command("/tmp/test-report")
         probes_idx = cmd.index("--probes")
         probes_val = cmd[probes_idx + 1]
         assert "promptinject" in probes_val
@@ -315,71 +315,84 @@ class TestGarakAdapter:
 
     def test_build_command_with_custom_generator(self):
         adapter = GarakAdapter(generator_module="rest.RestGenerator", generator_name="my-api")
-        cmd = adapter._build_command()
+        cmd = adapter._build_command("/tmp/test-report")
         assert "rest.RestGenerator" in cmd
         assert "my-api" in cmd
 
     @patch("subprocess.run")
-    def test_run_calls_subprocess(self, mock_run):
+    def test_run_calls_subprocess(self, mock_run, tmp_path):
         """run() invokes garak CLI via subprocess."""
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout="garak run complete",
         )
         adapter = GarakAdapter()
-        # Mock _find_latest_report to return a fake path
-        with patch.object(adapter, "_find_latest_report", return_value=None):
-            with pytest.raises(RuntimeError, match="No Garak report"):
-                adapter.run()
+        # No report file will exist, so expect RuntimeError
+        with pytest.raises(RuntimeError, match="report not found"):
+            adapter.run()
 
         mock_run.assert_called_once()
 
     @patch("subprocess.run")
-    def test_run_returns_summary_on_success(self, mock_run, tmp_path):
+    @patch("tempfile.gettempdir")
+    def test_run_returns_summary_on_success(self, mock_tmpdir, mock_run, tmp_path):
         """run() parses the report and returns a summary."""
+        mock_tmpdir.return_value = str(tmp_path)
         mock_run.return_value = MagicMock(returncode=0, stdout="done")
 
-        # Create a fake report file
-        report = tmp_path / "garak.abc123.report.jsonl"
-        report.write_text(json.dumps({
-            "entry_type": "attempt",
-            "status": 2,
-            "probe": "promptinject.HijackHateHumans",
-            "prompt": "test",
-            "outputs": ["response"],
-            "detector": "always.Fail",
-            "passed": True,
-            "score": 1.0,
-        }))
+        # Garak writes to {report_prefix}.report.jsonl
+        # We need to predict the filename and create it before run() reads it
+        def create_report(*args, **kwargs):
+            import glob
+            # Find the report prefix from the command args
+            cmd = args[0] if args else kwargs.get("args", [])
+            prefix_idx = cmd.index("--report_prefix") + 1
+            report_path = f"{cmd[prefix_idx]}.report.jsonl"
+            Path(report_path).write_text(json.dumps({
+                "entry_type": "attempt",
+                "status": 2,
+                "probe": "promptinject.HijackHateHumans",
+                "prompt": "test",
+                "outputs": ["response"],
+                "detector": "always.Fail",
+                "passed": True,
+                "score": 1.0,
+            }))
+            return MagicMock(returncode=0, stdout="done")
 
-        adapter = GarakAdapter(report_dir=str(tmp_path))
-        with patch.object(adapter, "_find_latest_report", return_value=str(report)):
-            summary = adapter.run()
+        mock_run.side_effect = create_report
+        adapter = GarakAdapter()
+        summary = adapter.run()
 
         assert summary.total == 1
         assert summary.passed == 1
 
     @patch("subprocess.run")
-    def test_run_emits_events(self, mock_run, tmp_path):
+    @patch("tempfile.gettempdir")
+    def test_run_emits_events(self, mock_tmpdir, mock_run, tmp_path):
         """run() emits events to the provided emitter."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="done")
+        mock_tmpdir.return_value = str(tmp_path)
 
-        report = tmp_path / "garak.abc123.report.jsonl"
-        report.write_text(json.dumps({
-            "entry_type": "attempt",
-            "status": 2,
-            "probe": "promptinject.A",
-            "prompt": "x",
-            "outputs": ["y"],
-            "detector": "d",
-            "passed": False,
-            "score": 0.0,
-        }))
+        def create_report(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get("args", [])
+            prefix_idx = cmd.index("--report_prefix") + 1
+            report_path = f"{cmd[prefix_idx]}.report.jsonl"
+            Path(report_path).write_text(json.dumps({
+                "entry_type": "attempt",
+                "status": 2,
+                "probe": "promptinject.A",
+                "prompt": "x",
+                "outputs": ["y"],
+                "detector": "d",
+                "passed": False,
+                "score": 0.0,
+            }))
+            return MagicMock(returncode=0, stdout="done")
 
+        mock_run.side_effect = create_report
         collector = CollectorEmitter()
-        adapter = GarakAdapter(report_dir=str(tmp_path), emitter=collector)
-        with patch.object(adapter, "_find_latest_report", return_value=str(report)):
-            adapter.run()
+        adapter = GarakAdapter(emitter=collector)
+        adapter.run()
 
         assert len(collector.events) == 1
         assert collector.events[0].verdict == Verdict.BLOCKED
@@ -395,26 +408,6 @@ class TestGarakAdapter:
         adapter = GarakAdapter()
         with pytest.raises(RuntimeError, match="Garak CLI failed"):
             adapter.run()
-
-    def test_find_latest_report(self, tmp_path):
-        """_find_latest_report finds the most recent report JSONL."""
-        # Create two reports with different timestamps
-        old = tmp_path / "garak.old123.report.jsonl"
-        old.write_text("{}")
-
-        import time
-        time.sleep(0.05)  # ensure different mtime
-
-        new = tmp_path / "garak.new456.report.jsonl"
-        new.write_text("{}")
-
-        adapter = GarakAdapter(report_dir=str(tmp_path))
-        found = adapter._find_latest_report()
-        assert found == str(new)
-
-    def test_find_latest_report_returns_none_when_empty(self, tmp_path):
-        adapter = GarakAdapter(report_dir=str(tmp_path))
-        assert adapter._find_latest_report() is None
 
 
 # ── GARAK_PROBE_FAMILIES constant ────────────────────────────────
