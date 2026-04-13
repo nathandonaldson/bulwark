@@ -105,6 +105,8 @@ class Pipeline:
         are called synchronously — they're CPU-bound and fast (<1ms). Only
         analyze_fn and execute_fn may be async coroutines, handled via _maybe_await.
         """
+        if not isinstance(content, str):
+            raise TypeError(f"Expected str, got {type(content).__name__}")
         trace: list[dict] = []
         step = 0
         neutralized = False
@@ -361,22 +363,29 @@ class Pipeline:
 
 def _load_config(path: str) -> dict:
     """Load config from YAML, trying BulwarkConfig first, then manual parsing."""
+    import warnings
+
     p = Path(path)
     if not p.exists():
-        # Return defaults (empty dict triggers all defaults)
         return {}
 
     try:
         from dashboard.config import BulwarkConfig
         config = BulwarkConfig.load(path)
         return config.to_dict()
-    except (ImportError, Exception):
-        pass
+    except ImportError:
+        pass  # Dashboard not installed, fall through to YAML
+    except Exception as e:
+        warnings.warn(f"Bulwark config load failed ({p}): {e}. Using defaults.", stacklevel=2)
+        return {}
 
-    # Manual YAML parsing fallback
     try:
         import yaml
         data = yaml.safe_load(p.read_text()) or {}
         return data
-    except Exception:
+    except ImportError:
+        warnings.warn(f"PyYAML not installed. Cannot load {p}. Using defaults.", stacklevel=2)
+        return {}
+    except Exception as e:
+        warnings.warn(f"Bulwark YAML parse failed ({p}): {e}. Using defaults.", stacklevel=2)
         return {}

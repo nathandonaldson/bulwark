@@ -57,6 +57,8 @@ class TrustBoundary:
         Returns:
             Tagged content with security instructions
         """
+        if not isinstance(content, str):
+            raise TypeError(f"Expected str, got {type(content).__name__}")
         safe_source = self._sanitize_identifier(source)
         safe_label = self._sanitize_identifier(label) if label else None
         tag_name = f"{self.tag_prefix}_{safe_label or safe_source}"
@@ -68,7 +70,7 @@ class TrustBoundary:
         elif self.format == BoundaryFormat.DELIMITER:
             result = self._wrap_delimiter(content, tag_name, safe_source)
         else:
-            result = content
+            raise ValueError(f"Unknown boundary format: {self.format}")
 
         if self.emitter:
             self.emitter.emit(BulwarkEvent(

@@ -85,6 +85,8 @@ class Sanitizer:
 
     def clean(self, text: str) -> str:
         """Sanitize a single text input. Returns cleaned text."""
+        if not isinstance(text, str):
+            raise TypeError(f"Expected str, got {type(text).__name__}")
         if not text:
             return text
 

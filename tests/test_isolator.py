@@ -444,7 +444,7 @@ class TestErrorHandling:
 
         iso = MapReduceIsolator(map_fn=failing_fn)
         result = iso.process(["test"])
-        assert result.items[0].error == "something broke"
+        assert result.items[0].error == "ValueError: something broke"
         assert result.items[0].output == ""
 
     def test_one_failure_doesnt_crash_batch(self) -> None:

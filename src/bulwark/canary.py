@@ -71,6 +71,8 @@ class CanarySystem:
         Returns:
             CanaryCheckResult with leaked=True if any tokens found
         """
+        if not isinstance(text, str):
+            raise TypeError(f"Expected str, got {type(text).__name__}")
         if not text or not self.tokens:
             return CanaryCheckResult(leaked=False)
 

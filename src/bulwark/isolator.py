@@ -87,6 +87,8 @@ class MapReduceIsolator:
         Returns:
             IsolatorResult with per-item results
         """
+        if not isinstance(items, (list, tuple)):
+            raise TypeError(f"Expected list, got {type(items).__name__}")
         if not items:
             return IsolatorResult(items=[])
 
@@ -144,7 +146,7 @@ class MapReduceIsolator:
                     ))
                 except Exception as e:
                     results.append(ItemResult(
-                        index=idx, output="", error=str(e)
+                        index=idx, output="", error=f"{type(e).__name__}: {e}"
                     ))
 
         # Sort by original index to maintain order

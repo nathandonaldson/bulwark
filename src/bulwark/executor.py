@@ -112,13 +112,6 @@ class AnalysisGuard:
 
 
 @dataclass
-class PhaseResult:
-    """Result from a single phase."""
-    output: str
-    raw_response: Any = None  # Provider-specific response object
-
-
-@dataclass
 class ExecutorResult:
     """Result from a complete two-phase execution."""
     analysis: str  # Phase 1 output
@@ -187,6 +180,8 @@ class TwoPhaseExecutor:
         Returns:
             ExecutorResult with analysis output, execution output, and canary status.
         """
+        if not isinstance(analyze_prompt, str):
+            raise TypeError(f"Expected str, got {type(analyze_prompt).__name__}")
         template = execute_prompt_template or self.execute_prompt_template
         _start = _now() if self.emitter else 0
 
