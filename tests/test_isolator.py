@@ -754,6 +754,10 @@ class TestIntegration:
             assert "<untrusted_email" in logged_call
             assert "SECURITY:" in logged_call
 
-        # Each call sees only one item's content (no cross-contamination)
-        assert "Normal email content" not in calls[1]
-        assert "Another normal email" not in calls[1]
+        # Each call sees only one item's content (no cross-contamination).
+        # ThreadPoolExecutor may reorder items on different Python versions,
+        # so don't assert by index — check that no call contains multiple items.
+        markers = ["Normal email content", "Real content", "Another normal email"]
+        for call in calls:
+            found = [m for m in markers if m in call]
+            assert len(found) == 1, f"Call contains {len(found)} items (expected 1): {found}"
