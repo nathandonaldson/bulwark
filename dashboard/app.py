@@ -229,6 +229,7 @@ async def run_garak():
         return {"status": "running", "message": "Garak is already running"}
 
     _garak_result = {"status": "running"}
+    _garak_start_time = time.time()
 
     async def _run_in_background():
         global _garak_result
@@ -255,6 +256,18 @@ async def run_garak():
                 "failed": summary.failed,
                 "pass_rate": summary.pass_rate,
                 "probes_tested": summary.probes_tested,
+                "duration_s": round(__import__("time").time() - _garak_start_time, 1),
+                "results": [
+                    {
+                        "probe": r.probe,
+                        "prompt": r.prompt[:200],
+                        "output": r.output[:200] if r.output else "",
+                        "detector": r.detector,
+                        "passed": r.passed,
+                        "score": r.score,
+                    }
+                    for r in summary.results
+                ],
             }
         except Exception as e:
             _garak_result = {"status": "error", "message": str(e)}
@@ -267,3 +280,21 @@ async def run_garak():
 async def garak_status():
     """Check the status of a running Garak scan."""
     return _garak_result
+
+
+@app.get("/api/integrations/detect")
+async def detect_integrations():
+    """Check which testing tools are actually installed."""
+    results = {}
+    try:
+        import garak
+        results["garak"] = {"installed": True, "version": getattr(garak, "__version__", "unknown")}
+    except ImportError:
+        results["garak"] = {"installed": False}
+    try:
+        import subprocess as _sp
+        r = _sp.run(["promptfoo", "--version"], capture_output=True, text=True, timeout=5)
+        results["promptfoo"] = {"installed": r.returncode == 0, "version": r.stdout.strip() if r.returncode == 0 else None}
+    except Exception:
+        results["promptfoo"] = {"installed": False}
+    return results
