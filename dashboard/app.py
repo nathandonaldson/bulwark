@@ -449,10 +449,4 @@ async def detect_integrations():
         results["garak"] = {"installed": True, "version": getattr(garak, "__version__", "unknown")}
     except ImportError:
         results["garak"] = {"installed": False}
-    try:
-        import subprocess as _sp
-        r = _sp.run(["promptfoo", "--version"], capture_output=True, text=True, timeout=5)
-        results["promptfoo"] = {"installed": r.returncode == 0, "version": r.stdout.strip() if r.returncode == 0 else None}
-    except Exception:
-        results["promptfoo"] = {"installed": False}
     return results

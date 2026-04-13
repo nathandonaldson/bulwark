@@ -577,7 +577,7 @@ function renderRedteamCards() {
   const garak = detectedTools.garak || { installed: false };
   const promptfoo = detectedTools.promptfoo || { installed: false };
 
-  el.innerHTML = renderGarakCard(garak) + renderPromptfooCard(promptfoo);
+  el.innerHTML = renderGarakCard(garak);
 }
 
 function renderGarakCard(info) {
@@ -615,36 +615,6 @@ function renderGarakCard(info) {
   </div>`;
 }
 
-function renderPromptfooCard(info) {
-  const installed = info.installed;
-  const version = info.version ? `v${info.version}` : '';
-  const disabledClass = installed ? '' : 'disabled';
-
-  let footerHtml;
-  if (!installed) {
-    footerHtml = `
-      <div class="redteam-install-hint">Install: <code>npm install -g promptfoo</code></div>
-      <div class="redteam-card-footer">
-        <span class="redteam-status">Not installed</span>
-        <button class="redteam-btn redteam-btn-soon" disabled>Run Scan</button>
-      </div>`;
-  } else {
-    footerHtml = `
-      <div class="redteam-card-footer">
-        <span class="redteam-status">Ready</span>
-        <button class="redteam-btn redteam-btn-soon" disabled>Coming soon</button>
-      </div>`;
-  }
-
-  return `<div class="redteam-card ${disabledClass}" id="promptfoo-card">
-    <div class="redteam-card-header">
-      <span class="redteam-card-name">Promptfoo</span>
-      ${version ? `<span class="redteam-card-version">${escapeHtml(version)}</span>` : ''}
-    </div>
-    <div class="redteam-card-desc">LLM testing and red-teaming framework. Evaluate prompts against custom test suites with assertions and grading.</div>
-    ${footerHtml}
-  </div>`;
-}
 
 async function runRedTeam(maxProbes) {
   const quickBtn = document.getElementById('garak-quick-btn');

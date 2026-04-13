@@ -78,14 +78,6 @@ AVAILABLE_INTEGRATIONS = {
         "latency_ms": None,
         "size_mb": None,
     },
-    "promptfoo": {
-        "name": "Promptfoo",
-        "type": "testing",
-        "description": "LLM testing and red-teaming framework",
-        "package": "promptfoo",
-        "latency_ms": None,
-        "size_mb": None,
-    },
 }
 
 
