@@ -426,19 +426,35 @@ async function runGarak() {
   const btn = document.getElementById('garak-run-btn');
   const status = document.getElementById('garak-status');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Running...'; }
-  if (status) status.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Running Garak probes... this may take a few minutes.</div>';
+  if (status) status.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Starting Garak probes...</div>';
   try {
     const res = await fetch('/api/garak/run', { method: 'POST' });
-    const data = await res.json();
-    if (data.status === 'complete') {
-      if (status) status.innerHTML = `<div style="font-size:12px;padding:8px 0;color:var(--green)">✓ ${data.total} probes: ${data.passed} defended, ${data.failed} vulnerable (${(data.pass_rate * 100).toFixed(0)}% pass rate)</div>`;
-    } else {
-      if (status) status.innerHTML = `<div style="font-size:12px;padding:8px 0;color:var(--red)">✗ ${data.message || 'Unknown error'}</div>`;
+    const start = await res.json();
+    if (start.status === 'running') {
+      if (status) status.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Already running...</div>';
     }
+    // Poll for results
+    const poll = setInterval(async () => {
+      try {
+        const r = await fetch('/api/garak/status');
+        const data = await r.json();
+        if (data.status === 'complete') {
+          clearInterval(poll);
+          if (status) status.innerHTML = `<div style="font-size:12px;padding:8px 0;color:var(--green)">✓ ${data.total} probes: ${data.passed} defended, ${data.failed} vulnerable (${(data.pass_rate * 100).toFixed(0)}% pass rate)</div>`;
+          if (btn) { btn.disabled = false; btn.textContent = '▶ Run'; }
+        } else if (data.status === 'error') {
+          clearInterval(poll);
+          if (status) status.innerHTML = `<div style="font-size:12px;padding:8px 0;color:var(--red)">✗ ${data.message || 'Unknown error'}</div>`;
+          if (btn) { btn.disabled = false; btn.textContent = '▶ Run'; }
+        } else {
+          if (status) status.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px 0">⏳ Running Garak probes... this may take a few minutes.</div>';
+        }
+      } catch(e) {}
+    }, 3000);
   } catch(e) {
     if (status) status.innerHTML = `<div style="font-size:12px;padding:8px 0;color:var(--red)">✗ Connection failed</div>`;
+    if (btn) { btn.disabled = false; btn.textContent = '▶ Run'; }
   }
-  if (btn) { btn.disabled = false; btn.textContent = '▶ Run'; }
 }
 
 async function toggleIntegration(name, enabled) {

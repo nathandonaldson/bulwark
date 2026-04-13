@@ -215,34 +215,55 @@ async def prune_events(days: int = Query(default=30)):
     return {"pruned": count}
 
 
+# Garak background run state
+_garak_task: Optional[asyncio.Task] = None
+_garak_result: dict = {}
+
+
 @app.post("/api/garak/run")
 async def run_garak():
-    """Run Garak probes and return results. Events are emitted to the dashboard."""
-    from bulwark.integrations.garak import GarakAdapter
-    from bulwark.events import WebhookEmitter
+    """Start Garak probes in the background. Poll /api/garak/status for results."""
+    global _garak_task, _garak_result
 
-    emitter = WebhookEmitter("http://127.0.0.1:3000/api/events")
+    if _garak_task and not _garak_task.done():
+        return {"status": "running", "message": "Garak is already running"}
 
-    try:
-        adapter = GarakAdapter(emitter=emitter)
-        summary = adapter.run()
-        # Update integration status
-        if "garak" not in config.integrations:
-            config.integrations["garak"] = IntegrationConfig()
-        config.integrations["garak"].installed = True
-        config.integrations["garak"].last_used = __import__("time").time()
-        config.save()
-        return {
-            "status": "complete",
-            "total": summary.total,
-            "passed": summary.passed,
-            "failed": summary.failed,
-            "pass_rate": summary.pass_rate,
-            "probes_tested": summary.probes_tested,
-        }
-    except FileNotFoundError:
-        return {"status": "error", "message": "Garak not installed. Run: pip install garak"}
-    except RuntimeError as e:
-        return {"status": "error", "message": str(e)}
-    except Exception as e:
-        return {"status": "error", "message": f"Unexpected error: {type(e).__name__}"}
+    _garak_result = {"status": "running"}
+
+    async def _run_in_background():
+        global _garak_result
+        from bulwark.integrations.garak import GarakAdapter
+        from bulwark.events import WebhookEmitter
+        import concurrent.futures
+
+        emitter = WebhookEmitter("http://127.0.0.1:3000/api/events")
+        try:
+            adapter = GarakAdapter(emitter=emitter)
+            # Run blocking subprocess in a thread
+            loop = asyncio.get_running_loop()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                summary = await loop.run_in_executor(pool, adapter.run)
+            if "garak" not in config.integrations:
+                config.integrations["garak"] = IntegrationConfig()
+            config.integrations["garak"].installed = True
+            config.integrations["garak"].last_used = __import__("time").time()
+            config.save()
+            _garak_result = {
+                "status": "complete",
+                "total": summary.total,
+                "passed": summary.passed,
+                "failed": summary.failed,
+                "pass_rate": summary.pass_rate,
+                "probes_tested": summary.probes_tested,
+            }
+        except Exception as e:
+            _garak_result = {"status": "error", "message": str(e)}
+
+    _garak_task = asyncio.create_task(_run_in_background())
+    return {"status": "started", "message": "Garak probes started. Poll /api/garak/status for results."}
+
+
+@app.get("/api/garak/status")
+async def garak_status():
+    """Check the status of a running Garak scan."""
+    return _garak_result
