@@ -118,12 +118,22 @@ async def test_pipeline(request: Request):
     canary_file = Path(__file__).parent.parent.parent / "knowledge" / "comms" / "canaries.json"
     canary = CanarySystem.from_file(str(canary_file)) if canary_file.exists() else None
 
-    # Use a mock analyze_fn that returns the input as-is (we're testing defenses, not LLM output)
-    pipeline = Pipeline.default(
-        analyze_fn=lambda prompt: payload,  # Echo payload as "analysis" to test guard
-        canary=canary,
-        emitter=collector,
-    )
+    # Build pipeline from config (respects dashboard toggles) or defaults
+    config_path = Path(__file__).parent.parent / "bulwark-config.yaml"
+    if config_path.exists():
+        pipeline = Pipeline.from_config(
+            str(config_path),
+            analyze_fn=lambda prompt: payload,  # Echo payload as "analysis" to test guard
+        )
+        pipeline.emitter = collector
+        if canary:
+            pipeline.canary = canary
+    else:
+        pipeline = Pipeline.default(
+            analyze_fn=lambda prompt: payload,
+            canary=canary,
+            emitter=collector,
+        )
 
     # Attach any active detection model checks
     if _detection_checks and pipeline.analysis_guard is not None:
