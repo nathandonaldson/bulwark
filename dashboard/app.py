@@ -215,9 +215,11 @@ async def prune_events(days: int = Query(default=30)):
     return {"pruned": count}
 
 
-# Garak background run state
+# Background task state (Garak and Red Team)
 _garak_task: Optional[asyncio.Task] = None
 _garak_result: dict = {}
+_redteam_task: Optional[asyncio.Task] = None
+_redteam_result: dict = {}
 
 
 @app.post("/api/garak/run")
@@ -280,6 +282,87 @@ async def run_garak():
 async def garak_status():
     """Check the status of a running Garak scan."""
     return _garak_result
+
+
+def _make_emitter():
+    from bulwark.events import WebhookEmitter
+    return WebhookEmitter("http://127.0.0.1:3000/api/events")
+
+
+@app.post("/api/redteam/run")
+async def run_redteam(request: Request):
+    """Start production red team in the background."""
+    global _redteam_task, _redteam_result
+
+    if _redteam_task and not _redteam_task.done():
+        return {"status": "running", "message": "Red team is already running"}
+
+    body = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    max_probes = body.get("max_probes", 0)
+
+    _redteam_result = {"status": "running", "completed": 0, "total": 0}
+
+    async def _run_in_background():
+        global _redteam_result
+        from bulwark.integrations.redteam import ProductionRedTeam
+        import concurrent.futures
+
+        # Find project root (parent of bulwark-ai/)
+        project_dir = str(Path(__file__).parent.parent.parent)
+
+        def on_progress(completed, total):
+            _redteam_result["completed"] = completed
+            _redteam_result["total"] = total
+
+        try:
+            runner = ProductionRedTeam(
+                project_dir=project_dir,
+                delay_ms=200,
+                max_probes=max_probes,
+                emitter=_make_emitter(),
+                on_progress=on_progress,
+            )
+            loop = asyncio.get_running_loop()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                summary = await loop.run_in_executor(pool, runner.run)
+
+            _redteam_result = {
+                "status": "complete",
+                "total": summary.total,
+                "defended": summary.defended,
+                "vulnerable": summary.vulnerable,
+                "errors": summary.errors,
+                "defense_rate": summary.defense_rate,
+                "duration_s": summary.duration_s,
+                "by_layer": summary.by_layer,
+                "by_family": summary.by_family,
+                "results": [
+                    {
+                        "probe_family": r.probe_family,
+                        "probe_class": r.probe_class,
+                        "payload": r.payload[:200],
+                        "llm_response": r.llm_response[:300],
+                        "defended": r.defended,
+                        "blocked_by": r.blocked_by,
+                        "sanitizer_modified": r.sanitizer_modified,
+                        "suspicious_flagged": r.suspicious_flagged,
+                        "classification": r.classification,
+                        "error": r.error,
+                    }
+                    for r in summary.results
+                ],
+            }
+        except Exception as e:
+            _redteam_result = {"status": "error", "message": str(e)}
+
+    _redteam_task = asyncio.create_task(_run_in_background())
+    return {"status": "started"}
+
+
+@app.get("/api/redteam/status")
+async def redteam_status():
+    """Check status of running red team scan."""
+    return _redteam_result
 
 
 @app.get("/api/integrations/detect")
