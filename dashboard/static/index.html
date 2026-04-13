@@ -521,41 +521,50 @@ async function detectTools() {
         const statusText = document.getElementById('garak-status-text');
         if (statusText) statusText.textContent = 'Complete';
       } else if (data.status === 'running') {
-        const quickBtn = document.getElementById('garak-quick-btn');
-        const fullBtn = document.getElementById('garak-full-btn');
-        const card = document.getElementById('garak-card');
-        const statusText = document.getElementById('garak-status-text');
-        if (quickBtn) quickBtn.disabled = true;
-        if (fullBtn) fullBtn.disabled = true;
-        if (card) card.classList.add('running');
-        if (!garakPollTimer) {
-          garakPollTimer = setInterval(async () => {
-            try {
-              const r2 = await fetch('/api/redteam/status');
-              const d2 = await r2.json();
-              if (d2.status === 'complete') {
-                clearInterval(garakPollTimer);
-                garakPollTimer = null;
-                if (card) card.classList.remove('running');
-                if (quickBtn) quickBtn.disabled = false;
-                if (fullBtn) fullBtn.disabled = false;
-                if (statusText) statusText.textContent = 'Complete';
-                renderRedTeamReport(d2);
-              } else if (d2.status === 'error') {
-                clearInterval(garakPollTimer);
-                garakPollTimer = null;
-                if (card) card.classList.remove('running');
-                if (quickBtn) quickBtn.disabled = false;
-                if (fullBtn) fullBtn.disabled = false;
-                if (statusText) statusText.textContent = 'Error';
-              } else {
-                const done = d2.completed || 0;
-                const total = d2.total || '?';
-                if (statusText) statusText.innerHTML = `<span class="btn-spinner"></span> ${done}/${total} probes through Claude...`;
-              }
-            } catch(e2) {}
-          }, 3000);
-        }
+        // Set initial running state on fresh DOM elements
+        const qb = document.getElementById('garak-quick-btn');
+        const fb = document.getElementById('garak-full-btn');
+        const cd = document.getElementById('garak-card');
+        const st = document.getElementById('garak-status-text');
+        if (qb) qb.disabled = true;
+        if (fb) fb.disabled = true;
+        if (cd) cd.classList.add('running');
+        const done = data.completed || 0;
+        const total = data.total || '?';
+        if (st) st.innerHTML = `<span class="btn-spinner"></span> ${done}/${total} probes through Claude...`;
+        // Re-attach poll with fresh DOM lookups each tick
+        if (garakPollTimer) clearInterval(garakPollTimer);
+        garakPollTimer = setInterval(async () => {
+          try {
+            const r2 = await fetch('/api/redteam/status');
+            const d2 = await r2.json();
+            // Always get fresh DOM refs (cards may have re-rendered)
+            const quickBtn = document.getElementById('garak-quick-btn');
+            const fullBtn = document.getElementById('garak-full-btn');
+            const card = document.getElementById('garak-card');
+            const statusText = document.getElementById('garak-status-text');
+            if (d2.status === 'complete') {
+              clearInterval(garakPollTimer);
+              garakPollTimer = null;
+              if (card) card.classList.remove('running');
+              if (quickBtn) quickBtn.disabled = false;
+              if (fullBtn) fullBtn.disabled = false;
+              if (statusText) statusText.textContent = 'Complete';
+              renderRedTeamReport(d2);
+            } else if (d2.status === 'error') {
+              clearInterval(garakPollTimer);
+              garakPollTimer = null;
+              if (card) card.classList.remove('running');
+              if (quickBtn) quickBtn.disabled = false;
+              if (fullBtn) fullBtn.disabled = false;
+              if (statusText) statusText.textContent = 'Error';
+            } else {
+              const done = d2.completed || 0;
+              const total = d2.total || '?';
+              if (statusText) statusText.innerHTML = `<span class="btn-spinner"></span> ${done}/${total} probes through Claude...`;
+            }
+          } catch(e2) {}
+        }, 3000);
       }
     }
   } catch(e) {}
