@@ -120,7 +120,7 @@ def test_version():
     runner = CliRunner()
     result = runner.invoke(main, ['--version'])
     assert result.exit_code == 0
-    assert "0.1.0" in result.output
+    assert "bulwark-ai, version" in result.output
 
 
 # ── Enhanced test command ───────────────────────────────────────
