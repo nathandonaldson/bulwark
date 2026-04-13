@@ -125,7 +125,7 @@ async def test_pipeline(request: Request):
         emitter=collector,
     )
 
-    result = pipeline.run(payload, source="test")
+    result = await pipeline.run_async(payload, source="test")
 
     return {
         "payload_length": len(payload),

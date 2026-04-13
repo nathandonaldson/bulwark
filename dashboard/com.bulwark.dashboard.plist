@@ -17,7 +17,7 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>PYTHONPATH</key>
-        <string>/Users/musicmac/Library/Application Support/bulwark-dashboard</string>
+        <string>/Users/musicmac/Library/Application Support/bulwark-dashboard:/Users/musicmac/Library/Application Support/bulwark-dashboard/src</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>

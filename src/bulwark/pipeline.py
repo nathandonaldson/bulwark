@@ -79,7 +79,17 @@ class Pipeline:
         Returns:
             PipelineResult with analysis, optional execution, and trace.
         """
-        return asyncio.run(self._run_impl(content, source, label))
+        try:
+            asyncio.get_running_loop()
+            # Already inside an event loop (e.g. FastAPI). Can't use asyncio.run().
+            # Run in a thread to avoid blocking the loop.
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, self._run_impl(content, source, label))
+                return future.result()
+        except RuntimeError:
+            # No running loop, safe to use asyncio.run()
+            return asyncio.run(self._run_impl(content, source, label))
 
     async def run_async(self, content: str, source: str = "external",
                         label: Optional[str] = None) -> PipelineResult:
