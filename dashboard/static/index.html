@@ -205,11 +205,78 @@
   /* Loading state */
   .loading-msg { color: var(--text-dim); font-size: 13px; padding: 32px; text-align: center; }
 
+  /* Red-teaming section separator */
+  .redteam-separator { display: flex; align-items: center; gap: 16px; margin: 40px 0 24px; }
+  .redteam-separator::before, .redteam-separator::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .redteam-separator-label { font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); white-space: nowrap; }
+
+  /* Red-teaming tool cards */
+  .redteam-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .redteam-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; transition: all 0.3s; }
+  .redteam-card.disabled { opacity: 0.5; }
+  .redteam-card.running { border-color: var(--blue); animation: card-pulse 2s ease-in-out infinite; }
+  @keyframes card-pulse { 0%,100% { border-color: var(--blue); } 50% { border-color: var(--purple); } }
+  .redteam-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .redteam-card-name { font-size: 15px; font-weight: 600; }
+  .redteam-card-version { font-size: 11px; color: var(--text-dim); font-family: 'SF Mono', monospace; }
+  .redteam-card-desc { font-size: 12px; color: var(--text-dim); line-height: 1.5; margin-bottom: 12px; }
+  .redteam-install-hint { font-size: 11px; color: var(--text-dim); margin-bottom: 12px; }
+  .redteam-install-hint code { background: var(--surface-2); padding: 2px 8px; border-radius: 4px; font-family: 'SF Mono', monospace; color: var(--amber); }
+  .redteam-card-footer { display: flex; align-items: center; justify-content: space-between; padding-top: 12px; border-top: 1px solid var(--border); }
+  .redteam-status { font-size: 12px; color: var(--text-dim); }
+  .redteam-btn { font-size: 13px; padding: 6px 16px; border-radius: 6px; border: none; font-weight: 600; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+  .redteam-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .redteam-btn-run { background: var(--blue); color: white; }
+  .redteam-btn-run:hover:not(:disabled) { opacity: 0.85; }
+  .redteam-btn-soon { background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border); }
+
+  /* Spinner inside button */
+  .btn-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Garak report panel */
+  .garak-report { margin-top: 16px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 20px; animation: fadeSlide 0.3s ease-out; }
+  @keyframes fadeSlide { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+  .garak-report-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .garak-report-title { font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); }
+  .garak-report-score { font-size: 28px; font-weight: 700; }
+  .garak-report-score.green { color: var(--green); }
+  .garak-report-score.amber { color: var(--amber); }
+  .garak-report-score.red { color: var(--red); }
+
+  /* Score bar */
+  .score-bar { height: 8px; background: var(--surface); border-radius: 4px; overflow: hidden; margin-bottom: 20px; }
+  .score-bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease-out; }
+  .score-bar-fill.green { background: var(--green); }
+  .score-bar-fill.amber { background: var(--amber); }
+  .score-bar-fill.red { background: var(--red); }
+
+  /* Category breakdown */
+  .probe-breakdown { margin-bottom: 16px; }
+  .probe-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .probe-name { font-size: 12px; color: var(--text); width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .probe-bar { flex: 1; height: 6px; background: var(--surface); border-radius: 3px; overflow: hidden; }
+  .probe-bar-fill { height: 100%; border-radius: 3px; }
+  .probe-pct { font-size: 12px; font-weight: 600; width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* Vulnerability list */
+  .vuln-list { border-top: 1px solid var(--border); padding-top: 16px; }
+  .vuln-list-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--red); margin-bottom: 12px; }
+  .vuln-item { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; }
+  .vuln-probe { font-size: 13px; font-weight: 600; color: var(--red); }
+  .vuln-payload { font-size: 11px; font-family: 'SF Mono', monospace; color: var(--text-dim); margin-top: 4px; word-break: break-all; }
+  .vuln-detector { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+  .vuln-recommendation { font-size: 12px; color: var(--amber); margin-top: 6px; padding: 6px 10px; background: var(--amber-dim); border-radius: 4px; }
+
+  /* All-clear message */
+  .all-clear { display: flex; align-items: center; gap: 10px; padding: 16px; background: var(--green-dim); border: 1px solid var(--green); border-radius: 8px; font-size: 14px; font-weight: 600; color: var(--green); }
+
   /* Responsive */
   @media (max-width: 1024px) {
     .shield-layout, .config-layout, .test-layout { grid-template-columns: 1fr; }
     .integration-grid { grid-template-columns: 1fr; }
     .canary-grid { grid-template-columns: 1fr; }
+    .redteam-grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -377,6 +444,14 @@
       <div id="test-result"></div>
     </div>
   </div>
+
+  <!-- Red-Teaming Section -->
+  <div class="redteam-separator">
+    <span class="redteam-separator-label">Automated Red-Teaming</span>
+  </div>
+  <div class="redteam-grid" id="redteam-cards">
+    <div class="loading-msg">Detecting installed tools...</div>
+  </div>
 </div>
 
 <script>
@@ -422,23 +497,304 @@ async function fetchIntegrations() {
   } catch(e) {}
 }
 
-async function runGarak() {
-  const btn = document.getElementById('garak-run-btn');
-  const status = document.getElementById('garak-status');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Running...'; }
-  if (status) status.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Running Garak probes... this may take a few minutes.</div>';
+// ============================================================
+// Red-Teaming (Test tab)
+// ============================================================
+let detectedTools = {};
+let garakPollTimer = null;
+
+async function detectTools() {
   try {
-    const res = await fetch('/api/garak/run', { method: 'POST' });
-    const data = await res.json();
-    if (data.status === 'complete') {
-      if (status) status.innerHTML = `<div style="font-size:12px;padding:8px 0;color:var(--green)">✓ ${data.total} probes: ${data.passed} defended, ${data.failed} vulnerable (${(data.pass_rate * 100).toFixed(0)}% pass rate)</div>`;
-    } else {
-      if (status) status.innerHTML = `<div style="font-size:12px;padding:8px 0;color:var(--red)">✗ ${data.message || 'Unknown error'}</div>`;
-    }
+    const res = await fetch('/api/integrations/detect');
+    if (res.ok) detectedTools = await res.json();
   } catch(e) {
-    if (status) status.innerHTML = `<div style="font-size:12px;padding:8px 0;color:var(--red)">✗ Connection failed</div>`;
+    detectedTools = { garak: { installed: false }, promptfoo: { installed: false } };
   }
-  if (btn) { btn.disabled = false; btn.textContent = '▶ Run'; }
+  renderRedteamCards();
+  // Check if there's a previous red team result to display
+  try {
+    const r = await fetch('/api/redteam/status');
+    if (r.ok) {
+      const data = await r.json();
+      if (data.status === 'complete') {
+        renderRedTeamReport(data);
+        const statusText = document.getElementById('garak-status-text');
+        if (statusText) statusText.textContent = 'Complete';
+      } else if (data.status === 'running') {
+        const quickBtn = document.getElementById('garak-quick-btn');
+        const fullBtn = document.getElementById('garak-full-btn');
+        const card = document.getElementById('garak-card');
+        const statusText = document.getElementById('garak-status-text');
+        if (quickBtn) quickBtn.disabled = true;
+        if (fullBtn) fullBtn.disabled = true;
+        if (card) card.classList.add('running');
+        if (!garakPollTimer) {
+          garakPollTimer = setInterval(async () => {
+            try {
+              const r2 = await fetch('/api/redteam/status');
+              const d2 = await r2.json();
+              if (d2.status === 'complete') {
+                clearInterval(garakPollTimer);
+                garakPollTimer = null;
+                if (card) card.classList.remove('running');
+                if (quickBtn) quickBtn.disabled = false;
+                if (fullBtn) fullBtn.disabled = false;
+                if (statusText) statusText.textContent = 'Complete';
+                renderRedTeamReport(d2);
+              } else if (d2.status === 'error') {
+                clearInterval(garakPollTimer);
+                garakPollTimer = null;
+                if (card) card.classList.remove('running');
+                if (quickBtn) quickBtn.disabled = false;
+                if (fullBtn) fullBtn.disabled = false;
+                if (statusText) statusText.textContent = 'Error';
+              } else {
+                const done = d2.completed || 0;
+                const total = d2.total || '?';
+                if (statusText) statusText.innerHTML = `<span class="btn-spinner"></span> ${done}/${total} probes through Claude...`;
+              }
+            } catch(e2) {}
+          }, 3000);
+        }
+      }
+    }
+  } catch(e) {}
+}
+
+function renderRedteamCards() {
+  const el = document.getElementById('redteam-cards');
+  if (!el) return;
+
+  const garak = detectedTools.garak || { installed: false };
+  const promptfoo = detectedTools.promptfoo || { installed: false };
+
+  el.innerHTML = renderGarakCard(garak) + renderPromptfooCard(promptfoo);
+}
+
+function renderGarakCard(info) {
+  const installed = info.installed;
+  const version = info.version && info.version !== 'unknown' ? `v${info.version}` : '';
+  const disabledClass = installed ? '' : 'disabled';
+
+  let footerHtml;
+  if (!installed) {
+    footerHtml = `
+      <div class="redteam-install-hint">Install: <code>pip install garak</code></div>
+      <div class="redteam-card-footer">
+        <span class="redteam-status">Not installed</span>
+        <button class="redteam-btn redteam-btn-run" disabled>Run</button>
+      </div>`;
+  } else {
+    footerHtml = `
+      <div class="redteam-card-footer">
+        <span class="redteam-status" id="garak-status-text">Ready</span>
+        <div style="display:flex;gap:6px">
+          <button class="redteam-btn redteam-btn-run" id="garak-quick-btn" onclick="runRedTeam(10)" title="10 probes through production pipeline (~2 min)">Quick Test</button>
+          <button class="redteam-btn redteam-btn-run" id="garak-full-btn" onclick="runRedTeam(0)" title="All 315 probes through production pipeline (~50 min)">Full Scan</button>
+        </div>
+      </div>`;
+  }
+
+  return `<div class="redteam-card ${disabledClass}" id="garak-card">
+    <div class="redteam-card-header">
+      <span class="redteam-card-name">Production Red Team</span>
+      ${version ? `<span class="redteam-card-version">Garak ${escapeHtml(version)}</span>` : ''}
+    </div>
+    <div class="redteam-card-desc">Sends Garak's attack payloads through your production Bulwark+Claude pipeline. Tests the real defense, not a simulation.</div>
+    ${footerHtml}
+    <div id="garak-report"></div>
+  </div>`;
+}
+
+function renderPromptfooCard(info) {
+  const installed = info.installed;
+  const version = info.version ? `v${info.version}` : '';
+  const disabledClass = installed ? '' : 'disabled';
+
+  let footerHtml;
+  if (!installed) {
+    footerHtml = `
+      <div class="redteam-install-hint">Install: <code>npm install -g promptfoo</code></div>
+      <div class="redteam-card-footer">
+        <span class="redteam-status">Not installed</span>
+        <button class="redteam-btn redteam-btn-soon" disabled>Run Scan</button>
+      </div>`;
+  } else {
+    footerHtml = `
+      <div class="redteam-card-footer">
+        <span class="redteam-status">Ready</span>
+        <button class="redteam-btn redteam-btn-soon" disabled>Coming soon</button>
+      </div>`;
+  }
+
+  return `<div class="redteam-card ${disabledClass}" id="promptfoo-card">
+    <div class="redteam-card-header">
+      <span class="redteam-card-name">Promptfoo</span>
+      ${version ? `<span class="redteam-card-version">${escapeHtml(version)}</span>` : ''}
+    </div>
+    <div class="redteam-card-desc">LLM testing and red-teaming framework. Evaluate prompts against custom test suites with assertions and grading.</div>
+    ${footerHtml}
+  </div>`;
+}
+
+async function runRedTeam(maxProbes) {
+  const quickBtn = document.getElementById('garak-quick-btn');
+  const fullBtn = document.getElementById('garak-full-btn');
+  const card = document.getElementById('garak-card');
+  const statusText = document.getElementById('garak-status-text');
+  const report = document.getElementById('garak-report');
+  const label = maxProbes > 0 ? `${maxProbes} probes` : 'all 315 probes';
+
+  if (quickBtn) quickBtn.disabled = true;
+  if (fullBtn) fullBtn.disabled = true;
+  if (card) card.classList.add('running');
+  if (statusText) statusText.innerHTML = `<span class="btn-spinner"></span> Starting ${label}...`;
+  if (report) report.innerHTML = '';
+
+  try {
+    const res = await fetch('/api/redteam/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ max_probes: maxProbes }),
+    });
+    const start = await res.json();
+    if (start.status === 'running') {
+      if (statusText) statusText.innerHTML = '<span class="btn-spinner"></span> Already running...';
+    }
+
+    // Poll for results
+    if (garakPollTimer) clearInterval(garakPollTimer);
+    garakPollTimer = setInterval(async () => {
+      try {
+        const r = await fetch('/api/redteam/status');
+        const data = await r.json();
+        if (data.status === 'complete') {
+          clearInterval(garakPollTimer);
+          garakPollTimer = null;
+          if (card) card.classList.remove('running');
+          if (quickBtn) quickBtn.disabled = false;
+          if (fullBtn) fullBtn.disabled = false;
+          if (statusText) statusText.textContent = 'Complete';
+          renderRedTeamReport(data);
+        } else if (data.status === 'error') {
+          clearInterval(garakPollTimer);
+          garakPollTimer = null;
+          if (card) card.classList.remove('running');
+          if (quickBtn) quickBtn.disabled = false;
+          if (fullBtn) fullBtn.disabled = false;
+          if (statusText) statusText.textContent = 'Error';
+          if (report) report.innerHTML = `<div style="margin-top:12px;font-size:12px;color:var(--red);padding:12px;background:var(--red-dim);border-radius:6px;">${escapeHtml(data.message || 'Unknown error')}</div>`;
+        } else {
+          const done = data.completed || 0;
+          const total = data.total || '?';
+          if (statusText) statusText.innerHTML = `<span class="btn-spinner"></span> ${done}/${total} probes through Claude...`;
+        }
+      } catch(e) {}
+    }, 3000);
+  } catch(e) {
+    if (card) card.classList.remove('running');
+    if (quickBtn) quickBtn.disabled = false;
+    if (fullBtn) fullBtn.disabled = false;
+    if (statusText) statusText.textContent = 'Connection failed';
+  }
+}
+
+function renderRedTeamReport(data) {
+  const report = document.getElementById('garak-report');
+  if (!report) return;
+
+  const pct = Math.round((data.defense_rate || 0) * 100);
+  const duration = data.duration_s ? formatDuration(data.duration_s) : 'N/A';
+  const scoreClass = pct >= 90 ? 'green' : pct >= 70 ? 'amber' : 'red';
+
+  // Defense layer breakdown
+  const byLayer = data.by_layer || {};
+  let layerHtml = '<div class="probe-breakdown">';
+  const layerLabels = {
+    'llm_judgment': 'LLM flagged suspicious',
+    'sanitizer': 'Sanitizer stripped payload',
+    'trust_boundary': 'Trust boundary held',
+    'canary': 'Canary token caught',
+    'guard': 'AnalysisGuard blocked',
+  };
+  const totalDefended = data.defended || 0;
+  for (const [layer, count] of Object.entries(byLayer)) {
+    const layerPct = totalDefended > 0 ? Math.round((count / totalDefended) * 100) : 0;
+    const label = layerLabels[layer] || layer;
+    layerHtml += `<div class="probe-row">
+      <span class="probe-name" title="${escapeHtml(layer)}">${escapeHtml(label)}</span>
+      <div class="probe-bar"><div class="probe-bar-fill" style="width:${layerPct}%;background:var(--green)"></div></div>
+      <span class="probe-pct">${count}</span>
+    </div>`;
+  }
+  layerHtml += '</div>';
+
+  // Probe family breakdown
+  const byFamily = data.by_family || {};
+  let familyHtml = '<div class="probe-breakdown" style="margin-top:12px">';
+  for (const [family, stats] of Object.entries(byFamily)) {
+    const familyPct = stats.total > 0 ? Math.round((stats.defended / stats.total) * 100) : 0;
+    const familyColor = familyPct >= 90 ? 'var(--green)' : familyPct >= 70 ? 'var(--amber)' : 'var(--red)';
+    familyHtml += `<div class="probe-row">
+      <span class="probe-name" title="${escapeHtml(family)}">${escapeHtml(family)}</span>
+      <div class="probe-bar"><div class="probe-bar-fill" style="width:${familyPct}%;background:${familyColor}"></div></div>
+      <span class="probe-pct" style="color:${familyColor}">${stats.defended}/${stats.total}</span>
+    </div>`;
+  }
+  familyHtml += '</div>';
+
+  // Vulnerabilities
+  const results = data.results || [];
+  const vulnerabilities = results.filter(r => !r.defended && !r.error);
+  let vulnHtml = '';
+  if (vulnerabilities.length > 0) {
+    vulnHtml = '<div class="vuln-list"><div class="vuln-list-title">Vulnerabilities Found</div>';
+    for (const v of vulnerabilities.slice(0, 20)) {
+      const payload = v.payload ? v.payload.substring(0, 80) + (v.payload.length > 80 ? '...' : '') : 'N/A';
+      const response = v.llm_response ? v.llm_response.substring(0, 120) + '...' : 'N/A';
+      vulnHtml += `<div class="vuln-item">
+        <div class="vuln-probe">${escapeHtml(v.probe_family)}.${escapeHtml(v.probe_class)}</div>
+        <div class="vuln-payload">${escapeHtml(payload)}</div>
+        <div class="vuln-detector" style="color:var(--text-dim)">Response: ${escapeHtml(response)}</div>
+        <div class="vuln-recommendation">Injection bypassed all layers. Consider adding model-based detection (PromptGuard-86M) at the bridge.</div>
+      </div>`;
+    }
+    if (vulnerabilities.length > 20) vulnHtml += `<div style="padding:8px;color:var(--text-dim);font-size:11px">+ ${vulnerabilities.length - 20} more</div>`;
+    vulnHtml += '</div>';
+  } else if (pct === 100) {
+    vulnHtml = '<div class="all-clear">All probes defended. Your production pipeline caught every attack.</div>';
+  }
+
+  // Errors
+  const errors = results.filter(r => r.error);
+  let errorHtml = '';
+  if (errors.length > 0) {
+    errorHtml = `<div style="margin-top:8px;font-size:11px;color:var(--text-dim)">${errors.length} probe(s) failed to run (timeout or CLI error)</div>`;
+  }
+
+  report.innerHTML = `<div class="garak-report">
+    <div class="garak-report-header">
+      <div>
+        <div class="garak-report-title">PRODUCTION RED TEAM — ${data.total} probes, ${duration}</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${data.defended} defended, ${data.vulnerable} vulnerable, ${data.errors} errors</div>
+      </div>
+      <div class="garak-report-score ${scoreClass}">${pct}%</div>
+    </div>
+    <div class="score-bar"><div class="score-bar-fill ${scoreClass}" style="width:${pct}%"></div></div>
+    <div style="font-size:11px;color:var(--text-dim);margin:8px 0 4px">Blocked by layer:</div>
+    ${layerHtml}
+    <div style="font-size:11px;color:var(--text-dim);margin:8px 0 4px">By probe family:</div>
+    ${familyHtml}
+    ${vulnHtml}
+    ${errorHtml}
+  </div>`;
+}
+
+function formatDuration(seconds) {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}m ${s}s`;
 }
 
 async function toggleIntegration(name, enabled) {
@@ -535,18 +891,15 @@ function renderIntegrations() {
   const el = document.getElementById('config-integrations');
   if (!el) return;
 
+  // Only show detection integrations in the Configure tab
   const detection = Object.entries(integrationsData).filter(([k,v]) => v.type === 'detection');
-  const testing = Object.entries(integrationsData).filter(([k,v]) => v.type === 'testing');
 
   function cardHtml([key, info]) {
     const enabled = info.enabled;
-    const badgeClass = enabled ? 'active' : info.type === 'testing' ? 'testing' : 'detection';
-    const badgeText = enabled ? 'Active' : info.type === 'testing' ? 'Testing' : 'Detection';
+    const badgeClass = enabled ? 'active' : 'detection';
+    const badgeText = enabled ? 'Active' : 'Detection';
     const latency = info.latency_ms ? `~${info.latency_ms}ms latency` : 'Runs on demand';
     const size = info.size_mb ? `, ${info.size_mb}MB model` : '';
-
-    const runBtn = (key === 'garak' && enabled) ?
-      `<button class="integration-btn" id="garak-run-btn" onclick="runGarak()" style="margin-right:8px">▶ Run</button>` : '';
 
     return `<div class="integration-card ${enabled ? 'enabled' : ''}">
       <div class="integration-header">
@@ -554,10 +907,9 @@ function renderIntegrations() {
         <span class="integration-badge ${badgeClass}">${badgeText}</span>
       </div>
       <div class="integration-desc">${escapeHtml(info.description)}</div>
-      <div id="${key}-status"></div>
       <div class="integration-footer">
         <span class="integration-latency">${latency}${size}</span>
-        <div style="display:flex;gap:6px;align-items:center">${runBtn}<button class="integration-btn ${enabled ? 'enabled' : ''}" onclick="toggleIntegration('${key}', ${!enabled})">${enabled ? 'Enabled' : 'Enable'}</button></div>
+        <button class="integration-btn ${enabled ? 'enabled' : ''}" onclick="toggleIntegration('${key}', ${!enabled})">${enabled ? 'Enabled' : 'Enable'}</button>
       </div>
     </div>`;
   }
@@ -565,12 +917,6 @@ function renderIntegrations() {
   let html = '<h3>Detection (plug into AnalysisGuard)</h3><div class="integration-grid">';
   html += detection.map(cardHtml).join('');
   html += '</div>';
-
-  if (testing.length > 0) {
-    html += '<h3 style="margin-top: 24px;">Red-Teaming</h3><div class="integration-grid">';
-    html += testing.map(cardHtml).join('');
-    html += '</div>';
-  }
 
   el.innerHTML = html;
 }
@@ -620,6 +966,9 @@ function showPage(name) {
   if (name === 'configure') {
     fetchConfig();
     fetchIntegrations();
+  }
+  if (name === 'test') {
+    detectTools();
   }
 }
 
@@ -1047,6 +1396,7 @@ window.addEventListener('DOMContentLoaded', () => {
   initPresets();
   fetchConfig();
   fetchIntegrations();
+  detectTools();
   metricsRefreshTimer = setInterval(() => {
     fetchMetrics();
     fetchTimeseries();

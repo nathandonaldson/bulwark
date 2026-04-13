@@ -10,4 +10,4 @@
 - [Dashboard](dashboard.md) — setup, event streaming, webhook integration
 - [Detection plugins](detection.md) — plugging in PromptGuard, LLM Guard, custom classifiers
 - [CLI reference](cli.md) — all commands and flags
-- [Red teaming](red-teaming.md) — built-in attacks, Garak integration, external tools
+- [Red teaming](red-teaming.md) — built-in attacks, production red team runner, Garak integration

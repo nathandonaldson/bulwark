@@ -1,10 +1,10 @@
 # Red Teaming
 
-Prove your defenses work. Don't trust claims, run attacks.
+Prove your defenses work. Run attacks, not just tests.
 
 ## Built-in attacks
 
-77 patterns across 10 categories:
+77 patterns across 10 categories. No LLM calls needed, runs locally in seconds.
 
 | Category | Count | What it tests |
 |---|---|---|
@@ -20,25 +20,27 @@ Prove your defenses work. Don't trust claims, run attacks.
 | multi_turn | 5 | Multi-message injection chains |
 
 ```bash
-bulwark test --full -v    # All 77 with details
+bulwark test                  # 8 preset attacks, 2 seconds
+bulwark test --full           # All 77 with details
+bulwark test --full -v        # Verbose per-attack breakdown
+bulwark test -c steganography # Filter by category
 ```
 
-## Garak integration
+## Production red team
 
-[Garak](https://github.com/leondz/garak) is an LLM vulnerability scanner with constantly-updated probe libraries.
+The dashboard's Test tab includes a production red team runner. This is not a simulation. It sends Garak's 315 attack payloads through your actual pipeline: Sanitizer, TrustBoundary, real LLM call (Claude via CLI), canary check. Then evaluates whether the LLM followed its instructions or the injection hijacked it.
 
-```bash
-pip install bulwark-ai[testing]
+Two modes:
+- **Quick Test** (10 probes, ~2 min) for fast validation
+- **Full Scan** (315 probes, ~50 min) for complete coverage
 
-# Run Garak probes against Bulwark
-bulwark test --garak
+The report shows:
+- Overall defense rate
+- Which layer caught each attack (sanitizer, trust boundary, LLM judgment)
+- Per-probe-family breakdown
+- Specific vulnerabilities with recommendations
 
-# Or run Garak externally and import results
-garak --model_type test.Blank --probes promptinject -o results.jsonl
-bulwark test --garak-import results.jsonl
-```
-
-Results flow into the dashboard event stream for visualization.
+Requires `pip install garak` for the probe payloads. LLM calls use your existing claude CLI auth.
 
 ## Programmatic validation
 
@@ -57,8 +59,23 @@ print(f"Blocked: {report.blocked}/{report.total}")
 print(f"Exposed: {report.exposed}/{report.total}")
 ```
 
+## Production red team (programmatic)
+
+```python
+from bulwark.integrations.redteam import ProductionRedTeam
+
+runner = ProductionRedTeam(
+    project_dir="/path/to/your/project",
+    max_probes=10,  # 0 for all 315
+    delay_ms=200,   # rate limiting between LLM calls
+)
+summary = runner.run()
+print(f"Defense rate: {summary.defense_rate:.0%}")
+print(f"By layer: {summary.by_layer}")
+```
+
 ## External tools
 
-- [Garak](https://github.com/leondz/garak) — LLM vulnerability scanner
+- [Garak](https://github.com/leondz/garak) — LLM vulnerability scanner (probe payloads used by the production red team)
 - [Promptfoo](https://github.com/promptfoo/promptfoo) — red-team evaluation framework
 - [PromptBench](https://github.com/microsoft/promptbench) — benchmark for prompt robustness

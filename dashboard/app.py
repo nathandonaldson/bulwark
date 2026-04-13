@@ -215,34 +215,169 @@ async def prune_events(days: int = Query(default=30)):
     return {"pruned": count}
 
 
+# Background task state (Garak and Red Team)
+_garak_task: Optional[asyncio.Task] = None
+_garak_result: dict = {}
+_redteam_task: Optional[asyncio.Task] = None
+_redteam_result: dict = {}
+
+
 @app.post("/api/garak/run")
 async def run_garak():
-    """Run Garak probes and return results. Events are emitted to the dashboard."""
-    from bulwark.integrations.garak import GarakAdapter
+    """Start Garak probes in the background. Poll /api/garak/status for results."""
+    global _garak_task, _garak_result
+
+    if _garak_task and not _garak_task.done():
+        return {"status": "running", "message": "Garak is already running"}
+
+    _garak_result = {"status": "running"}
+    _garak_start_time = time.time()
+
+    async def _run_in_background():
+        global _garak_result
+        from bulwark.integrations.garak import GarakAdapter
+        from bulwark.events import WebhookEmitter
+        import concurrent.futures
+
+        emitter = WebhookEmitter("http://127.0.0.1:3000/api/events")
+        try:
+            adapter = GarakAdapter(emitter=emitter)
+            # Run blocking subprocess in a thread
+            loop = asyncio.get_running_loop()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                summary = await loop.run_in_executor(pool, adapter.run)
+            if "garak" not in config.integrations:
+                config.integrations["garak"] = IntegrationConfig()
+            config.integrations["garak"].installed = True
+            config.integrations["garak"].last_used = __import__("time").time()
+            config.save()
+            _garak_result = {
+                "status": "complete",
+                "total": summary.total,
+                "passed": summary.passed,
+                "failed": summary.failed,
+                "pass_rate": summary.pass_rate,
+                "probes_tested": summary.probes_tested,
+                "duration_s": round(__import__("time").time() - _garak_start_time, 1),
+                "results": [
+                    {
+                        "probe": r.probe,
+                        "prompt": r.prompt[:200],
+                        "output": r.output[:200] if r.output else "",
+                        "detector": r.detector,
+                        "passed": r.passed,
+                        "score": r.score,
+                    }
+                    for r in summary.results
+                ],
+            }
+        except Exception as e:
+            _garak_result = {"status": "error", "message": str(e)}
+
+    _garak_task = asyncio.create_task(_run_in_background())
+    return {"status": "started", "message": "Garak probes started. Poll /api/garak/status for results."}
+
+
+@app.get("/api/garak/status")
+async def garak_status():
+    """Check the status of a running Garak scan."""
+    return _garak_result
+
+
+def _make_emitter():
     from bulwark.events import WebhookEmitter
+    return WebhookEmitter("http://127.0.0.1:3000/api/events")
 
-    emitter = WebhookEmitter("http://127.0.0.1:3000/api/events")
 
+@app.post("/api/redteam/run")
+async def run_redteam(request: Request):
+    """Start production red team in the background."""
+    global _redteam_task, _redteam_result
+
+    if _redteam_task and not _redteam_task.done():
+        return {"status": "running", "message": "Red team is already running"}
+
+    body = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    max_probes = body.get("max_probes", 0)
+
+    _redteam_result = {"status": "running", "completed": 0, "total": 0}
+
+    async def _run_in_background():
+        global _redteam_result
+        from bulwark.integrations.redteam import ProductionRedTeam
+        import concurrent.futures
+
+        # Find project root (parent of bulwark-ai/)
+        project_dir = str(Path(__file__).parent.parent.parent)
+
+        def on_progress(completed, total):
+            _redteam_result["completed"] = completed
+            _redteam_result["total"] = total
+
+        try:
+            runner = ProductionRedTeam(
+                project_dir=project_dir,
+                delay_ms=200,
+                max_probes=max_probes,
+                emitter=_make_emitter(),
+                on_progress=on_progress,
+            )
+            loop = asyncio.get_running_loop()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                summary = await loop.run_in_executor(pool, runner.run)
+
+            _redteam_result = {
+                "status": "complete",
+                "total": summary.total,
+                "defended": summary.defended,
+                "vulnerable": summary.vulnerable,
+                "errors": summary.errors,
+                "defense_rate": summary.defense_rate,
+                "duration_s": summary.duration_s,
+                "by_layer": summary.by_layer,
+                "by_family": summary.by_family,
+                "results": [
+                    {
+                        "probe_family": r.probe_family,
+                        "probe_class": r.probe_class,
+                        "payload": r.payload[:200],
+                        "llm_response": r.llm_response[:300],
+                        "defended": r.defended,
+                        "blocked_by": r.blocked_by,
+                        "sanitizer_modified": r.sanitizer_modified,
+                        "suspicious_flagged": r.suspicious_flagged,
+                        "classification": r.classification,
+                        "error": r.error,
+                    }
+                    for r in summary.results
+                ],
+            }
+        except Exception as e:
+            _redteam_result = {"status": "error", "message": str(e)}
+
+    _redteam_task = asyncio.create_task(_run_in_background())
+    return {"status": "started"}
+
+
+@app.get("/api/redteam/status")
+async def redteam_status():
+    """Check status of running red team scan."""
+    return _redteam_result
+
+
+@app.get("/api/integrations/detect")
+async def detect_integrations():
+    """Check which testing tools are actually installed."""
+    results = {}
     try:
-        adapter = GarakAdapter(emitter=emitter)
-        summary = adapter.run()
-        # Update integration status
-        if "garak" not in config.integrations:
-            config.integrations["garak"] = IntegrationConfig()
-        config.integrations["garak"].installed = True
-        config.integrations["garak"].last_used = __import__("time").time()
-        config.save()
-        return {
-            "status": "complete",
-            "total": summary.total,
-            "passed": summary.passed,
-            "failed": summary.failed,
-            "pass_rate": summary.pass_rate,
-            "probes_tested": summary.probes_tested,
-        }
-    except FileNotFoundError:
-        return {"status": "error", "message": "Garak not installed. Run: pip install garak"}
-    except RuntimeError as e:
-        return {"status": "error", "message": str(e)}
-    except Exception as e:
-        return {"status": "error", "message": f"Unexpected error: {type(e).__name__}"}
+        import garak
+        results["garak"] = {"installed": True, "version": getattr(garak, "__version__", "unknown")}
+    except ImportError:
+        results["garak"] = {"installed": False}
+    try:
+        import subprocess as _sp
+        r = _sp.run(["promptfoo", "--version"], capture_output=True, text=True, timeout=5)
+        results["promptfoo"] = {"installed": r.returncode == 0, "version": r.stdout.strip() if r.returncode == 0 else None}
+    except Exception:
+        results["promptfoo"] = {"installed": False}
+    return results
