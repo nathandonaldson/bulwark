@@ -11,3 +11,4 @@
 - [Detection plugins](detection.md) — ProtectAI DeBERTa, PromptGuard-86M, LLM Guard, custom classifiers
 - [CLI reference](cli.md) — all commands and flags
 - [Red teaming](red-teaming.md) — built-in attacks, production red team runner, Garak integration
+- [Roadmap](../ROADMAP.md) — what's shipped, what's next

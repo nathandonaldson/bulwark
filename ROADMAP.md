@@ -1,57 +1,39 @@
 # Bulwark Roadmap
 
-## Current State (v0.5)
+## Current State (v0.2.1)
 
-9 modules, 410+ tests, defense-in-depth hardened. All in `bulwark-ai/`.
+14 source modules, 617 tests, production red team validated (315/315 probes defended).
 
-### Modules shipped:
-| Module | File | Tests | Status |
-|--------|------|-------|--------|
-| Sanitizer | `sanitizer.py` | 91 | ✅ Complete — emoji smuggling, bidi, NFKC normalization |
-| TrustBoundary | `trust_boundary.py` | 35 | ✅ Complete |
-| CanarySystem | `canary.py` | 54 | ✅ Complete — encoding-resistant (base64, hex, reversed) |
-| TwoPhaseExecutor | `executor.py` | 52 | ✅ Complete — bridge hardened (AnalysisGuard, sanitize_bridge, require_json) |
-| MapReduceIsolator | `isolator.py` | 49 | ✅ Complete |
-| AttackSuite | `attacks.py` | 35 | ✅ 41 attacks, 10 categories |
-| PipelineValidator | `validator.py` | 29 | ✅ Complete |
-| CLI | `cli.py` | 11 | ✅ sanitize, canary-check, canary-generate, wrap, test |
-| Pipeline | `pipeline.py` | 54+ | ✅ Complete — chains all layers, YAML config, PipelineResult with trace |
+### Shipped
+- 5 defense layers: Sanitizer, TrustBoundary, TwoPhaseExecutor, CanarySystem, MapReduceIsolator
+- Pipeline orchestrator with async support
+- 77 attack patterns across 10 categories
+- Production red team runner (Garak probes through real Bulwark+Claude pipeline)
+- ProtectAI DeBERTa detection integration (ungated, 99.99% accuracy)
+- PromptGuard-86M support (pending HuggingFace approval)
+- Anthropic SDK integration
+- Interactive dashboard with shield visualization, event stream, config management, red teaming
+- `bulwark test` CLI with color output
+- GitHub Actions CI (Python 3.11, 3.12, 3.13)
+- PyPI publish workflow (tag-triggered)
+- Security audited, eng reviewed, benchmarked (<1ms deterministic layers)
 
-### Also shipped:
-- `README.md` — full docs with quick start
-- `examples/email_triage.py` — end-to-end example
-- `pyproject.toml` — pip install ready
-- `tests/conftest.py` — shared fixtures
+### v0.3.0 (next)
+- **LLM Guard integration** — broader scanner coverage (PII, toxicity, prompt injection)
+- **Dashboard auth** — bearer token for non-localhost deployments
+- **Dashboard sync automation** — run from repo or auto-sync on commit (stop manual file copying)
+- **Python 3.13 test fix** — Unicode handling edge case in isolator integration test
 
-## Next Steps (v1.0)
-
-### Ready to ship:
-1. **PyPI publish** — `pip install bulwark-ai`. pyproject.toml is ready. Need to create PyPI account and publish.
-
-2. ~~**Pipeline class**~~ — ✅ Shipped in v0.5. `Pipeline.default()` chains Sanitizer → TrustBoundary → Phase 1 → Guard Bridge → Sanitize Bridge → Canary Check → Phase 2 into one `Pipeline.run()` call. Returns `PipelineResult` with analysis, execution, blocked, neutralized, and per-layer trace.
-
-3. ~~**YAML config**~~ — ✅ Shipped in v0.5. `Pipeline.from_config("bulwark-config.yaml")` loads declarative config.
-
-4. **Anthropic SDK integration** — Helper that creates `analyze_fn` and `execute_fn` from an Anthropic client with proper tool restrictions. `from bulwark.integrations.anthropic import make_analyze_fn, make_execute_fn`.
-
-### Future (v1.0+):
-5. **LangChain integration** — `bulwark.integrations.langchain` with BulwarkSanitizer, BulwarkCanaryChecker, BulwarkTwoPhaseChain
-6. **MCP server** — Expose stateless utilities as MCP tools
-7. **Async support** — `await executor.run_async()`
-8. **Observability** — Structured logging, OpenTelemetry spans
-9. **More attack patterns** — Expand from 41 to 75+ attacks
-10. **CaMeL-style capability tracking** — Fine-grained information flow control
-11. **PromptGuard-86M / PIGuard integration** — Pluggable model-based detection at the AnalysisGuard layer (complement regex-based defaults with ML classifiers)
-12. **Garak plugin** — Red-team Bulwark pipelines with Garak's full attack library
-13. **Promptfoo provider** — CI testing of Bulwark pipeline effectiveness
+### Future
+- **Promptfoo CI eval pipeline** — assertion-based regression testing for defenses
+- **MCP/universal proxy** — Bulwark as infrastructure you deploy in front of your tools
+- **LangChain integration** — first-class module if adoption warrants
+- **CaMeL-style capability tracking** — fine-grained information flow control
+- **More attack patterns** — expand from 77+ with community contributions
 
 ## Design Context
 
-The full design document was produced by a research agent during this session. Key decisions:
-- Provider-agnostic: LLM calls via `Callable[[str], str]`, not tied to Anthropic/OpenAI
-- Defense-in-depth: 5 layers, each independent, any combination valid
-- Architectural > detection: two-phase split is deterministic, not probabilistic
-- Born from production: extracted from Wintermute agent's real email triage defenses
+Extracted from production defenses in the Wintermute personal AI agent. The Wintermute agent processes email, calendar, and Slack data daily through Bulwark's pipeline. The production red team (315 Garak probes through Claude Haiku) achieved 100% defense rate.
 
 ## Running Tests
 
@@ -59,7 +41,3 @@ The full design document was produced by a research agent during this session. K
 cd bulwark-ai
 PYTHONPATH=src python3 -m pytest tests/ -v
 ```
-
-## Origin
-
-Extracted from prompt injection defenses built for Wintermute (personal AI agent) on 2026-04-08/09. The defenses in `bin/scheduled-check`, `bin/morning-briefing`, `bin/classify-email`, `bin/sanitize-email-body`, and `bin/check-canary` are the production implementations. Bulwark is the generalized, reusable toolkit.
