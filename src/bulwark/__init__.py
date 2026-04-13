@@ -24,8 +24,11 @@ from bulwark.attacks import AttackSuite
 from bulwark.validator import PipelineValidator, ValidationReport
 from bulwark.pipeline import Pipeline, PipelineResult
 
-from pathlib import Path as _Path
-__version__ = (_Path(__file__).parent.parent.parent / "VERSION").read_text().strip() if (_Path(__file__).parent.parent.parent / "VERSION").exists() else "0.1.0"
+try:
+    from importlib.metadata import version as _get_version
+    __version__ = _get_version("bulwark-ai")
+except Exception:
+    __version__ = "0.1.0"
 __all__ = [
     "Sanitizer",
     "TrustBoundary",

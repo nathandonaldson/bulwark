@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -12,6 +13,15 @@ from bulwark.trust_boundary import TrustBoundary
 from bulwark.canary import CanarySystem
 from bulwark.executor import (
     AnalysisGuard, AnalysisSuspiciousError, SECURE_EXECUTE_TEMPLATE,
+)
+
+# Module-level thread pool for sync run() inside async contexts (e.g. FastAPI)
+_SYNC_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+# Pre-built bridge sanitizer (strips zero-width/control chars only, no HTML/CSS)
+_BRIDGE_SANITIZER = Sanitizer(
+    strip_html=False, strip_scripts=False,
+    strip_css_hidden=False, collapse_whitespace=False, max_length=None,
 )
 from bulwark.events import EventEmitter
 
@@ -81,15 +91,11 @@ class Pipeline:
         """
         try:
             asyncio.get_running_loop()
-            # Already inside an event loop (e.g. FastAPI). Can't use asyncio.run().
-            # Run in a thread to avoid blocking the loop.
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(asyncio.run, self._run_impl(content, source, label))
-                return future.result()
         except RuntimeError:
-            # No running loop, safe to use asyncio.run()
             return asyncio.run(self._run_impl(content, source, label))
+        # Already inside an event loop (e.g. FastAPI). Run in a thread.
+        future = _SYNC_POOL.submit(asyncio.run, self._run_impl(content, source, label))
+        return future.result()
 
     async def run_async(self, content: str, source: str = "external",
                         label: Optional[str] = None) -> PipelineResult:
@@ -221,14 +227,7 @@ class Pipeline:
         # -- Step 6: Sanitize bridge --
         if self.sanitize_bridge:
             step += 1
-            bridge_sanitizer = Sanitizer(
-                strip_html=False,
-                strip_scripts=False,
-                strip_css_hidden=False,
-                collapse_whitespace=False,
-                max_length=None,
-            )
-            sanitized_analysis = bridge_sanitizer.clean(analysis)
+            sanitized_analysis = _BRIDGE_SANITIZER.clean(analysis)
             bridge_modified = sanitized_analysis != analysis
             analysis = sanitized_analysis
             trace.append({
