@@ -13,6 +13,9 @@ from dashboard.db import EventDB
 from dashboard.config import BulwarkConfig, AVAILABLE_INTEGRATIONS, IntegrationConfig
 
 app = FastAPI(title="Bulwark Dashboard", version="0.1.0")
+
+from dashboard.api_v1 import router as v1_router
+app.include_router(v1_router)
 db = EventDB()
 config = BulwarkConfig.load()
 

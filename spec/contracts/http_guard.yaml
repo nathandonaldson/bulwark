@@ -1,0 +1,21 @@
+endpoint: POST /v1/guard
+version: "0.3.0"
+
+guarantees:
+  - id: G-HTTP-GUARD-001
+    summary: Returns 200 with safe=true when text passes all checks
+  - id: G-HTTP-GUARD-002
+    summary: Returns 200 with safe=false and reason when injection detected
+  - id: G-HTTP-GUARD-003
+    summary: Returns 200 with safe=false and check="canary" when canary token leaked
+  - id: G-HTTP-GUARD-004
+    summary: Returns 422 when required text field is missing
+  - id: G-HTTP-GUARD-005
+    summary: Canary check skipped when canary_tokens is null
+  - id: G-HTTP-GUARD-006
+    summary: Text field in response is always the exact input text, unchanged
+
+non_guarantees:
+  - id: NG-HTTP-GUARD-001
+    summary: Exact reason string format is not guaranteed across versions
+    reason: Error messages may be tuned. Clients should check safe=true/false, not parse reason.

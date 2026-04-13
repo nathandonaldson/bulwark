@@ -1,0 +1,45 @@
+function: bulwark.clean
+module: bulwark.shortcuts
+version: "0.3.0"
+
+guarantees:
+  - id: G-CLEAN-001
+    summary: Returns a string
+  - id: G-CLEAN-002
+    summary: Zero-width Unicode characters (U+200B, U+200C, U+200D, U+FEFF) are removed
+  - id: G-CLEAN-003
+    summary: HTML script/style tags and content are removed
+  - id: G-CLEAN-004
+    summary: Output is wrapped in trust boundary tags
+  - id: G-CLEAN-005
+    summary: Source parameter appears in boundary tag name
+  - id: G-CLEAN-006
+    summary: Security instruction text is included in boundary
+  - id: G-CLEAN-007
+    summary: Content is NOT truncated when max_length is None (default)
+  - id: G-CLEAN-008
+    summary: Content IS truncated when explicit max_length is provided
+  - id: G-CLEAN-009
+    summary: format="markdown" produces markdown fence boundaries (no XML tags)
+  - id: G-CLEAN-010
+    summary: format="delimiter" produces delimiter boundaries (no XML tags)
+  - id: G-CLEAN-011
+    summary: TypeError raised for non-string content
+  - id: G-CLEAN-012
+    summary: ValueError raised for invalid format parameter
+  - id: G-CLEAN-013
+    summary: Empty string input produces trust boundary with empty content
+
+non_guarantees:
+  - id: NG-CLEAN-001
+    summary: Does NOT detect semantic prompt injection
+    reason: clean() sanitizes and tags, it does not analyze content semantically. Use guard() or Pipeline.
+  - id: NG-CLEAN-002
+    summary: Does NOT decode base64, hex, or other encodings in content
+    reason: Content is sanitized as-is. Encoding detection is a separate concern.
+  - id: NG-CLEAN-003
+    summary: LLM compliance with trust boundary tags is NOT guaranteed
+    reason: Depends on LLM training. XML works well for Claude, other models vary.
+  - id: NG-CLEAN-004
+    summary: Calling clean() twice will double-wrap (NOT idempotent)
+    reason: By design. Content is always wrapped, even if already wrapped.
