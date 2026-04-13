@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Production red team runner** sends Garak's 315 attack probes through the real Bulwark+Claude pipeline and evaluates results. Quick Test (10 probes) and Full Scan (315 probes) from the dashboard.
+- **Red teaming moved to Test tab** with auto-detection of installed tools (greyed out if Garak/Promptfoo not installed).
+- **Inline red team report** with defense score, blocked-by-layer breakdown, per-family results, and vulnerability details with recommendations.
+- `/api/redteam/run` and `/api/redteam/status` endpoints for background red team execution.
+
+### Changed
+- Dashboard configure tab now only shows detection integrations. Red teaming tools live in the Test tab.
+
+### Fixed
+- Garak adapter uses `python -m garak` (works when pip-installed, not just CLI).
+- Garak adapter uses `--report_prefix` for predictable report file paths.
+- Dashboard runs Garak/red team in background (non-blocking, poll for status).
+- Claude CLI found by absolute path for launchd services.
+
 ## [0.1.0] - 2026-04-13
 
 Initial open source release. Extracted from production defenses in the Wintermute AI agent.
