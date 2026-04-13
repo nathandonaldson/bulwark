@@ -29,36 +29,29 @@ DEFAULT_PATTERNS = [
 ]
 
 AVAILABLE_INTEGRATIONS = {
+    "protectai": {
+        "name": "ProtectAI DeBERTa",
+        "type": "detection",
+        "description": "Prompt injection classifier. Ungated, works immediately. Recommended default.",
+        "model": "protectai/deberta-v3-base-prompt-injection-v2",
+        "latency_ms": 30,
+        "size_mb": 180,
+    },
     "promptguard": {
         "name": "PromptGuard-86M",
         "type": "detection",
-        "description": "Meta's fine-tuned mDeBERTa classifier for prompt injection detection",
+        "description": "Meta's mDeBERTa classifier for prompt injection. Requires HuggingFace approval.",
         "model": "meta-llama/Prompt-Guard-86M",
         "latency_ms": 50,
         "size_mb": 184,
-    },
-    "piguard": {
-        "name": "PIGuard",
-        "type": "detection",
-        "description": "Lower false-positive rate prompt injection detector",
-        "model": "piguard/piguard",
-        "latency_ms": 45,
-        "size_mb": 184,
+        "gated": True,
     },
     "llm_guard": {
         "name": "LLM Guard",
         "type": "detection",
-        "description": "Input/output scanners for PII, toxicity, and prompt injection",
+        "description": "Input/output scanners for PII, toxicity, and prompt injection. Coming soon.",
         "package": "llm-guard",
         "latency_ms": 120,
-        "size_mb": None,
-    },
-    "nemo": {
-        "name": "NeMo Guardrails",
-        "type": "detection",
-        "description": "NVIDIA's programmable rails for conversation flow control",
-        "package": "nemoguardrails",
-        "latency_ms": 200,
         "size_mb": None,
     },
     "garak": {
@@ -66,14 +59,6 @@ AVAILABLE_INTEGRATIONS = {
         "type": "testing",
         "description": "LLM vulnerability scanner with hundreds of attack probes",
         "package": "garak",
-        "latency_ms": None,
-        "size_mb": None,
-    },
-    "promptfoo": {
-        "name": "Promptfoo",
-        "type": "testing",
-        "description": "LLM testing and red-teaming framework",
-        "package": "promptfoo",
         "latency_ms": None,
         "size_mb": None,
     },

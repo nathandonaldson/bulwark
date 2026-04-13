@@ -118,12 +118,26 @@ async def test_pipeline(request: Request):
     canary_file = Path(__file__).parent.parent.parent / "knowledge" / "comms" / "canaries.json"
     canary = CanarySystem.from_file(str(canary_file)) if canary_file.exists() else None
 
-    # Use a mock analyze_fn that returns the input as-is (we're testing defenses, not LLM output)
-    pipeline = Pipeline.default(
-        analyze_fn=lambda prompt: payload,  # Echo payload as "analysis" to test guard
-        canary=canary,
-        emitter=collector,
-    )
+    # Build pipeline from config (respects dashboard toggles) or defaults
+    config_path = Path(__file__).parent.parent / "bulwark-config.yaml"
+    if config_path.exists():
+        pipeline = Pipeline.from_config(
+            str(config_path),
+            analyze_fn=lambda prompt: payload,  # Echo payload as "analysis" to test guard
+        )
+        pipeline.emitter = collector
+        if canary:
+            pipeline.canary = canary
+    else:
+        pipeline = Pipeline.default(
+            analyze_fn=lambda prompt: payload,
+            canary=canary,
+            emitter=collector,
+        )
+
+    # Attach any active detection model checks
+    if _detection_checks and pipeline.analysis_guard is not None:
+        pipeline.analysis_guard.custom_checks = list(_detection_checks.values())
 
     result = await pipeline.run_async(payload, source="test")
 
@@ -185,6 +199,77 @@ async def list_integrations():
             "last_used": int_config.last_used,
         }
     return result
+
+
+# Loaded detection models (kept in memory while dashboard runs)
+_detection_checks: dict[str, object] = {}
+
+
+@app.post("/api/integrations/{name}/activate")
+async def activate_integration(name: str):
+    """Load a detection model and register it as an AnalysisGuard check.
+
+    This actually loads the model into memory (not just toggling a config flag).
+    """
+    import concurrent.futures
+
+    if name == "promptguard":
+        model_key = "promptguard"
+        model_label = "PromptGuard-86M"
+    elif name == "protectai":
+        model_key = "protectai"
+        model_label = "ProtectAI DeBERTa"
+    elif name == "piguard":
+        return {"status": "error", "message": "PIGuard integration not yet implemented"}
+    elif name == "llm_guard":
+        return {"status": "error", "message": "LLM Guard integration not yet implemented"}
+    elif name == "nemo":
+        return {"status": "error", "message": "NeMo Guardrails integration not yet implemented"}
+    else:
+        return {"status": "error", "message": f"Unknown integration: {name}"}
+
+    try:
+        from bulwark.integrations.promptguard import load_detector, create_check
+
+        # Load model in thread (can take a few seconds on first download)
+        loop = asyncio.get_running_loop()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            detector = await loop.run_in_executor(pool, lambda: load_detector(model_key))
+
+        check_fn = create_check(detector)
+        _detection_checks[name] = check_fn
+
+        # Update config
+        if name not in config.integrations:
+            config.integrations[name] = IntegrationConfig()
+        config.integrations[name].enabled = True
+        config.integrations[name].installed = True
+        config.integrations[name].last_used = time.time()
+        config.save()
+
+        return {
+            "status": "active",
+            "model": model_label,
+            "message": f"{model_label} loaded and registered as bridge check",
+        }
+    except ImportError as e:
+        return {"status": "error", "message": f"Missing dependency: {e}. Run: pip install transformers torch"}
+    except OSError as e:
+        msg = str(e)
+        if "gated" in msg.lower() or "awaiting" in msg.lower():
+            return {"status": "error", "message": f"{model_label} requires HuggingFace approval. Check https://huggingface.co/meta-llama/Prompt-Guard-86M"}
+        return {"status": "error", "message": f"Failed to load model: {msg[:200]}"}
+    except Exception as e:
+        return {"status": "error", "message": f"Unexpected error: {type(e).__name__}: {str(e)[:200]}"}
+
+
+@app.get("/api/integrations/active-checks")
+async def active_checks():
+    """List currently loaded detection models."""
+    return {
+        "active": list(_detection_checks.keys()),
+        "count": len(_detection_checks),
+    }
 
 
 @app.put("/api/integrations/{name}")
@@ -374,10 +459,4 @@ async def detect_integrations():
         results["garak"] = {"installed": True, "version": getattr(garak, "__version__", "unknown")}
     except ImportError:
         results["garak"] = {"installed": False}
-    try:
-        import subprocess as _sp
-        r = _sp.run(["promptfoo", "--version"], capture_output=True, text=True, timeout=5)
-        results["promptfoo"] = {"installed": r.returncode == 0, "version": r.stdout.strip() if r.returncode == 0 else None}
-    except Exception:
-        results["promptfoo"] = {"installed": False}
     return results

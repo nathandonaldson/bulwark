@@ -49,24 +49,20 @@ Phase 1 can't act. Phase 2 can't see the attack. The bridge catches anything tha
 
 ## Pluggable detection
 
-The architecture handles structural defense. For detection, plug any classifier into the bridge:
+The architecture handles structural defense. For detection, plug a classifier into the bridge. One line:
 
 ```python
-from bulwark import Pipeline, AnalysisGuard, AnalysisSuspiciousError
+from bulwark.integrations.promptguard import detect_and_create
+from bulwark import Pipeline, AnalysisGuard
 
-detector = hf_pipeline("text-classification", model="meta-llama/Prompt-Guard-86M")
-
-def promptguard_check(analysis: str) -> None:
-    result = detector(analysis)
-    if result[0]["label"] == "INJECTION" and result[0]["score"] > 0.9:
-        raise AnalysisSuspiciousError(f"Injection: {result[0]['score']:.3f}")
-
-guard = AnalysisGuard(custom_checks=[promptguard_check])
+guard = AnalysisGuard(custom_checks=[detect_and_create()])
 pipeline = Pipeline.default(analyze_fn=my_fn)
 pipeline.analysis_guard = guard
 ```
 
-Works with PromptGuard-86M, PIGuard, LLM Guard, NeMo Guardrails, or any function that raises on suspicious input. Bulwark ships with regex-based guards by default. Add model-based detection when you need higher catch rates on paraphrased attacks.
+Uses ProtectAI's DeBERTa model by default (ungated, 99.99% accuracy, ~30ms). Also supports Meta's PromptGuard-86M (gated, requires HuggingFace approval). Or plug in any function that raises on suspicious input. [Detailed docs →](docs/detection.md)
+
+In the dashboard, click "Activate" on any detection model in the Configure tab. It loads into memory and runs on every test.
 
 ## Quick start
 

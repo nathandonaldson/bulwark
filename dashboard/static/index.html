@@ -521,41 +521,50 @@ async function detectTools() {
         const statusText = document.getElementById('garak-status-text');
         if (statusText) statusText.textContent = 'Complete';
       } else if (data.status === 'running') {
-        const quickBtn = document.getElementById('garak-quick-btn');
-        const fullBtn = document.getElementById('garak-full-btn');
-        const card = document.getElementById('garak-card');
-        const statusText = document.getElementById('garak-status-text');
-        if (quickBtn) quickBtn.disabled = true;
-        if (fullBtn) fullBtn.disabled = true;
-        if (card) card.classList.add('running');
-        if (!garakPollTimer) {
-          garakPollTimer = setInterval(async () => {
-            try {
-              const r2 = await fetch('/api/redteam/status');
-              const d2 = await r2.json();
-              if (d2.status === 'complete') {
-                clearInterval(garakPollTimer);
-                garakPollTimer = null;
-                if (card) card.classList.remove('running');
-                if (quickBtn) quickBtn.disabled = false;
-                if (fullBtn) fullBtn.disabled = false;
-                if (statusText) statusText.textContent = 'Complete';
-                renderRedTeamReport(d2);
-              } else if (d2.status === 'error') {
-                clearInterval(garakPollTimer);
-                garakPollTimer = null;
-                if (card) card.classList.remove('running');
-                if (quickBtn) quickBtn.disabled = false;
-                if (fullBtn) fullBtn.disabled = false;
-                if (statusText) statusText.textContent = 'Error';
-              } else {
-                const done = d2.completed || 0;
-                const total = d2.total || '?';
-                if (statusText) statusText.innerHTML = `<span class="btn-spinner"></span> ${done}/${total} probes through Claude...`;
-              }
-            } catch(e2) {}
-          }, 3000);
-        }
+        // Set initial running state on fresh DOM elements
+        const qb = document.getElementById('garak-quick-btn');
+        const fb = document.getElementById('garak-full-btn');
+        const cd = document.getElementById('garak-card');
+        const st = document.getElementById('garak-status-text');
+        if (qb) qb.disabled = true;
+        if (fb) fb.disabled = true;
+        if (cd) cd.classList.add('running');
+        const done = data.completed || 0;
+        const total = data.total || '?';
+        if (st) st.innerHTML = `<span class="btn-spinner"></span> ${done}/${total} probes through Claude...`;
+        // Re-attach poll with fresh DOM lookups each tick
+        if (garakPollTimer) clearInterval(garakPollTimer);
+        garakPollTimer = setInterval(async () => {
+          try {
+            const r2 = await fetch('/api/redteam/status');
+            const d2 = await r2.json();
+            // Always get fresh DOM refs (cards may have re-rendered)
+            const quickBtn = document.getElementById('garak-quick-btn');
+            const fullBtn = document.getElementById('garak-full-btn');
+            const card = document.getElementById('garak-card');
+            const statusText = document.getElementById('garak-status-text');
+            if (d2.status === 'complete') {
+              clearInterval(garakPollTimer);
+              garakPollTimer = null;
+              if (card) card.classList.remove('running');
+              if (quickBtn) quickBtn.disabled = false;
+              if (fullBtn) fullBtn.disabled = false;
+              if (statusText) statusText.textContent = 'Complete';
+              renderRedTeamReport(d2);
+            } else if (d2.status === 'error') {
+              clearInterval(garakPollTimer);
+              garakPollTimer = null;
+              if (card) card.classList.remove('running');
+              if (quickBtn) quickBtn.disabled = false;
+              if (fullBtn) fullBtn.disabled = false;
+              if (statusText) statusText.textContent = 'Error';
+            } else {
+              const done = d2.completed || 0;
+              const total = d2.total || '?';
+              if (statusText) statusText.innerHTML = `<span class="btn-spinner"></span> ${done}/${total} probes through Claude...`;
+            }
+          } catch(e2) {}
+        }, 3000);
       }
     }
   } catch(e) {}
@@ -568,7 +577,7 @@ function renderRedteamCards() {
   const garak = detectedTools.garak || { installed: false };
   const promptfoo = detectedTools.promptfoo || { installed: false };
 
-  el.innerHTML = renderGarakCard(garak) + renderPromptfooCard(promptfoo);
+  el.innerHTML = renderGarakCard(garak);
 }
 
 function renderGarakCard(info) {
@@ -606,36 +615,6 @@ function renderGarakCard(info) {
   </div>`;
 }
 
-function renderPromptfooCard(info) {
-  const installed = info.installed;
-  const version = info.version ? `v${info.version}` : '';
-  const disabledClass = installed ? '' : 'disabled';
-
-  let footerHtml;
-  if (!installed) {
-    footerHtml = `
-      <div class="redteam-install-hint">Install: <code>npm install -g promptfoo</code></div>
-      <div class="redteam-card-footer">
-        <span class="redteam-status">Not installed</span>
-        <button class="redteam-btn redteam-btn-soon" disabled>Run Scan</button>
-      </div>`;
-  } else {
-    footerHtml = `
-      <div class="redteam-card-footer">
-        <span class="redteam-status">Ready</span>
-        <button class="redteam-btn redteam-btn-soon" disabled>Coming soon</button>
-      </div>`;
-  }
-
-  return `<div class="redteam-card ${disabledClass}" id="promptfoo-card">
-    <div class="redteam-card-header">
-      <span class="redteam-card-name">Promptfoo</span>
-      ${version ? `<span class="redteam-card-version">${escapeHtml(version)}</span>` : ''}
-    </div>
-    <div class="redteam-card-desc">LLM testing and red-teaming framework. Evaluate prompts against custom test suites with assertions and grading.</div>
-    ${footerHtml}
-  </div>`;
-}
 
 async function runRedTeam(maxProbes) {
   const quickBtn = document.getElementById('garak-quick-btn');
@@ -797,6 +776,33 @@ function formatDuration(seconds) {
   return `${m}m ${s}s`;
 }
 
+async function activateIntegration(name) {
+  const btn = document.getElementById(`int-btn-${name}`);
+  const status = document.getElementById(`int-status-${name}`);
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading model...'; }
+  if (status) status.innerHTML = '<span style="color:var(--text-dim)">Downloading and loading model... this may take a moment.</span>';
+  try {
+    const res = await fetch(`/api/integrations/${name}/activate`, { method: 'POST' });
+    const data = await res.json();
+    if (data.status === 'active') {
+      if (status) status.innerHTML = `<span style="color:var(--green)">✓ ${escapeHtml(data.message)}</span>`;
+      fetchIntegrations();
+    } else {
+      if (status) status.innerHTML = `<span style="color:var(--red)">✗ ${escapeHtml(data.message)}</span>`;
+      if (btn) { btn.disabled = false; btn.textContent = 'Activate'; }
+    }
+  } catch(e) {
+    if (status) status.innerHTML = '<span style="color:var(--red)">✗ Connection failed</span>';
+    if (btn) { btn.disabled = false; btn.textContent = 'Activate'; }
+  }
+}
+
+async function deactivateIntegration(name) {
+  await toggleIntegration(name, false);
+  // Remove from active checks on server
+  fetchIntegrations();
+}
+
 async function toggleIntegration(name, enabled) {
   try {
     const res = await fetch('/api/integrations/' + name, {
@@ -898,18 +904,27 @@ function renderIntegrations() {
     const enabled = info.enabled;
     const badgeClass = enabled ? 'active' : 'detection';
     const badgeText = enabled ? 'Active' : 'Detection';
-    const latency = info.latency_ms ? `~${info.latency_ms}ms latency` : 'Runs on demand';
-    const size = info.size_mb ? `, ${info.size_mb}MB model` : '';
+    const latency = info.latency_ms ? `~${info.latency_ms}ms latency` : '';
+    const size = info.size_mb ? `${info.size_mb}MB model` : '';
+    const meta = [latency, size].filter(Boolean).join(', ');
+    const gated = info.gated ? ' (requires HF approval)' : '';
 
-    return `<div class="integration-card ${enabled ? 'enabled' : ''}">
+    const btnId = `int-btn-${key}`;
+    const statusId = `int-status-${key}`;
+
+    return `<div class="integration-card ${enabled ? 'enabled' : ''}" id="int-card-${key}">
       <div class="integration-header">
         <span class="integration-name">${escapeHtml(info.name)}</span>
         <span class="integration-badge ${badgeClass}">${badgeText}</span>
       </div>
-      <div class="integration-desc">${escapeHtml(info.description)}</div>
+      <div class="integration-desc">${escapeHtml(info.description)}${gated}</div>
+      <div id="${statusId}" style="font-size:11px;padding:4px 0"></div>
       <div class="integration-footer">
-        <span class="integration-latency">${latency}${size}</span>
-        <button class="integration-btn ${enabled ? 'enabled' : ''}" onclick="toggleIntegration('${key}', ${!enabled})">${enabled ? 'Enabled' : 'Enable'}</button>
+        <span class="integration-latency">${meta}</span>
+        <button class="integration-btn ${enabled ? 'enabled' : ''}" id="${btnId}"
+          onclick="${enabled ? `deactivateIntegration('${key}')` : `activateIntegration('${key}')`}">
+          ${enabled ? 'Disable' : 'Activate'}
+        </button>
       </div>
     </div>`;
   }
