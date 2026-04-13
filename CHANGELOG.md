@@ -1,13 +1,16 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.1] - 2026-04-13
 
 ### Added
 - **ProtectAI DeBERTa detection** as built-in integration. Ungated, 99.99% accuracy, ~30ms. `detect_and_create()` one-liner.
 - **PromptGuard-86M support** for when HuggingFace approval is granted.
-- **`/api/integrations/{name}/activate` endpoint** loads detection models into memory and registers them as bridge checks.
-- **Dashboard Activate button** replaces the old Enable toggle. Downloads model, shows loading status, reports errors.
-- **Active detection models apply to Test tab** pipeline automatically.
+- **Dashboard Activate button** loads detection models into memory and registers them as bridge checks.
+- **Config toggles wired to Test tab** — switching off Sanitizer in Configure actually disables it in testing.
+
+### Changed
+- Removed PIGuard, NeMo Guardrails, and Promptfoo from dashboard (PIGuard/NeMo not implemented, Promptfoo moves to CI eval pipeline).
+- Configure tab shows only ProtectAI, PromptGuard, and LLM Guard for detection.
 
 ### Fixed
 - Red team progress survives tab switching (fresh DOM refs on each poll tick).
