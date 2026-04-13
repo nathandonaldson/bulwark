@@ -439,7 +439,6 @@ async function runGarak() {
     if (status) status.innerHTML = `<div style="font-size:12px;padding:8px 0;color:var(--red)">✗ Connection failed</div>`;
   }
   if (btn) { btn.disabled = false; btn.textContent = '▶ Run'; }
-  fetchIntegrations();
 }
 
 async function toggleIntegration(name, enabled) {
@@ -558,7 +557,7 @@ function renderIntegrations() {
       <div id="${key}-status"></div>
       <div class="integration-footer">
         <span class="integration-latency">${latency}${size}</span>
-        <div>${runBtn}<button class="integration-btn ${enabled ? 'enabled' : ''}" onclick="toggleIntegration('${key}', ${!enabled})">${enabled ? 'Enabled' : 'Enable'}</button></div>
+        <div style="display:flex;gap:6px;align-items:center">${runBtn}<button class="integration-btn ${enabled ? 'enabled' : ''}" onclick="toggleIntegration('${key}', ${!enabled})">${enabled ? 'Enabled' : 'Enable'}</button></div>
       </div>
     </div>`;
   }
