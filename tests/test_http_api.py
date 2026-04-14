@@ -1,10 +1,18 @@
 """Spec-driven tests for HTTP API endpoints, derived from spec/openapi.yaml
 and spec/contracts/http_*.yaml.
 
-Written BEFORE implementation — these tests should FAIL until the endpoints
-are implemented in dashboard/api_v1.py.
+Requires FastAPI and Pydantic (optional dashboard deps). Tests are skipped
+when these are not installed (e.g., in core-only CI environments).
 """
 import pytest
+
+try:
+    from fastapi.testclient import TestClient
+    HAS_FASTAPI = True
+except ImportError:
+    HAS_FASTAPI = False
+
+pytestmark = pytest.mark.skipif(not HAS_FASTAPI, reason="FastAPI not installed")
 
 
 def _get_client():

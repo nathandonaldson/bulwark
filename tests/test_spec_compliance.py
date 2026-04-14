@@ -12,6 +12,12 @@ from pathlib import Path
 import pytest
 import yaml
 
+try:
+    from fastapi.testclient import TestClient
+    HAS_FASTAPI = True
+except ImportError:
+    HAS_FASTAPI = False
+
 
 REPO_ROOT = Path(__file__).parent.parent
 SPEC_DIR = REPO_ROOT / "spec"
@@ -50,6 +56,7 @@ def _find_id_in_tests(guarantee_id: str) -> bool:
 # OpenAPI spec compliance
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skipif(not HAS_FASTAPI, reason="FastAPI not installed")
 class TestOpenAPICompliance:
     def test_openapi_spec_exists(self):
         """The OpenAPI spec file exists."""
