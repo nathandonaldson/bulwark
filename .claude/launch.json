@@ -1,0 +1,3 @@
+{
+  "preview_start": "PYTHONPATH=src:. .venv/bin/python -m dashboard --port 3000"
+}
