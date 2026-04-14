@@ -119,6 +119,7 @@
   .config-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
   .config-section { margin-bottom: 32px; }
   .config-section h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+  .config-section-label { font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; font-weight: 600; }
   .config-section h3 { font-size: 13px; color: var(--text-dim); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
   .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; }
   .toggle-label { display: flex; flex-direction: column; }
@@ -367,7 +368,7 @@
     </div>
 
     <div class="layers-panel">
-      <h2 style="font-size: 14px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">Defense Layers</h2>
+      <h2 class="config-section-label">Defense Layers</h2>
       <div id="layer-cards">
         <div class="loading-msg">Loading layer data...</div>
       </div>
