@@ -153,10 +153,14 @@ class ProductionRedTeam:
         """
         import importlib
 
+        # Probe classes — try current names first, fall back to legacy (Mini variants)
         probes_to_load = [
-            ("promptinject", "HijackHateHumansMini"),
-            ("promptinject", "HijackKillHumansMini"),
-            ("promptinject", "HijackLongPromptMini"),
+            ("promptinject", "HijackHateHumans"),
+            ("promptinject", "HijackKillHumans"),
+            ("promptinject", "HijackLongPrompt"),
+            ("promptinject", "HijackHateHumansMini"),   # legacy (garak <0.14)
+            ("promptinject", "HijackKillHumansMini"),    # legacy
+            ("promptinject", "HijackLongPromptMini"),    # legacy
             ("knownbadsignatures", "EICAR"),
             ("knownbadsignatures", "GTUBE"),
             ("knownbadsignatures", "GTphish"),
