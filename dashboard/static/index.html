@@ -794,7 +794,11 @@ function renderGarakCard(info) {
 
   let updateHint = '';
   if (updateAvailable) {
-    updateHint = `<div style="font-size: 11px; color: var(--amber); margin-bottom: 8px;">Update available: <code>pip install --upgrade garak</code></div>`;
+    if (info.python_upgrade_needed) {
+      updateHint = `<div style="font-size: 11px; color: var(--amber); margin-bottom: 8px;">Garak ${escapeHtml(latest)} requires a newer Python (you're on ${escapeHtml(info.python || '?')}). Upgrade Python first, then: <code>pip install --upgrade garak</code></div>`;
+    } else {
+      updateHint = `<div style="font-size: 11px; color: var(--amber); margin-bottom: 8px;">Update available: <code>pip install --upgrade garak</code></div>`;
+    }
   }
 
   let footerHtml;
