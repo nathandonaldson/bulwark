@@ -310,6 +310,20 @@
     .canary-grid { grid-template-columns: 1fr; }
     .redteam-grid { grid-template-columns: 1fr; }
   }
+  @media (max-width: 640px) {
+    nav { padding: 12px 16px; flex-wrap: wrap; gap: 8px; }
+    nav .tabs { order: 3; width: 100%; }
+    nav .tab { padding: 6px 10px; font-size: 12px; }
+    .page { padding: 16px; }
+    .shield-layout { gap: 16px; }
+    .shield-layout > div:first-child svg { width: 200px; height: 200px; }
+    .stat-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stat-card { padding: 12px 16px; }
+    .stat-value { font-size: 28px; }
+    .llm-mode-selector { flex-direction: column; }
+    .canary-grid { grid-template-columns: 1fr; }
+    .config-layout { gap: 16px; }
+  }
 </style>
 </head>
 <body>
