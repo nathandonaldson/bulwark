@@ -4,7 +4,7 @@ Measures per-layer latency, batch performance, attack suite throughput,
 and individual regex pattern timing with ReDoS-adversarial inputs.
 
 Usage:
-    cd /path/to/bulwark-ai && PYTHONPATH=src python3 tests/benchmark.py
+    cd /path/to/bulwark-shield && PYTHONPATH=src python3 tests/benchmark.py
 """
 from __future__ import annotations
 

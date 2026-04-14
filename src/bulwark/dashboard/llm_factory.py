@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable, Optional
 
-from dashboard.config import LLMBackendConfig
+from bulwark.dashboard.config import LLMBackendConfig
 
 
 def make_analyze_fn(cfg: LLMBackendConfig) -> Optional[Callable[[str], str]]:
@@ -54,7 +54,7 @@ def _make_anthropic_analyze(cfg: LLMBackendConfig) -> Callable[[str], str]:
     try:
         import anthropic
     except ImportError:
-        raise ImportError("Anthropic mode requires the anthropic package: pip install bulwark-ai[anthropic]")
+        raise ImportError("Anthropic mode requires the anthropic package: pip install bulwark-shield[anthropic]")
 
     client = anthropic.Anthropic(api_key=cfg.api_key) if cfg.api_key else anthropic.Anthropic()
     model = cfg.analyze_model or "claude-haiku-4-5"
@@ -77,7 +77,7 @@ def _make_anthropic_execute(cfg: LLMBackendConfig) -> Callable[[str], str]:
     try:
         import anthropic
     except ImportError:
-        raise ImportError("Anthropic mode requires the anthropic package: pip install bulwark-ai[anthropic]")
+        raise ImportError("Anthropic mode requires the anthropic package: pip install bulwark-shield[anthropic]")
 
     client = anthropic.Anthropic(api_key=cfg.api_key) if cfg.api_key else anthropic.Anthropic()
     model = cfg.execute_model or cfg.analyze_model or "claude-sonnet-4-5"
@@ -98,7 +98,7 @@ def _test_anthropic(cfg: LLMBackendConfig) -> dict:
     try:
         import anthropic
     except ImportError:
-        return {"ok": False, "message": "anthropic package not installed. Run: pip install bulwark-ai[anthropic]", "model": ""}
+        return {"ok": False, "message": "anthropic package not installed. Run: pip install bulwark-shield[anthropic]", "model": ""}
     try:
         client = anthropic.Anthropic(api_key=cfg.api_key) if cfg.api_key else anthropic.Anthropic()
         model = cfg.analyze_model or "claude-haiku-4-5"

@@ -1,7 +1,7 @@
 openapi: "3.1.0"
 info:
   title: Bulwark API
-  version: "0.3.0"
+  version: "0.5.0"
   description: |
     Language-agnostic HTTP API for Bulwark prompt injection defense.
 
@@ -16,6 +16,32 @@ servers:
     description: Local dashboard (default)
 
 paths:
+  /healthz:
+    get:
+      operationId: healthz
+      summary: Liveness probe
+      description: Returns 200 with version info. Used by Docker HEALTHCHECK and k8s probes.
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - version
+                properties:
+                  status:
+                    type: string
+                    enum: ["ok"]
+                  version:
+                    type: string
+                    description: Current Bulwark version from VERSION file.
+                  docker:
+                    type: boolean
+                    description: True if running inside a Docker container.
+
   /v1/clean:
     post:
       operationId: clean

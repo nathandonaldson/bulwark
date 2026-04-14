@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from dashboard.models import (
+from bulwark.dashboard.models import (
     CleanRequest, CleanResponse,
     GuardRequest, GuardResponse,
 )
@@ -93,8 +93,8 @@ async def api_guard(req: GuardRequest) -> GuardResponse:
 )
 async def test_llm_connection(request: Request):
     """Test connectivity to the configured LLM backend."""
-    from dashboard.config import BulwarkConfig, LLMBackendConfig
-    from dashboard.llm_factory import test_connection
+    from bulwark.dashboard.config import BulwarkConfig, LLMBackendConfig
+    from bulwark.dashboard.llm_factory import test_connection
 
     body = await request.json()
     cfg = LLMBackendConfig(
@@ -122,8 +122,8 @@ async def run_pipeline(request: Request):
     from pathlib import Path
     from bulwark.pipeline import Pipeline
     from bulwark.events import CollectorEmitter
-    from dashboard.config import BulwarkConfig
-    from dashboard.llm_factory import make_analyze_fn, make_execute_fn
+    from bulwark.dashboard.config import BulwarkConfig
+    from bulwark.dashboard.llm_factory import make_analyze_fn, make_execute_fn
 
     body = await request.json()
     content = body.get("content", "")
@@ -135,13 +135,12 @@ async def run_pipeline(request: Request):
     analyze_fn = make_analyze_fn(config.llm_backend)
     execute_fn = make_execute_fn(config.llm_backend)
 
-    # Load canary tokens if available
+    # Load canary tokens from config path (if set) or skip
     canary = None
-    canary_file = Path(__file__).parent.parent / "knowledge" / "comms" / "canaries.json"
-    if not canary_file.exists():
-        canary_file = Path(__file__).parent.parent.parent / "knowledge" / "comms" / "canaries.json"
-    if canary_file.exists():
-        canary = CanarySystem.from_file(str(canary_file))
+    if config.canary_file:
+        cf = Path(config.canary_file)
+        if cf.exists():
+            canary = CanarySystem.from_file(str(cf))
 
     config_path = Path(__file__).parent.parent / "bulwark-config.yaml"
     if config_path.exists():
@@ -155,7 +154,7 @@ async def run_pipeline(request: Request):
 
     # Run detection models on the SANITIZED INPUT before sending to LLM.
     # If detection catches injection, skip the LLM call entirely.
-    from dashboard.app import _detection_checks
+    from bulwark.dashboard.app import _detection_checks
     detection_trace = []
     detection_blocked = False
     detection_reason = None

@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.5.0] - 2026-04-14
+
+### Added
+- **Docker distribution** — `docker run -p 3000:3000 bulwark` starts the full dashboard and API with zero config.
+- **`/healthz` endpoint** — liveness probe returning version and Docker detection.
+- **CORS middleware** — `allow_origins=["*"]` so browser-based apps can call the API.
+- **docker-compose.yml** for single-command startup with restart policy.
+- **GitHub Actions Docker workflow** — builds image, runs smoke tests, pushes to GHCR on version tags.
+- **Ephemeral config warning** in dashboard Configure tab when running in Docker.
+
+### Changed
+- **Renamed package** from `bulwark-ai` to `bulwark-shield` on PyPI (`bulwark` was taken).
+- **Moved `dashboard/` into `src/bulwark/dashboard/`** so the dashboard ships in the pip wheel. `python -m bulwark.dashboard` replaces `python -m dashboard`.
+- **Added missing dependencies** to `[dashboard]` extras: pydantic, pyyaml, httpx (previously only pulled transitively).
+- **Canary file path** now configurable via `BulwarkConfig.canary_file` instead of hardcoded wintermute-specific path.
+- **Red team `project_dir`** respects `BULWARK_PROJECT_DIR` env var for Docker compatibility.
+- **Full ROADMAP.md rewrite** reflecting current state (was stuck at v0.2.1).
+
 ## [0.4.1] - 2026-04-14
 
 ### Changed

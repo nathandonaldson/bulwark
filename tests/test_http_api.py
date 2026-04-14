@@ -18,7 +18,7 @@ pytestmark = pytest.mark.skipif(not HAS_FASTAPI, reason="FastAPI not installed")
 def _get_client():
     """Create a TestClient for the dashboard app."""
     from fastapi.testclient import TestClient
-    from dashboard.app import app
+    from bulwark.dashboard.app import app
     return TestClient(app)
 
 

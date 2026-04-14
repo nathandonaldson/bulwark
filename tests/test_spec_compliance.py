@@ -71,7 +71,7 @@ class TestOpenAPICompliance:
     def test_spec_paths_exist_in_app(self):
         """Every path in spec/openapi.yaml exists in the running app."""
         from fastapi.testclient import TestClient
-        from dashboard.app import app
+        from bulwark.dashboard.app import app
 
         spec = _load_yaml(SPEC_DIR / "openapi.yaml")
         client = TestClient(app)
@@ -84,7 +84,7 @@ class TestOpenAPICompliance:
     def test_spec_request_fields_match_app(self):
         """Request body fields in spec match the app's Pydantic models."""
         from fastapi.testclient import TestClient
-        from dashboard.app import app
+        from bulwark.dashboard.app import app
 
         spec = _load_yaml(SPEC_DIR / "openapi.yaml")
         client = TestClient(app)

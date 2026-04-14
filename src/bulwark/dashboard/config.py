@@ -6,6 +6,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
 
+# Relative path — resolves against CWD. In Docker with WORKDIR /app, this is /app/bulwark-config.yaml.
 CONFIG_PATH = Path("bulwark-config.yaml")
 
 # Default AnalysisGuard patterns (must match executor.py defaults)

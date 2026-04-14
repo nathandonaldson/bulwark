@@ -1,6 +1,6 @@
 # CLI Reference
 
-All commands require the `[cli]` extra: `pip install bulwark-ai[cli]`
+All commands require the `[cli]` extra: `pip install bulwark-shield[cli]`
 
 ## bulwark test
 

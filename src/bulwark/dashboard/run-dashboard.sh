@@ -8,4 +8,4 @@ VENV_PYTHON="/Users/musicmac/Library/Application Support/bulwark-dashboard/.venv
 export PYTHONPATH="$REPO_DIR:$REPO_DIR/src"
 cd "$REPO_DIR"
 
-exec "$VENV_PYTHON" -m dashboard --port 3000
+exec "$VENV_PYTHON" -m bulwark.dashboard --port 3000

@@ -6,8 +6,8 @@ Interactive observability dashboard with real-time event streaming, attack testi
 
 ```bash
 pip install fastapi uvicorn
-cd bulwark-ai
-PYTHONPATH=src python -m dashboard --port 3000
+cd bulwark-shield
+PYTHONPATH=src python -m bulwark.dashboard --port 3000
 ```
 
 Binds to `127.0.0.1` (localhost only) by default. `--host 0.0.0.0` to expose on the network (no auth, be careful).

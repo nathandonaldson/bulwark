@@ -10,7 +10,7 @@ pattern = "(?P<version>.+)"
 packages = ["src/bulwark"]
 
 [project]
-name = "bulwark-ai"
+name = "bulwark-shield"
 dynamic = ["version"]
 description = "Architectural defense against prompt injection. Because detection is an arms race."
 readme = "README.md"
@@ -29,9 +29,9 @@ classifiers = [
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.39.0"]
 cli = ["click>=8.0"]
-dashboard = ["fastapi>=0.100.0", "uvicorn>=0.20.0"]
+dashboard = ["fastapi>=0.100.0", "uvicorn>=0.20.0", "pydantic>=2.0", "pyyaml>=6.0", "httpx>=0.24.0"]
 testing = ["garak>=0.9,<1.0"]
-all = ["anthropic>=0.39.0", "click>=8.0", "fastapi>=0.100.0", "uvicorn>=0.20.0", "garak>=0.9,<1.0"]
+all = ["anthropic>=0.39.0", "click>=8.0", "fastapi>=0.100.0", "uvicorn>=0.20.0", "pydantic>=2.0", "pyyaml>=6.0", "httpx>=0.24.0", "garak>=0.9,<1.0"]
 
 [project.scripts]
 bulwark = "bulwark.cli:main"

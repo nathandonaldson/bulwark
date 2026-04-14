@@ -1,7 +1,7 @@
 """Tests for dashboard API endpoints."""
 import pytest
 import time
-from dashboard.db import EventDB
+from bulwark.dashboard.db import EventDB
 
 
 class TestTimeseries:
