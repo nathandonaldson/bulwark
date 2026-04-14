@@ -5,7 +5,7 @@ WORKDIR /app
 # Install dependencies first (cache layer)
 COPY pyproject.toml VERSION README.md ./
 COPY src/ src/
-RUN pip install --no-cache-dir ".[dashboard]"
+RUN pip install --no-cache-dir ".[dashboard,testing]"
 
 # Copy remaining files (static assets, spec, etc.)
 COPY . .
