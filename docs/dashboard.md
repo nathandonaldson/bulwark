@@ -4,13 +4,20 @@ Interactive observability dashboard with real-time event streaming, attack testi
 
 ## Setup
 
+**Docker (recommended):**
+
 ```bash
-pip install fastapi uvicorn
-cd bulwark-shield
+docker run -p 3000:3000 ghcr.io/nathandonaldson/bulwark
+```
+
+**From source:**
+
+```bash
+pip install bulwark-shield[dashboard]
 PYTHONPATH=src python -m bulwark.dashboard --port 3000
 ```
 
-Binds to `127.0.0.1` (localhost only) by default. `--host 0.0.0.0` to expose on the network (no auth, be careful).
+Binds to `127.0.0.1` (localhost only) by default. `--host 0.0.0.0` to expose on the network (no auth, be careful). In Docker, binds to `0.0.0.0` by default.
 
 Open http://localhost:3000.
 
@@ -58,10 +65,10 @@ pipeline = Pipeline.default(
 
 Other emitters: `StdoutJsonEmitter`, `CollectorEmitter`, `CallbackEmitter`, `MultiEmitter`.
 
-## Persistent service (macOS)
+## Persistent service (macOS, non-Docker)
 
 ```bash
-bash dashboard/install-service.sh install
+bash src/bulwark/dashboard/install-service.sh install
 ```
 
-Installs as a launchd service that starts on boot. Use `bash dashboard/install-service.sh sync` after code changes to update the installed copy.
+Installs as a launchd service that starts on boot. For Docker, use `docker compose up -d` with `restart: unless-stopped` instead.

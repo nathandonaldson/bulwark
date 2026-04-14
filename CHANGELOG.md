@@ -3,20 +3,28 @@
 ## [0.5.0] - 2026-04-14
 
 ### Added
-- **Docker distribution** — `docker run -p 3000:3000 bulwark` starts the full dashboard and API with zero config.
-- **`/healthz` endpoint** — liveness probe returning version and Docker detection.
-- **CORS middleware** — `allow_origins=["*"]` so browser-based apps can call the API.
-- **docker-compose.yml** for single-command startup with restart policy.
+- **Docker distribution** — `docker run -p 3000:3000 ghcr.io/nathandonaldson/bulwark` starts the full dashboard and API with zero config.
+- **`/healthz` endpoint** — liveness probe returning version, Docker detection, and env config status.
+- **`/v1/llm/test` endpoint** — test LLM backend connectivity from the dashboard with SSRF protection on base_url.
+- **CORS middleware** — restricted to localhost origins for browser-based API access without exposing API keys cross-origin.
+- **Environment variable config** — `BULWARK_LLM_MODE`, `BULWARK_API_KEY`, `BULWARK_BASE_URL`, `BULWARK_ANALYZE_MODEL`, `BULWARK_EXECUTE_MODEL`. Persistent config for Docker via `.env` file or docker-compose.yml.
+- **docker-compose.yml** with `.env` file support for single-command startup.
 - **GitHub Actions Docker workflow** — builds image, runs smoke tests, pushes to GHCR on version tags.
-- **Ephemeral config warning** in dashboard Configure tab when running in Docker.
+- **Contract spec for /v1/llm/test** with SSRF validation guarantees.
+- **746 tests** (up from 709), including CORS security, SSRF blocking, env var config, Docker persistence.
 
 ### Changed
 - **Renamed package** from `bulwark-ai` to `bulwark-shield` on PyPI (`bulwark` was taken).
 - **Moved `dashboard/` into `src/bulwark/dashboard/`** so the dashboard ships in the pip wheel. `python -m bulwark.dashboard` replaces `python -m dashboard`.
-- **Added missing dependencies** to `[dashboard]` extras: pydantic, pyyaml, httpx (previously only pulled transitively).
-- **Canary file path** now configurable via `BulwarkConfig.canary_file` instead of hardcoded wintermute-specific path.
+- **Added missing dependencies** to `[dashboard]` extras: pydantic, pyyaml, httpx, anthropic (previously only pulled transitively).
+- **Canary file path** now configurable via `BulwarkConfig.canary_file` instead of hardcoded path.
 - **Red team `project_dir`** respects `BULWARK_PROJECT_DIR` env var for Docker compatibility.
-- **Full ROADMAP.md rewrite** reflecting current state (was stuck at v0.2.1).
+- **PromptGuard detection** now catches both INJECTION and JAILBREAK labels (was missing JAILBREAK).
+- **Anthropic model defaults** use full IDs with date suffix (`claude-haiku-4-5-20251001`).
+- **Docker config warning** only shows when env vars are NOT configured.
+- **Dashboard HTML** served with `Cache-Control: no-cache` to prevent stale UI after updates.
+- **PyPI publish workflow** changed to manual trigger (workflow_dispatch) so Docker can ship independently.
+- **Full ROADMAP.md rewrite** reflecting current state.
 
 ## [0.4.1] - 2026-04-14
 

@@ -41,7 +41,7 @@ docker run -p 3000:3000 ghcr.io/nathandonaldson/bulwark
 - `spec/openapi.yaml` — HTTP API contract (source of truth)
 - `spec/contracts/` — Function guarantees and non-guarantees
 - `spec/decisions/` — Architecture Decision Records
-- `tests/` — 718 tests including spec compliance enforcement
+- `tests/` — 746 tests including spec compliance enforcement
 
 ## Package name
 

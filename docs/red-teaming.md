@@ -28,7 +28,7 @@ bulwark test -c steganography # Filter by category
 
 ## Production red team
 
-The dashboard's Test tab includes a production red team runner. This is not a simulation. It sends Garak's 315 attack payloads through your actual pipeline: Sanitizer, TrustBoundary, real LLM call (Claude via CLI), canary check. Then evaluates whether the LLM followed its instructions or the injection hijacked it.
+The dashboard's Test tab includes a production red team runner. This is not a simulation. It sends Garak's 315 attack payloads through your actual pipeline: Sanitizer, TrustBoundary, real LLM call (via your configured backend), canary check. Then evaluates whether the LLM followed its instructions or the injection hijacked it.
 
 Two modes:
 - **Quick Test** (10 probes, ~2 min) for fast validation
@@ -40,7 +40,7 @@ The report shows:
 - Per-probe-family breakdown
 - Specific vulnerabilities with recommendations
 
-Requires `pip install garak` for the probe payloads. LLM calls use your existing claude CLI auth.
+Requires `pip install garak` for the probe payloads (included in the Docker image). LLM calls use your configured backend (Anthropic API, OpenAI-compatible, or local inference).
 
 ## Programmatic validation
 

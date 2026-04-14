@@ -7,7 +7,30 @@ Other tools try to classify input as safe or unsafe. Bulwark separates reading f
 ## See it work
 
 ```bash
-pip install "git+https://github.com/nathandonaldson/bulwark.git#egg=bulwark-shield[cli]"
+docker run -p 3000:3000 ghcr.io/nathandonaldson/bulwark
+```
+
+Dashboard at http://localhost:3000. API at http://localhost:3000/v1/clean. No Python needed.
+
+```bash
+# Sanitize untrusted content
+curl -X POST http://localhost:3000/v1/clean \
+  -H 'Content-Type: application/json' \
+  -d '{"content": "Hello <script>evil()</script>", "source": "email"}'
+
+# Run the full pipeline (sanitize + detect + LLM + guard)
+curl -X POST http://localhost:3000/v1/pipeline \
+  -H 'Content-Type: application/json' \
+  -d '{"content": "untrusted email body", "source": "email"}'
+
+# Health check
+curl http://localhost:3000/healthz
+```
+
+Or install as a Python library:
+
+```bash
+pip install bulwark-shield[cli]
 bulwark test
 ```
 
@@ -28,6 +51,43 @@ Bulwark Defense Test — 8 preset attacks
 ```
 
 `bulwark test --full` runs all 77 attack patterns across 10 categories.
+
+## Configure with Docker
+
+Set your LLM backend so config persists across container restarts:
+
+```yaml
+# docker-compose.yml
+services:
+  bulwark:
+    image: ghcr.io/nathandonaldson/bulwark
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      - BULWARK_LLM_MODE=anthropic
+      - BULWARK_API_KEY=sk-ant-...
+```
+
+Or use a `.env` file (recommended, keeps secrets out of version control):
+
+```bash
+echo "BULWARK_LLM_MODE=anthropic" > .env
+echo "BULWARK_API_KEY=sk-ant-your-key" >> .env
+docker compose up
+```
+
+All env vars:
+
+| Variable | Description |
+|----------|-------------|
+| `BULWARK_LLM_MODE` | `anthropic`, `openai_compatible`, or `none` (default) |
+| `BULWARK_API_KEY` | API key for Anthropic |
+| `BULWARK_BASE_URL` | Endpoint URL for OpenAI-compatible servers (Ollama, llama.cpp, vLLM) |
+| `BULWARK_ANALYZE_MODEL` | Phase 1 model (default: `claude-haiku-4-5-20251001`) |
+| `BULWARK_EXECUTE_MODEL` | Phase 2 model (default: `claude-sonnet-4-5-20241022`) |
+
+You can also configure everything in the dashboard UI, but those changes are lost on container restart. Env vars are the persistent config mechanism for Docker.
 
 ## How it works
 
@@ -66,7 +126,7 @@ Uses ProtectAI's DeBERTa model by default (ungated, 99.99% accuracy, ~30ms). Als
 
 In the dashboard, click "Activate" on any detection model in the Configure tab. It loads into memory and runs on every test.
 
-## Quick start
+## Python library
 
 **Sanitize untrusted input (any LLM):**
 
@@ -116,57 +176,9 @@ result = pipeline.run(untrusted_content, source="web")
 
 Any `(str) -> str` callable works. Async too: `pipeline.run_async()`.
 
-## Deploy with Docker
+## HTTP API
 
-Run Bulwark as a service. No Python needed.
-
-```bash
-docker run -p 3000:3000 ghcr.io/nathandonaldson/bulwark
-```
-
-Dashboard at `http://localhost:3000`. API at `http://localhost:3000/v1/clean`.
-
-```bash
-# Sanitize untrusted content
-curl -X POST http://localhost:3000/v1/clean \
-  -H 'Content-Type: application/json' \
-  -d '{"content": "Hello <script>evil()</script>", "source": "email"}'
-
-# Health check
-curl http://localhost:3000/healthz
-```
-
-### Configure via environment variables
-
-Set your LLM backend in `docker-compose.yml` so config survives restarts:
-
-```yaml
-services:
-  bulwark:
-    image: ghcr.io/nathandonaldson/bulwark
-    ports:
-      - "3000:3000"
-    restart: unless-stopped
-    environment:
-      - BULWARK_LLM_MODE=anthropic
-      - BULWARK_API_KEY=sk-ant-...
-```
-
-All env vars:
-
-| Variable | Description |
-|----------|-------------|
-| `BULWARK_LLM_MODE` | `anthropic`, `openai_compatible`, or `none` (default) |
-| `BULWARK_API_KEY` | API key for Anthropic |
-| `BULWARK_BASE_URL` | Endpoint URL for OpenAI-compatible servers (Ollama, llama.cpp, vLLM) |
-| `BULWARK_ANALYZE_MODEL` | Phase 1 model (default: `claude-haiku-4-5-20251001`) |
-| `BULWARK_EXECUTE_MODEL` | Phase 2 model (default: `claude-sonnet-4-5-20241022`) |
-
-You can also configure everything in the dashboard UI, but those changes are lost on container restart. Env vars are the persistent config mechanism for Docker.
-
-## HTTP API (language-agnostic)
-
-Run Bulwark as a standalone service. Any language can call it.
+Any language can call Bulwark over HTTP. Run via Docker (above) or from source:
 
 ```bash
 pip install bulwark-shield[dashboard]
@@ -208,14 +220,6 @@ Test attacks interactively, configure your LLM backend, and monitor your pipelin
 
 **Red teaming** sends Garak probe payloads through the same `/v1/pipeline` endpoint used by production. Same code path, same defense layers.
 
-```bash
-PYTHONPATH=src python -m bulwark.dashboard --port 3000
-```
-
-Connect your pipeline: `emitter=WebhookEmitter("http://localhost:3000/api/events")`
-
-Binds to localhost by default. `--host 0.0.0.0` to expose on the network (no auth, be careful).
-
 ### Local inference
 
 Configure any OpenAI-compatible endpoint (Ollama, llama.cpp, vLLM, LM Studio) in the dashboard Configure tab. Select "OpenAI Compatible", enter the URL, and the entire pipeline uses your local model for two-phase execution.
@@ -234,21 +238,6 @@ bulwark test -c steganography   # Filter by category
 
 Production red team (in the dashboard): sends 315 Garak probe payloads through your actual Bulwark+LLM pipeline and evaluates whether the LLM followed its instructions or the injection hijacked it. Quick Test (10 probes, ~2 min) or Full Scan (315 probes, ~50 min). Requires `pip install garak`.
 
-## Comparison
-
-| | Bulwark | Rebuff | LLM Guard | PromptGuard | LlamaFirewall |
-|---|---|---|---|---|---|
-| Two-phase execution | Yes | — | — | — | — |
-| Cross-item isolation | Yes | — | — | — | — |
-| Pluggable detection | Yes | — | — | — | — |
-| HTTP API | Yes | — | — | — | — |
-| Local inference | Yes | — | — | — | — |
-| Production red teaming | 315 probes | — | — | — | — |
-| Zero dependencies | Yes | No | No | No | No |
-| Deterministic layers | <1ms | — | — | — | — |
-
-Bulwark is the architecture. These tools are the detection. Use both.
-
 ## Development
 
 Bulwark follows spec-driven development. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full process.
@@ -260,6 +249,10 @@ Architecture decisions are recorded in `spec/decisions/`. Contract specs define 
 ## Install
 
 ```bash
+# Docker (recommended)
+docker run -p 3000:3000 ghcr.io/nathandonaldson/bulwark
+
+# Python
 pip install bulwark-shield              # Core (zero deps)
 pip install bulwark-shield[cli]         # CLI tools
 pip install bulwark-shield[anthropic]   # Anthropic SDK

@@ -29,7 +29,7 @@ Record significant decisions in `spec/decisions/` using the ADR template. Key de
 
 ```yaml
 function: bulwark.example
-version: "0.4.0"
+version: "0.5.0"
 
 guarantees:
   - id: G-EXAMPLE-001
@@ -63,13 +63,13 @@ The meta-tests in `tests/test_spec_compliance.py` run automatically and enforce:
 Run the full test suite:
 
 ```bash
-PYTHONPATH=src:. python3 -m pytest tests/ -v
+PYTHONPATH=src python3 -m pytest tests/ -v
 ```
 
 Run just the spec compliance tests:
 
 ```bash
-PYTHONPATH=src:. python3 -m pytest tests/test_spec_compliance.py -v
+PYTHONPATH=src python3 -m pytest tests/test_spec_compliance.py -v
 ```
 
 ## Architecture
@@ -80,3 +80,5 @@ See `spec/decisions/` for ADRs explaining key design choices. The main ones:
 - **ADR-002**: Two-phase execution architecture
 - **ADR-003**: Convenience API tiers (clean/guard -> protect -> Pipeline)
 - **ADR-007**: HTTP API response codes (always 200 for completed analysis)
+- **ADR-008**: Docker distribution
+- **ADR-009**: Package rename to bulwark-shield
