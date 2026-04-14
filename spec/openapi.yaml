@@ -1,0 +1,179 @@
+openapi: "3.1.0"
+info:
+  title: Bulwark API
+  version: "0.3.0"
+  description: |
+    Language-agnostic HTTP API for Bulwark prompt injection defense.
+
+    Two endpoints: /v1/clean sanitizes untrusted content, /v1/guard checks
+    LLM output for injection patterns. Both return 200 for completed analysis.
+    422 only for malformed requests.
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Local dashboard (default)
+
+paths:
+  /v1/clean:
+    post:
+      operationId: clean
+      summary: Sanitize untrusted content and wrap in trust boundary tags
+      description: |
+        Maps to bulwark.clean(). Strips hidden characters, steganography, and
+        encoding tricks, then wraps in trust boundary tags. The result is safe
+        to interpolate into any LLM prompt.
+
+        This provides input sanitization + trust boundary tagging, not full
+        architectural defense. For two-phase execution, use the Pipeline Python API.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CleanRequest"
+      responses:
+        "200":
+          description: Content sanitized and trust-boundary-tagged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CleanResponse"
+        "422":
+          description: Validation error (missing required fields, wrong types)
+
+  /v1/guard:
+    post:
+      operationId: guard
+      summary: Check LLM output for injection patterns and canary leaks
+      description: |
+        Maps to bulwark.guard(). Checks text against regex-based injection
+        patterns and optional canary token leaks. Always returns 200 with
+        safe=true/false. The request succeeded; the analysis result may be "unsafe."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuardRequest"
+      responses:
+        "200":
+          description: Analysis complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuardResponse"
+        "422":
+          description: Validation error (missing required fields, wrong types)
+
+components:
+  schemas:
+    CleanRequest:
+      type: object
+      required:
+        - content
+      properties:
+        content:
+          type: string
+          description: Untrusted text to sanitize and wrap in trust boundary tags.
+        source:
+          type: string
+          default: external
+          description: Where the content came from. Used in the trust boundary tag name.
+        label:
+          type: string
+          nullable: true
+          default: null
+          description: Optional label for the trust boundary tag name. Overrides source in tag.
+        max_length:
+          type: integer
+          nullable: true
+          default: null
+          minimum: 1
+          description: Truncate content after sanitizing. null = no limit (default).
+        format:
+          type: string
+          enum:
+            - xml
+            - markdown
+            - delimiter
+          default: xml
+          description: |
+            Trust boundary format. "xml" (default, best for Claude),
+            "markdown", or "delimiter". Non-Claude models may work better
+            with "markdown" or "delimiter".
+
+    CleanResponse:
+      type: object
+      required:
+        - result
+        - source
+        - format
+        - content_length
+        - result_length
+        - modified
+      properties:
+        result:
+          type: string
+          description: Sanitized content wrapped in trust boundary tags. Safe to interpolate into an LLM prompt.
+        source:
+          type: string
+          description: Echo of the source parameter used.
+        format:
+          type: string
+          description: Echo of the format used.
+        content_length:
+          type: integer
+          description: Length of the original content before processing.
+        result_length:
+          type: integer
+          description: Length of the result after processing.
+        modified:
+          type: boolean
+          description: True if the sanitizer modified the content (stripped characters).
+
+    GuardRequest:
+      type: object
+      required:
+        - text
+      properties:
+        text:
+          type: string
+          description: LLM output to check for injection patterns and canary token leaks.
+        canary_tokens:
+          type: object
+          nullable: true
+          default: null
+          additionalProperties:
+            type: string
+          description: |
+            Optional map of source_name to canary token string for leak detection.
+            If null, canary check is skipped.
+
+    GuardResponse:
+      type: object
+      required:
+        - safe
+        - text
+      properties:
+        safe:
+          type: boolean
+          description: True if the text passed all checks. False if injection or canary leak detected.
+        text:
+          type: string
+          description: The input text, unchanged.
+        reason:
+          type: string
+          nullable: true
+          default: null
+          description: If not safe, the reason. null if safe.
+        check:
+          type: string
+          nullable: true
+          enum:
+            - injection
+            - canary
+            - null
+          default: null
+          description: Which check triggered the block, if any.

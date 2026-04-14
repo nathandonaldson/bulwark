@@ -1,0 +1,28 @@
+endpoint: POST /v1/clean
+version: "0.3.0"
+
+guarantees:
+  - id: G-HTTP-CLEAN-001
+    summary: Returns 200 with sanitized, trust-bounded content in result field
+  - id: G-HTTP-CLEAN-002
+    summary: Returns 422 when required content field is missing
+  - id: G-HTTP-CLEAN-003
+    summary: Returns 422 when format value is not xml/markdown/delimiter
+  - id: G-HTTP-CLEAN-004
+    summary: Response includes content_length (original) and result_length (processed)
+  - id: G-HTTP-CLEAN-005
+    summary: Response modified field is true when sanitizer stripped characters
+  - id: G-HTTP-CLEAN-006
+    summary: Response modified field is false when content was clean
+  - id: G-HTTP-CLEAN-007
+    summary: Source and format fields echoed in response
+
+  - id: G-HTTP-CLEAN-008
+    summary: max_length truncates content and reduces result_length
+  - id: G-HTTP-CLEAN-009
+    summary: format=markdown produces non-XML boundaries
+
+non_guarantees:
+  - id: NG-HTTP-CLEAN-001
+    summary: Exact trust boundary tag format is not guaranteed across versions
+    reason: Tag naming is an implementation detail. Clients should not parse the result string.

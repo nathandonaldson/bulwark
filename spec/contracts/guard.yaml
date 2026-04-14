@@ -1,0 +1,26 @@
+function: bulwark.guard
+module: bulwark.shortcuts
+version: "0.3.0"
+
+guarantees:
+  - id: G-GUARD-001
+    summary: Returns input text unchanged when all checks pass
+  - id: G-GUARD-002
+    summary: Raises AnalysisSuspiciousError when regex injection patterns match
+  - id: G-GUARD-003
+    summary: Raises CanaryLeakError when canary tokens found (with canary param)
+  - id: G-GUARD-004
+    summary: Canary check is skipped when canary parameter is None
+  - id: G-GUARD-005
+    summary: TypeError raised for non-string text
+
+non_guarantees:
+  - id: NG-GUARD-001
+    summary: Does NOT detect semantically rephrased injection
+    reason: Pattern-based only. "please disregard prior context" won't match.
+  - id: NG-GUARD-002
+    summary: Does NOT sanitize or modify the text
+    reason: guard() is a check, not a transformation. Returns input unchanged.
+  - id: NG-GUARD-003
+    summary: Does NOT detect encoded injection (base64, hex, ROT13)
+    reason: Encoding detection is not in scope for regex-based guard.

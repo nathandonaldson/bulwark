@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.0] - 2026-04-14
+
+### Added
+- **`bulwark.clean()`** — one-liner to sanitize untrusted content and wrap in trust boundary tags. Zero config. Supports XML, markdown, and delimiter boundary formats for different LLM providers.
+- **`bulwark.guard()`** — one-liner to check LLM output for injection patterns and canary token leaks. Raises on detection, returns input unchanged if clean.
+- **`protect()` for Anthropic SDK** — wrap your client to auto-sanitize user messages and tool_result content blocks. Uses explicit `@property` for `.messages` to handle Anthropic's `cached_property`.
+- **HTTP API** — `POST /v1/clean` and `POST /v1/guard` endpoints in the dashboard. Language-agnostic, Pydantic-validated, always 200 for completed analysis.
+- **OpenAPI spec** (`spec/openapi.yaml`) — hand-written, language-agnostic API contract. Go/Node/Ruby developers can build clients from the spec.
+- **Contract specs** (`spec/contracts/`) — formal guarantees and non-guarantees for clean(), guard(), and both HTTP endpoints. 31 guarantees, 9 non-guarantees.
+- **Architecture Decision Records** (`spec/decisions/`) — 7 ADRs recording design rationale (two-phase execution, proxy pattern, clean() defaults, etc.).
+- **Spec compliance CI** — meta-tests enforce that every spec path exists in the app, every guarantee has a test, and no duplicate IDs exist.
+- **`CanaryLeakError` exported** from top-level `bulwark` package.
+- 54 new tests (709 total).
+
+### Changed
+- README Quick Start now leads with `bulwark.clean()`, then `guard()`, then `protect()`, then full Pipeline.
+- `clean()` defaults to `max_length=None` (no silent truncation). Opt-in truncation only.
+
 ## [0.2.2] - 2026-04-13
 
 ### Fixed

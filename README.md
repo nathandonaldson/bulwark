@@ -66,7 +66,33 @@ In the dashboard, click "Activate" on any detection model in the Configure tab. 
 
 ## Quick start
 
-**Anthropic SDK:**
+**Sanitize untrusted input (any LLM):**
+
+```python
+import bulwark
+
+safe = bulwark.clean(email_body, source="email")
+prompt = f"Classify this email:\n{safe}"
+# Content is sanitized and trust-boundary-tagged — pass to any LLM
+```
+
+`clean()` strips hidden characters, steganography, and encoding tricks, then wraps in trust boundary tags. For non-Claude models, use `format="markdown"` or `format="delimiter"`.
+
+**Guard LLM output:**
+
+```python
+safe_output = bulwark.guard(llm_response)  # raises if injection detected
+```
+
+**Auto-protect an Anthropic client:**
+
+```python
+from bulwark.integrations.anthropic import protect
+client = protect(anthropic.Anthropic())
+# Every messages.create() call now auto-sanitizes user + tool_result content
+```
+
+**Full pipeline (two-phase execution, canary tokens, batch isolation):**
 
 ```python
 from bulwark.integrations.anthropic import make_pipeline
@@ -87,15 +113,6 @@ result = pipeline.run(untrusted_content, source="web")
 ```
 
 Any `(str) -> str` callable works. Async too: `pipeline.run_async()`.
-
-**Or paste this into Claude Code:**
-
-```
-I have a Python application that calls an LLM with untrusted content from
-[email/web/calendar/documents]. Add Bulwark to protect against prompt injection.
-My LLM calls use [Anthropic SDK / OpenAI SDK / raw HTTP]. Show me the minimal
-integration using Bulwark's Pipeline.
-```
 
 ## Dashboard
 

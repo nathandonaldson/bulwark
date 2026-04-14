@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from bulwark.sanitizer import Sanitizer
 from bulwark.trust_boundary import TrustBoundary
-from bulwark.canary import CanarySystem
+from bulwark.canary import CanarySystem, CanaryLeakError
 from bulwark.executor import (
     TwoPhaseExecutor, ExecutorResult, LLMCallFn,
     AnalysisGuard, AnalysisSuspiciousError, SECURE_EXECUTE_TEMPLATE,
@@ -23,6 +23,7 @@ from bulwark.events import (
 from bulwark.attacks import AttackSuite
 from bulwark.validator import PipelineValidator, ValidationReport
 from bulwark.pipeline import Pipeline, PipelineResult
+from bulwark.shortcuts import clean, guard
 
 try:
     from importlib.metadata import version as _get_version
@@ -57,4 +58,7 @@ __all__ = [
     "ValidationReport",
     "Pipeline",
     "PipelineResult",
+    "clean",
+    "guard",
+    "CanaryLeakError",
 ]
