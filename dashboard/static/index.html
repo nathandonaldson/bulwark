@@ -779,7 +779,23 @@ function renderRedteamCards() {
 function renderGarakCard(info) {
   const installed = info.installed;
   const version = info.version && info.version !== 'unknown' ? `v${info.version}` : '';
+  const updateAvailable = info.update_available;
+  const latest = info.latest || '';
   const disabledClass = installed ? '' : 'disabled';
+
+  let versionHtml = '';
+  if (version) {
+    if (updateAvailable) {
+      versionHtml = `<span class="redteam-card-version" style="color: var(--amber);">Garak ${escapeHtml(version)} (${escapeHtml(latest)} available)</span>`;
+    } else {
+      versionHtml = `<span class="redteam-card-version">Garak ${escapeHtml(version)}</span>`;
+    }
+  }
+
+  let updateHint = '';
+  if (updateAvailable) {
+    updateHint = `<div style="font-size: 11px; color: var(--amber); margin-bottom: 8px;">Update available: <code>pip install --upgrade garak</code></div>`;
+  }
 
   let footerHtml;
   if (!installed) {
@@ -791,6 +807,7 @@ function renderGarakCard(info) {
       </div>`;
   } else {
     footerHtml = `
+      ${updateHint}
       <div class="redteam-card-footer">
         <span class="redteam-status" id="garak-status-text">Ready</span>
         <div style="display:flex;gap:6px">
@@ -803,7 +820,7 @@ function renderGarakCard(info) {
   return `<div class="redteam-card ${disabledClass}" id="garak-card">
     <div class="redteam-card-header">
       <span class="redteam-card-name">Production Red Team</span>
-      ${version ? `<span class="redteam-card-version">Garak ${escapeHtml(version)}</span>` : ''}
+      ${versionHtml}
     </div>
     <div class="redteam-card-desc">Sends Garak's attack payloads through your Bulwark pipeline with the configured LLM backend. Tests the real defense, not a simulation.</div>
     ${footerHtml}

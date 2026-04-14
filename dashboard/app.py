@@ -544,13 +544,46 @@ async def redteam_stop():
     return {"status": "not_running", "message": "No red team scan is currently running."}
 
 
+_garak_latest_cache: dict = {}  # {version: str, checked_at: float}
+
+
 @app.get("/api/integrations/detect")
 async def detect_integrations():
-    """Check which testing tools are actually installed."""
+    """Check which testing tools are actually installed and if updates are available."""
     results = {}
     try:
         import garak
-        results["garak"] = {"installed": True, "version": getattr(garak, "__version__", "unknown")}
+        installed_version = getattr(garak, "__version__", "unknown")
+        info = {"installed": True, "version": installed_version}
+
+        # Check for newer version (cached for 1 hour)
+        latest = _check_garak_latest()
+        if latest and latest != installed_version:
+            info["latest"] = latest
+            info["update_available"] = True
+        else:
+            info["update_available"] = False
+
+        results["garak"] = info
     except ImportError:
         results["garak"] = {"installed": False}
     return results
+
+
+def _check_garak_latest() -> Optional[str]:
+    """Check PyPI for latest garak version. Cached for 1 hour."""
+    now = time.time()
+    if _garak_latest_cache.get("checked_at", 0) > now - 3600:
+        return _garak_latest_cache.get("version")
+    try:
+        import urllib.request
+        import json as _json
+        req = urllib.request.Request("https://pypi.org/pypi/garak/json", headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = _json.loads(resp.read())
+            latest = data.get("info", {}).get("version", "")
+            _garak_latest_cache["version"] = latest
+            _garak_latest_cache["checked_at"] = now
+            return latest
+    except Exception:
+        return None
