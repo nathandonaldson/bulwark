@@ -57,7 +57,7 @@ def _make_anthropic_analyze(cfg: LLMBackendConfig) -> Callable[[str], str]:
         raise ImportError("Anthropic mode requires the anthropic package: pip install bulwark-shield[anthropic]")
 
     client = anthropic.Anthropic(api_key=cfg.api_key) if cfg.api_key else anthropic.Anthropic()
-    model = cfg.analyze_model or "claude-haiku-4-5"
+    model = cfg.analyze_model or "claude-haiku-4-5-20251001"
 
     def analyze(prompt: str) -> str:
         response = client.messages.create(
@@ -80,7 +80,7 @@ def _make_anthropic_execute(cfg: LLMBackendConfig) -> Callable[[str], str]:
         raise ImportError("Anthropic mode requires the anthropic package: pip install bulwark-shield[anthropic]")
 
     client = anthropic.Anthropic(api_key=cfg.api_key) if cfg.api_key else anthropic.Anthropic()
-    model = cfg.execute_model or cfg.analyze_model or "claude-sonnet-4-5"
+    model = cfg.execute_model or cfg.analyze_model or "claude-sonnet-4-5-20241022"
 
     def execute(prompt: str) -> str:
         response = client.messages.create(
@@ -101,7 +101,7 @@ def _test_anthropic(cfg: LLMBackendConfig) -> dict:
         return {"ok": False, "message": "anthropic package not installed. Run: pip install bulwark-shield[anthropic]", "model": ""}
     try:
         client = anthropic.Anthropic(api_key=cfg.api_key) if cfg.api_key else anthropic.Anthropic()
-        model = cfg.analyze_model or "claude-haiku-4-5"
+        model = cfg.analyze_model or "claude-haiku-4-5-20251001"
         response = client.messages.create(
             model=model,
             max_tokens=10,
