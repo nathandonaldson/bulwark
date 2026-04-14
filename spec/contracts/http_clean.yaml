@@ -17,6 +17,11 @@ guarantees:
   - id: G-HTTP-CLEAN-007
     summary: Source and format fields echoed in response
 
+  - id: G-HTTP-CLEAN-008
+    summary: max_length truncates content and reduces result_length
+  - id: G-HTTP-CLEAN-009
+    summary: format=markdown produces non-XML boundaries
+
 non_guarantees:
   - id: NG-HTTP-CLEAN-001
     summary: Exact trust boundary tag format is not guaranteed across versions

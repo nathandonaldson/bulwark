@@ -83,7 +83,7 @@ class TestCleanEndpoint:
         assert data["format"] == "markdown"
 
     def test_format_markdown(self):
-        """G-HTTP-CLEAN-001: format=markdown produces non-XML output."""
+        """G-HTTP-CLEAN-009: format=markdown produces non-XML output."""
         client = _get_client()
         resp = client.post("/v1/clean", json={
             "content": "hello", "source": "test", "format": "markdown"
@@ -180,6 +180,24 @@ class TestGuardEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert data["text"] == text
+
+    def test_malformed_canary_tokens_422(self):
+        """Malformed canary_tokens (non-string values) returns 422."""
+        client = _get_client()
+        resp = client.post("/v1/guard", json={
+            "text": "some text", "canary_tokens": {"a": 123}
+        })
+        assert resp.status_code == 422
+
+    def test_empty_canary_tokens_passes(self):
+        """Empty canary_tokens dict is treated as no canary check."""
+        client = _get_client()
+        resp = client.post("/v1/guard", json={
+            "text": "BLWK-CANARY-TEST-abcdef", "canary_tokens": {}
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["safe"] is True
 
     def test_reason_format_not_guaranteed(self):
         """NG-HTTP-GUARD-001: Exact reason string format is not guaranteed.

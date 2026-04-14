@@ -14,6 +14,7 @@ class CleanRequest(BaseModel):
     """Request body for POST /v1/clean."""
     content: str = Field(
         ...,
+        max_length=1_000_000,
         description="Untrusted text to sanitize and wrap in trust boundary tags.",
     )
     source: str = Field(
@@ -67,6 +68,7 @@ class GuardRequest(BaseModel):
     """Request body for POST /v1/guard."""
     text: str = Field(
         ...,
+        max_length=1_000_000,
         description="LLM output to check for injection patterns and canary token leaks.",
     )
     canary_tokens: Optional[dict[str, str]] = Field(
