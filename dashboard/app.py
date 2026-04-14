@@ -571,19 +571,30 @@ async def detect_integrations():
 
 
 def _check_garak_latest() -> Optional[str]:
-    """Check PyPI for latest garak version. Cached for 1 hour."""
+    """Check PyPI for latest garak version compatible with this Python. Cached for 1 hour."""
     now = time.time()
     if _garak_latest_cache.get("checked_at", 0) > now - 3600:
         return _garak_latest_cache.get("version")
     try:
-        import urllib.request
-        import json as _json
-        req = urllib.request.Request("https://pypi.org/pypi/garak/json", headers={"Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = _json.loads(resp.read())
-            latest = data.get("info", {}).get("version", "")
-            _garak_latest_cache["version"] = latest
-            _garak_latest_cache["checked_at"] = now
-            return latest
+        import sys
+        import subprocess
+        # Use pip to check what's actually installable on this Python version
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "index", "versions", "garak"],
+            capture_output=True, text=True, timeout=10,
+        )
+        # Output format: "garak (X.Y.Z)\nAvailable versions: ..."
+        # The first line has the latest installable version
+        if result.stdout:
+            first_line = result.stdout.strip().split("\n")[0]
+            # Extract version from "garak (X.Y.Z)"
+            if "(" in first_line and ")" in first_line:
+                latest = first_line.split("(")[1].split(")")[0]
+                _garak_latest_cache["version"] = latest
+                _garak_latest_cache["checked_at"] = now
+                return latest
     except Exception:
-        return None
+        pass
+    # Fallback: assume current is latest
+    _garak_latest_cache["checked_at"] = now
+    return None
