@@ -1188,7 +1188,15 @@ const LAYER_META = {
 const LAYER_COLORS = {
   sanitizer: 'var(--green)', boundary: '#06b6d4', executor: 'var(--blue)',
   canary: 'var(--purple)', isolator: '#ec4899', guard: 'var(--blue)',
+  analyze: 'var(--blue)', analysis_guard: 'var(--amber)',
+  trust_boundary: '#06b6d4',
 };
+
+// Detection model layers get purple color
+function getLayerColor(layer) {
+  if (layer && layer.startsWith('detection:')) return 'var(--purple)';
+  return LAYER_COLORS[layer] || 'var(--green)';
+}
 
 // ============================================================
 // Navigation
@@ -1456,10 +1464,10 @@ async function runTest() {
   resultEl.innerHTML = '';
 
   try {
-    const res = await fetch('/api/test', {
+    const res = await fetch('/v1/pipeline', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payload }),
+      body: JSON.stringify({ content: payload, source: 'test' }),
     });
     if (!res.ok) throw new Error('API returned ' + res.status);
     const data = await res.json();
@@ -1490,8 +1498,14 @@ function renderTrace(trace, blocked, blockedAt) {
 
     const connectorClass = dotClass === 'pass' || dotClass === 'modify' ? 'done' : '';
     const nameColor = dotClass === 'block' ? 'var(--red)' :
-      dotClass === 'pass' ? (LAYER_COLORS[step.layer] || 'var(--green)') :
+      dotClass === 'pass' ? getLayerColor(step.layer) :
       dotClass === 'modify' ? 'var(--amber)' : 'var(--text-dim)';
+
+    // Display friendly name for detection model layers
+    let layerName = step.layer || 'Step';
+    if (layerName.startsWith('detection:')) {
+      layerName = layerName.replace('detection:', '') + ' (detection)';
+    }
 
     const blockLabel = v === 'blocked' || v === 'detected' ? ' \u2014 BLOCKED' : '';
 
@@ -1515,7 +1529,7 @@ function renderTrace(trace, blocked, blockedAt) {
         ${!isLast ? `<div class="trace-connector ${connectorClass}"></div>` : ''}
       </div>
       <div class="trace-content">
-        <div class="trace-name" style="color: ${nameColor}">${step.step || (i+1)}. ${escapeHtml(step.name || step.layer || 'Step')}${blockLabel}</div>
+        <div class="trace-name" style="color: ${nameColor}">${step.step || (i+1)}. ${escapeHtml(step.name || layerName)}${blockLabel}</div>
         ${badges ? `<div class="trace-badges">${badges}</div>` : ''}
         <div class="trace-detail">${escapeHtml(step.detail || '')}</div>
         ${step.output_preview ? `<div class="trace-diff">${escapeHtml(step.output_preview)}</div>` : ''}

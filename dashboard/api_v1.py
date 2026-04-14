@@ -112,12 +112,13 @@ async def test_llm_connection(request: Request):
     summary="Run content through the full Bulwark pipeline with LLM",
     description=(
         "Runs untrusted content through the complete Bulwark pipeline including "
-        "LLM-backed two-phase execution (if configured). Returns sanitized analysis, "
-        "optional execution output, and full pipeline trace."
+        "LLM-backed two-phase execution (if configured), detection models "
+        "(ProtectAI, PromptGuard), and canary token checks. Returns full pipeline trace."
     ),
 )
 async def run_pipeline(request: Request):
-    """Run the full pipeline with the configured LLM backend."""
+    """Run the full pipeline with the configured LLM backend and detection models."""
+    import time as _time
     from pathlib import Path
     from bulwark.pipeline import Pipeline
     from bulwark.events import CollectorEmitter
@@ -134,21 +135,89 @@ async def run_pipeline(request: Request):
     analyze_fn = make_analyze_fn(config.llm_backend)
     execute_fn = make_execute_fn(config.llm_backend)
 
+    # Load canary tokens if available
+    canary = None
+    canary_file = Path(__file__).parent.parent / "knowledge" / "comms" / "canaries.json"
+    if not canary_file.exists():
+        canary_file = Path(__file__).parent.parent.parent / "knowledge" / "comms" / "canaries.json"
+    if canary_file.exists():
+        canary = CanarySystem.from_file(str(canary_file))
+
     config_path = Path(__file__).parent.parent / "bulwark-config.yaml"
     if config_path.exists():
         pipeline = Pipeline.from_config(str(config_path), analyze_fn=analyze_fn, execute_fn=execute_fn)
         pipeline.emitter = collector
+        if canary:
+            pipeline.canary = canary
     else:
-        pipeline = Pipeline.default(analyze_fn=analyze_fn, execute_fn=execute_fn, emitter=collector)
+        pipeline = Pipeline.default(analyze_fn=analyze_fn, execute_fn=execute_fn,
+                                    canary=canary, emitter=collector)
 
     result = await pipeline.run_async(content, source=source)
 
+    # Enrich trace with LLM backend info
+    trace = list(result.trace)
+    for entry in trace:
+        if entry.get("layer") == "analyze":
+            mode = config.llm_backend.mode
+            if mode == "anthropic":
+                model = config.llm_backend.analyze_model or "claude-haiku-4-5"
+                entry["detail"] = f"Phase 1 via Anthropic ({model}): {len(result.analysis)} chars"
+                entry["backend"] = "anthropic"
+                entry["model"] = model
+            elif mode == "openai_compatible":
+                model = config.llm_backend.analyze_model or "unknown"
+                url = config.llm_backend.base_url or "unknown"
+                entry["detail"] = f"Phase 1 via {url} ({model}): {len(result.analysis)} chars"
+                entry["backend"] = "openai_compatible"
+                entry["model"] = model
+                entry["url"] = url
+            elif not mode or mode == "none":
+                entry["detail"] = f"Phase 1 (echo mode, no LLM): {len(result.analysis)} chars"
+                entry["backend"] = "echo"
+
+    # Run detection models individually with per-model trace entries
+    from dashboard.app import _detection_checks
+    blocked = result.blocked
+    block_reason = result.block_reason
+    if _detection_checks and result.analysis and not result.blocked:
+        step_num = len(trace) + 1
+        for model_name, check_fn in _detection_checks.items():
+            t0 = _time.time()
+            try:
+                check_fn(result.analysis)
+                elapsed = (_time.time() - t0) * 1000
+                trace.append({
+                    "step": step_num,
+                    "layer": f"detection:{model_name}",
+                    "verdict": "passed",
+                    "detail": f"{model_name}: clean ({elapsed:.0f}ms)",
+                    "detection_model": model_name,
+                    "duration_ms": round(elapsed, 1),
+                })
+            except AnalysisSuspiciousError as e:
+                elapsed = (_time.time() - t0) * 1000
+                trace.append({
+                    "step": step_num,
+                    "layer": f"detection:{model_name}",
+                    "verdict": "blocked",
+                    "detail": f"{model_name}: {e} ({elapsed:.0f}ms)",
+                    "detection_model": model_name,
+                    "duration_ms": round(elapsed, 1),
+                })
+                blocked = True
+                block_reason = f"Detection model {model_name}: {e}"
+            step_num += 1
+
     return {
+        "payload_length": len(content),
         "analysis": result.analysis,
         "execution": result.execution,
-        "blocked": result.blocked,
-        "block_reason": result.block_reason,
+        "blocked": blocked,
+        "block_reason": block_reason,
         "neutralized": result.neutralized,
-        "trace": result.trace,
+        "blocked_at": block_reason.split(":")[0].strip() if block_reason else None,
+        "neutralized_by": "Sanitizer" if result.neutralized else None,
+        "trace": trace,
         "llm_mode": config.llm_backend.mode,
     }

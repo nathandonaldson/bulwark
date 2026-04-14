@@ -143,13 +143,11 @@ async def test_pipeline(request: Request):
             emitter=collector,
         )
 
-    # Attach any active detection model checks
-    if _detection_checks and pipeline.analysis_guard is not None:
-        pipeline.analysis_guard.custom_checks = list(_detection_checks.values())
-
+    # Don't attach detection checks to the pipeline — we'll run them separately
+    # so we can get per-model trace entries
     result = await pipeline.run_async(payload, source="test")
 
-    # Enrich the trace with LLM backend and detection model info
+    # Enrich the trace with LLM backend info
     trace = list(result.trace)
     for entry in trace:
         if entry.get("layer") == "analyze":
@@ -169,20 +167,46 @@ async def test_pipeline(request: Request):
             else:
                 entry["detail"] = f"Phase 1 (echo mode, no LLM): {len(result.analysis)} chars"
                 entry["backend"] = "echo"
-        elif entry.get("layer") == "analysis_guard":
-            # Add info about active detection models
-            active_models = list(_detection_checks.keys()) if _detection_checks else []
-            if active_models:
-                models_str = ", ".join(active_models)
-                base_detail = entry.get("detail", "")
-                entry["detail"] = f"{base_detail} [{models_str} active]"
-                entry["detection_models"] = active_models
+
+    # Run detection models individually and add separate trace entries
+    blocked = result.blocked
+    block_reason = result.block_reason
+    if _detection_checks and result.analysis and not result.blocked:
+        from bulwark.executor import AnalysisSuspiciousError as _ASE
+        step_num = len(trace) + 1
+        for model_name, check_fn in _detection_checks.items():
+            import time as _time
+            t0 = _time.time()
+            try:
+                check_fn(result.analysis)
+                elapsed = (_time.time() - t0) * 1000
+                trace.append({
+                    "step": step_num,
+                    "layer": f"detection:{model_name}",
+                    "verdict": "passed",
+                    "detail": f"{model_name}: clean ({elapsed:.0f}ms)",
+                    "detection_model": model_name,
+                    "duration_ms": round(elapsed, 1),
+                })
+            except _ASE as e:
+                elapsed = (_time.time() - t0) * 1000
+                trace.append({
+                    "step": step_num,
+                    "layer": f"detection:{model_name}",
+                    "verdict": "blocked",
+                    "detail": f"{model_name}: {e} ({elapsed:.0f}ms)",
+                    "detection_model": model_name,
+                    "duration_ms": round(elapsed, 1),
+                })
+                blocked = True
+                block_reason = f"Detection model {model_name}: {e}"
+            step_num += 1
 
     return {
         "payload_length": len(payload),
-        "blocked": result.blocked,
+        "blocked": blocked,
         "neutralized": result.neutralized,
-        "blocked_at": result.block_reason.split(":")[0].strip() if result.block_reason else None,
+        "blocked_at": block_reason.split(":")[0].strip() if block_reason else None,
         "neutralized_by": "Sanitizer" if result.neutralized else None,
         "trace": trace,
     }
