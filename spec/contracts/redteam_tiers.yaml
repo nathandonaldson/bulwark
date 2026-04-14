@@ -1,0 +1,21 @@
+endpoint: GET /api/redteam/tiers
+version: "0.6.0"
+
+guarantees:
+  - id: G-REDTEAM-TIERS-001
+    summary: Returns three tiers (quick, standard, full) with probe counts from garak
+  - id: G-REDTEAM-TIERS-002
+    summary: Probe counts are dynamic, pulled from installed garak version, not hardcoded
+  - id: G-REDTEAM-TIERS-003
+    summary: Returns garak_installed=false with empty tiers if garak is not installed
+  - id: G-REDTEAM-TIERS-004
+    summary: Quick tier runs 10 probes from core injection families as a smoke test
+  - id: G-REDTEAM-TIERS-005
+    summary: Standard tier includes all active garak probes
+  - id: G-REDTEAM-TIERS-006
+    summary: Full tier includes all garak probes (active and inactive)
+
+non_guarantees:
+  - id: NG-REDTEAM-TIERS-001
+    summary: Does NOT guarantee exact probe counts between garak versions
+    reason: Counts depend on installed garak version and available probe plugins

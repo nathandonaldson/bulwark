@@ -104,12 +104,20 @@ class ProductionRedTeam:
         on_progress: Callback(completed, total) for progress updates.
     """
 
+    # Families included in each tier
+    TIER_FAMILIES = {
+        "quick": frozenset({"promptinject", "latentinjection", "dan"}),
+        "standard": None,  # None = all active
+        "full": None,       # None = all (including inactive)
+    }
+
     def __init__(
         self,
         project_dir: str,
         delay_ms: int = 200,
         model: str = "claude-haiku-4-5",
         max_probes: int = 0,
+        tier: str = "",
         emitter: Optional[EventEmitter] = None,
         on_progress: Optional[Callable[[int, int], None]] = None,
         llm_fn: Optional[Callable[[str], str]] = None,
@@ -118,6 +126,7 @@ class ProductionRedTeam:
         self.delay_ms = delay_ms
         self.model = model
         self.max_probes = max_probes
+        self.tier = tier  # "quick", "standard", "full", or "" for legacy behavior
         self.emitter = emitter or NullEmitter()
         self.on_progress = on_progress
         self.llm_fn = llm_fn  # Optional: use configured LLM instead of claude CLI
@@ -149,11 +158,51 @@ class ProductionRedTeam:
     def _get_probe_payloads(self) -> list[tuple[str, str, int, str]]:
         """Extract payloads from Garak probe classes.
 
+        When a tier is set, dynamically loads probes from garak's plugin registry.
+        Falls back to a hardcoded list for legacy (no tier) mode.
+
         Returns list of (family, class_name, index, payload).
         """
+        if self.tier:
+            return self._get_tier_payloads()
+        return self._get_legacy_payloads()
+
+    def _get_tier_payloads(self) -> list[tuple[str, str, int, str]]:
+        """Load probes dynamically from garak based on tier."""
+        import importlib
+        from garak._plugins import enumerate_plugins
+
+        allowed_families = self.TIER_FAMILIES.get(self.tier)
+        include_inactive = self.tier == "full"
+
+        probes = list(enumerate_plugins("probes"))
+        payloads = []
+
+        for name, active in probes:
+            if not include_inactive and not active:
+                continue
+            parts = name.split(".")
+            family = parts[1]
+            cls_name = parts[-1]
+
+            if allowed_families is not None and family not in allowed_families:
+                continue
+
+            try:
+                mod = importlib.import_module(f"garak.probes.{family}")
+                cls = getattr(mod, cls_name)
+                probe = cls()
+                for i, prompt in enumerate(probe.prompts):
+                    payloads.append((family, cls_name, i, prompt))
+            except Exception:
+                continue
+
+        return payloads
+
+    def _get_legacy_payloads(self) -> list[tuple[str, str, int, str]]:
+        """Legacy hardcoded probe list (when no tier is specified)."""
         import importlib
 
-        # Probe classes — try current names first, fall back to legacy (Mini variants)
         probes_to_load = [
             ("promptinject", "HijackHateHumans"),
             ("promptinject", "HijackKillHumans"),

@@ -2,19 +2,17 @@
 
 Prompt injection defense through architecture, not detection.
 
-## Spec-driven development (MANDATORY — DO NOT SKIP)
+## Spec-driven development (MANDATORY)
 
-This rule has been violated 4 times. It is not optional.
+Every new feature follows this sequence. Complete each step before moving to the next.
 
-BEFORE writing ANY implementation code in this repo:
+1. **Start with the spec.** Update `spec/openapi.yaml` for any new or changed HTTP endpoints.
+2. **Write the contract.** Create or update `spec/contracts/*.yaml` with guarantee IDs and non-guarantees.
+3. **Record the decision.** Add an ADR in `spec/decisions/NNN-title.md` when making architectural choices.
+4. **Write the tests.** Reference guarantee IDs (e.g., `G-HTTP-HEALTHZ-001`). Watch them fail.
+5. **Implement.** Make the tests pass.
 
-1. **Spec first.** Update `spec/openapi.yaml` for any new or changed HTTP endpoints.
-2. **Contracts first.** Write or update `spec/contracts/*.yaml` with guarantee IDs and non-guarantees.
-3. **ADRs for decisions.** Record design decisions in `spec/decisions/NNN-title.md`.
-4. **Tests first.** Write tests referencing guarantee IDs (e.g., `G-HTTP-HEALTHZ-001`).
-5. **Then implement.** Make the tests pass.
-
-If you find yourself writing implementation before specs, STOP. Delete what you wrote and start over with the spec. "I'll backfill later" is not acceptable. It has failed every time.
+This is the workflow. Spec first, then contract, then tests, then code. Every time.
 
 See `CONTRIBUTING.md` for the full process. `tests/test_spec_compliance.py` enforces spec/implementation agreement in CI.
 

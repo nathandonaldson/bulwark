@@ -76,6 +76,16 @@ class LLMTestRequest(BaseModel):
     execute_model: str = Field(default="", description="Model for Phase 2 execution.")
 
 
+class LLMModelsRequest(BaseModel):
+    """Request body for POST /v1/llm/models."""
+    mode: Literal["none", "anthropic", "openai_compatible"] = Field(
+        default="none",
+        description="LLM mode: none, anthropic, or openai_compatible.",
+    )
+    api_key: str = Field(default="", description="API key for the LLM provider.")
+    base_url: str = Field(default="", description="Base URL for OpenAI-compatible endpoints.")
+
+
 class PipelineRequest(BaseModel):
     """Request body for POST /v1/pipeline."""
     content: str = Field(

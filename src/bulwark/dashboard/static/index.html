@@ -184,8 +184,14 @@
   .llm-mode-desc { font-size: 11px; color: var(--text-dim); }
   .llm-field-group { display: flex; flex-direction: column; gap: 10px; }
   .llm-field label { display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px; }
-  .llm-field input { width: 100%; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 13px; font-family: inherit; box-sizing: border-box; }
-  .llm-field input:focus { outline: none; border-color: var(--blue); }
+  .llm-field input, .llm-field select { width: 100%; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 13px; font-family: inherit; box-sizing: border-box; appearance: none; -webkit-appearance: none; }
+  .llm-field select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M2 4l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px; cursor: pointer; }
+  .llm-field input:focus, .llm-field select:focus { outline: none; border-color: var(--blue); }
+  .llm-model-row { display: flex; gap: 8px; align-items: flex-end; }
+  .llm-model-row select, .llm-model-row input { flex: 1; }
+  .llm-model-refresh { padding: 8px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; color: var(--text-dim); cursor: pointer; font-size: 12px; white-space: nowrap; transition: all 0.15s; }
+  .llm-model-refresh:hover { border-color: var(--blue); color: var(--blue); }
+  .llm-model-hint { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
   .llm-presets { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
   .llm-preset-btn { font-size: 11px; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim); cursor: pointer; transition: all 0.15s; }
   .llm-preset-btn:hover { border-color: var(--blue); color: var(--blue); }
@@ -245,7 +251,7 @@
   .redteam-separator-label { font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); white-space: nowrap; }
 
   /* Red-teaming tool cards */
-  .redteam-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .redteam-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
   .redteam-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; transition: all 0.3s; }
   .redteam-card.disabled { opacity: 0.5; }
   .redteam-card.running { border-color: var(--blue); animation: card-pulse 2s ease-in-out infinite; }
@@ -263,6 +269,22 @@
   .redteam-btn-run { background: var(--blue); color: white; }
   .redteam-btn-run:hover:not(:disabled) { opacity: 0.85; }
   .redteam-btn-soon { background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border); }
+  .redteam-tier-selector { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  .redteam-tier { padding: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; transition: all 0.2s; text-align: center; }
+  .redteam-tier:hover { border-color: var(--text-dim); }
+  .redteam-tier.selected { border-color: var(--blue); background: var(--blue-dim); }
+  .redteam-tier-name { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+  .redteam-tier-count { font-size: 18px; font-weight: 700; color: var(--blue); margin-bottom: 2px; }
+  .redteam-tier-desc { font-size: 10px; color: var(--text-dim); line-height: 1.4; }
+  .past-reports { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+  .past-reports-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin-bottom: 8px; }
+  .past-report-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .past-report-row:last-child { border-bottom: none; }
+  .past-report-info { display: flex; align-items: center; gap: 10px; }
+  .past-report-score { font-weight: 700; min-width: 36px; }
+  .past-report-meta { color: var(--text-dim); }
+  .past-report-dl { font-size: 11px; color: var(--blue); text-decoration: none; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; transition: all 0.15s; }
+  .past-report-dl:hover { border-color: var(--blue); background: var(--blue-dim); }
 
   /* Spinner inside button */
   .btn-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.8s linear infinite; }
@@ -608,6 +630,9 @@ function selectLLMMode(mode) {
   renderLLMFields(mode, backend);
 }
 
+// Cached model lists per mode
+let _llmModelsCache = {};
+
 function renderLLMFields(mode, backend) {
   const container = document.getElementById('llm-fields');
 
@@ -617,14 +642,11 @@ function renderLLMFields(mode, backend) {
   }
 
   const showUrl = mode === 'openai_compatible';
-  const showApiKey = true;  // Both modes can use an API key
   const apiKeyRequired = mode === 'anthropic';
   const apiKeyLabel = apiKeyRequired
     ? 'API Key'
     : 'API Key <span style="color: var(--text-dim); font-weight: normal;">(optional for local)</span>';
   const apiKeyPlaceholder = mode === 'anthropic' ? 'sk-ant-...' : 'sk-... (leave empty for local)';
-  const analyzePlaceholder = mode === 'anthropic' ? 'claude-haiku-4-5' : 'Enter model name';
-  const executePlaceholder = mode === 'anthropic' ? 'claude-sonnet-4-5' : 'Same as Phase 1 if blank';
 
   let html = '<div class="llm-field-group">';
 
@@ -647,11 +669,19 @@ function renderLLMFields(mode, backend) {
     </div>
     <div class="llm-field">
       <label>Phase 1 Model <span style="color: var(--text-dim); font-weight: normal;">(analyze, no tools)</span></label>
-      <input type="text" id="llm-analyze-model" placeholder="${analyzePlaceholder}" value="${backend.analyze_model || ''}" autocomplete="off" />
+      <div class="llm-model-row">
+        <select id="llm-analyze-model"><option value="">Loading...</option></select>
+        ${mode === 'openai_compatible' ? '<button class="llm-model-refresh" onclick="fetchLLMModels(true)">Refresh</button>' : ''}
+      </div>
+      <div class="llm-model-hint">${mode === 'anthropic' ? 'Uses short alias — always resolves to the latest version' : 'Select a model from your endpoint'}</div>
     </div>
     <div class="llm-field">
       <label>Phase 2 Model <span style="color: var(--text-dim); font-weight: normal;">(execute, optional)</span></label>
-      <input type="text" id="llm-execute-model" placeholder="${executePlaceholder}" value="${backend.execute_model || ''}" autocomplete="off" />
+      <div class="llm-model-row">
+        <select id="llm-execute-model"><option value="">Loading...</option></select>
+        ${mode === 'openai_compatible' ? '<button class="llm-model-refresh" onclick="fetchLLMModels(true)">Refresh</button>' : ''}
+      </div>
+      <div class="llm-model-hint">${mode === 'anthropic' ? 'Leave on default to use Phase 1 model' : 'Leave on default to use Phase 1 model'}</div>
     </div>
   </div>
   <div style="display: flex; gap: 8px; margin-top: 12px;">
@@ -661,6 +691,83 @@ function renderLLMFields(mode, backend) {
   <div id="llm-status" class="llm-status"></div>`;
 
   container.innerHTML = html;
+
+  // Populate model dropdowns
+  fetchLLMModels(false, backend);
+}
+
+async function fetchLLMModels(forceRefresh, backend) {
+  const mode = document.querySelector('.llm-mode-option.selected')?.dataset.mode || 'none';
+  if (mode === 'none') return;
+
+  // Use cache unless forced
+  if (!forceRefresh && _llmModelsCache[mode]) {
+    _populateModelDropdowns(_llmModelsCache[mode], backend || configData.llm_backend || {});
+    return;
+  }
+
+  const reqBody = { mode };
+  if (mode === 'openai_compatible') {
+    reqBody.api_key = (document.getElementById('llm-api-key')?.value || '').trim();
+    reqBody.base_url = (document.getElementById('llm-base-url')?.value || '').trim();
+  }
+
+  try {
+    const res = await fetch('/v1/llm/models', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(reqBody),
+    });
+    const data = await res.json();
+    const models = data.models || [];
+    _llmModelsCache[mode] = models;
+    _populateModelDropdowns(models, backend || configData.llm_backend || {});
+  } catch(e) {
+    // Fallback: leave dropdowns with a text-entry option
+    _populateModelDropdowns([], backend || configData.llm_backend || {});
+  }
+}
+
+function _populateModelDropdowns(models, backend) {
+  const analyzeSelect = document.getElementById('llm-analyze-model');
+  const executeSelect = document.getElementById('llm-execute-model');
+  if (!analyzeSelect || !executeSelect) return;
+
+  const currentAnalyze = backend.analyze_model || '';
+  const currentExecute = backend.execute_model || '';
+  const mode = document.querySelector('.llm-mode-option.selected')?.dataset.mode || 'none';
+
+  // Build analyze options
+  let analyzeHtml = '';
+  if (mode === 'anthropic') {
+    analyzeHtml = '<option value="">Default (Haiku 4.5)</option>';
+  } else {
+    analyzeHtml = '<option value="">Default</option>';
+  }
+  for (const m of models) {
+    const rec = (m.recommended_for || []).includes('analyze') ? ' ★' : '';
+    const selected = m.id === currentAnalyze ? ' selected' : '';
+    analyzeHtml += `<option value="${m.id}"${selected}>${m.name}${rec}${m.description ? ' — ' + m.description : ''}</option>`;
+  }
+  analyzeSelect.innerHTML = analyzeHtml;
+  // Re-select current value if it exists
+  if (currentAnalyze) analyzeSelect.value = currentAnalyze;
+
+  // Build execute options
+  let executeHtml = '<option value="">Same as Phase 1</option>';
+  for (const m of models) {
+    const rec = (m.recommended_for || []).includes('execute') ? ' ★' : '';
+    const selected = m.id === currentExecute ? ' selected' : '';
+    executeHtml += `<option value="${m.id}"${selected}>${m.name}${rec}${m.description ? ' — ' + m.description : ''}</option>`;
+  }
+  executeSelect.innerHTML = executeHtml;
+  if (currentExecute) executeSelect.value = currentExecute;
+
+  // If models list is empty for openai_compatible, show a hint
+  if (models.length === 0 && mode === 'openai_compatible') {
+    analyzeSelect.innerHTML = '<option value="">Enter endpoint URL and click Refresh</option>';
+    executeSelect.innerHTML = '<option value="">Enter endpoint URL and click Refresh</option>';
+  }
 }
 
 function getLLMFormData() {
@@ -669,8 +776,8 @@ function getLLMFormData() {
     mode,
     api_key: (document.getElementById('llm-api-key')?.value || '').trim(),
     base_url: (document.getElementById('llm-base-url')?.value || '').trim(),
-    analyze_model: (document.getElementById('llm-analyze-model')?.value || '').trim(),
-    execute_model: (document.getElementById('llm-execute-model')?.value || '').trim(),
+    analyze_model: document.getElementById('llm-analyze-model')?.value || '',
+    execute_model: document.getElementById('llm-execute-model')?.value || '',
   };
 }
 
@@ -722,15 +829,26 @@ async function saveLLMConfig() {
 // ============================================================
 let detectedTools = {};
 let garakPollTimer = null;
+let redteamTiers = [];
+let selectedTier = 'quick';
 
 async function detectTools() {
   try {
-    const res = await fetch('/api/integrations/detect');
-    if (res.ok) detectedTools = await res.json();
+    const [toolsRes, tiersRes] = await Promise.all([
+      fetch('/api/integrations/detect'),
+      fetch('/api/redteam/tiers'),
+    ]);
+    if (toolsRes.ok) detectedTools = await toolsRes.json();
+    if (tiersRes.ok) {
+      const tiersData = await tiersRes.json();
+      redteamTiers = tiersData.tiers || [];
+    }
   } catch(e) {
     detectedTools = { garak: { installed: false }, promptfoo: { installed: false } };
+    redteamTiers = [];
   }
   renderRedteamCards();
+  loadPastReports();
   // Check if there's a previous red team result to display
   try {
     const r = await fetch('/api/redteam/status');
@@ -742,13 +860,15 @@ async function detectTools() {
         if (statusText) statusText.textContent = 'Complete';
       } else if (data.status === 'running') {
         // Set initial running state on fresh DOM elements
-        const qb = document.getElementById('garak-quick-btn');
-        const fb = document.getElementById('garak-full-btn');
+        const rb = document.getElementById('garak-run-btn');
         const cd = document.getElementById('garak-card');
         const st = document.getElementById('garak-status-text');
-        if (qb) qb.disabled = true;
-        if (fb) fb.disabled = true;
+        if (rb) rb.disabled = true;
         if (cd) cd.classList.add('running');
+        document.querySelectorAll('.redteam-tier').forEach(el => {
+          el.style.pointerEvents = 'none';
+          el.style.opacity = '0.5';
+        });
         const done = data.completed || 0;
         const total = data.total || '?';
         if (st) st.innerHTML = `<span class="btn-spinner"></span> ${done}/${total} probes...`;
@@ -758,25 +878,20 @@ async function detectTools() {
           try {
             const r2 = await fetch('/api/redteam/status');
             const d2 = await r2.json();
-            // Always get fresh DOM refs (cards may have re-rendered)
-            const quickBtn = document.getElementById('garak-quick-btn');
-            const fullBtn = document.getElementById('garak-full-btn');
             const card = document.getElementById('garak-card');
             const statusText = document.getElementById('garak-status-text');
             if (d2.status === 'complete') {
               clearInterval(garakPollTimer);
               garakPollTimer = null;
               if (card) card.classList.remove('running');
-              if (quickBtn) quickBtn.disabled = false;
-              if (fullBtn) fullBtn.disabled = false;
+              restoreRedTeamButtons();
               if (statusText) statusText.textContent = 'Complete';
               renderRedTeamReport(d2);
             } else if (d2.status === 'error') {
               clearInterval(garakPollTimer);
               garakPollTimer = null;
               if (card) card.classList.remove('running');
-              if (quickBtn) quickBtn.disabled = false;
-              if (fullBtn) fullBtn.disabled = false;
+              restoreRedTeamButtons();
               if (statusText) statusText.textContent = 'Error';
             } else {
               const done = d2.completed || 0;
@@ -834,13 +949,24 @@ function renderGarakCard(info) {
         <button class="redteam-btn redteam-btn-run" disabled>Run</button>
       </div>`;
   } else {
+    const tiersHtml = redteamTiers.length > 0 ? `
+      <div class="redteam-tier-selector">
+        ${redteamTiers.map(t => `
+          <div class="redteam-tier ${t.id === selectedTier ? 'selected' : ''}" onclick="selectRedTeamTier('${t.id}')">
+            <div class="redteam-tier-name">${escapeHtml(t.name)}</div>
+            <div class="redteam-tier-count">${t.probe_count.toLocaleString()} <span style="font-size:11px;font-weight:400;color:var(--text-dim)">probes</span></div>
+            <div class="redteam-tier-desc">${escapeHtml(t.description)}</div>
+          </div>
+        `).join('')}
+      </div>` : '';
+
     footerHtml = `
       ${updateHint}
+      ${tiersHtml}
       <div class="redteam-card-footer">
         <span class="redteam-status" id="garak-status-text">Ready</span>
         <div style="display:flex;gap:6px">
-          <button class="redteam-btn redteam-btn-run" id="garak-quick-btn" onclick="runRedTeam(10)" title="10 probes through production pipeline (~2 min)">Quick Test</button>
-          <button class="redteam-btn redteam-btn-run" id="garak-full-btn" onclick="runRedTeam(0)" title="All 315 probes through production pipeline (~50 min)">Full Scan</button>
+          <button class="redteam-btn redteam-btn-run" id="garak-run-btn" onclick="runRedTeam()">Run ${escapeHtml((redteamTiers.find(t => t.id === selectedTier) || {}).name || 'Scan')}</button>
         </div>
       </div>`;
   }
@@ -853,22 +979,39 @@ function renderGarakCard(info) {
     <div class="redteam-card-desc">Sends Garak's attack payloads through your Bulwark pipeline with the configured LLM backend. Tests the real defense, not a simulation.</div>
     ${footerHtml}
     <div id="garak-report"></div>
+    <div id="garak-past-reports"></div>
   </div>`;
 }
 
 
-async function runRedTeam(maxProbes) {
-  const quickBtn = document.getElementById('garak-quick-btn');
-  const fullBtn = document.getElementById('garak-full-btn');
+function selectRedTeamTier(tierId) {
+  selectedTier = tierId;
+  document.querySelectorAll('.redteam-tier').forEach(el => {
+    el.classList.toggle('selected', el.onclick.toString().includes(`'${tierId}'`));
+  });
+  const runBtn = document.getElementById('garak-run-btn');
+  const tier = redteamTiers.find(t => t.id === tierId);
+  if (runBtn && tier) {
+    runBtn.textContent = `Run ${tier.name}`;
+  }
+}
+
+async function runRedTeam() {
+  const runBtn = document.getElementById('garak-run-btn');
   const card = document.getElementById('garak-card');
   const statusText = document.getElementById('garak-status-text');
   const report = document.getElementById('garak-report');
-  const label = maxProbes > 0 ? `${maxProbes} probes` : 'all 315 probes';
+  const tier = redteamTiers.find(t => t.id === selectedTier);
+  const label = tier ? `${tier.name} (${tier.probe_count} probe classes)` : 'scan';
 
-  if (quickBtn) quickBtn.style.display = 'none';
-  if (fullBtn) fullBtn.style.display = 'none';
+  if (runBtn) runBtn.style.display = 'none';
+  // Disable tier selector
+  document.querySelectorAll('.redteam-tier').forEach(el => {
+    el.style.pointerEvents = 'none';
+    el.style.opacity = '0.5';
+  });
   // Show stop button
-  const footer = quickBtn?.parentElement;
+  const footer = runBtn?.parentElement;
   if (footer) {
     const stopBtn = document.createElement('button');
     stopBtn.className = 'redteam-btn redteam-btn-run';
@@ -879,14 +1022,14 @@ async function runRedTeam(maxProbes) {
     footer.appendChild(stopBtn);
   }
   if (card) card.classList.add('running');
-  if (statusText) statusText.innerHTML = `<span class="btn-spinner"></span> Starting ${label}...`;
+  if (statusText) statusText.innerHTML = `<span class="btn-spinner"></span> Starting ${escapeHtml(label)}...`;
   if (report) report.innerHTML = '';
 
   try {
     const res = await fetch('/api/redteam/run', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ max_probes: maxProbes }),
+      body: JSON.stringify({ tier: selectedTier }),
     });
     const start = await res.json();
     if (start.status === 'running') {
@@ -910,7 +1053,7 @@ async function runRedTeam(maxProbes) {
           clearInterval(garakPollTimer);
           garakPollTimer = null;
           if (card) card.classList.remove('running');
-          restoreRedTeamButtons()
+          restoreRedTeamButtons();
           if (statusText) statusText.textContent = 'Error';
           if (report) report.innerHTML = `<div style="margin-top:12px;font-size:12px;color:var(--red);padding:12px;background:var(--red-dim);border-radius:6px;">${escapeHtml(data.message || 'Unknown error')}</div>`;
         } else {
@@ -930,10 +1073,13 @@ async function runRedTeam(maxProbes) {
 function restoreRedTeamButtons() {
   const stopBtn = document.getElementById('garak-stop-btn');
   if (stopBtn) stopBtn.remove();
-  const quickBtn = document.getElementById('garak-quick-btn');
-  const fullBtn = document.getElementById('garak-full-btn');
-  if (quickBtn) { quickBtn.style.display = ''; quickBtn.disabled = false; }
-  if (fullBtn) { fullBtn.style.display = ''; fullBtn.disabled = false; }
+  const runBtn = document.getElementById('garak-run-btn');
+  if (runBtn) { runBtn.style.display = ''; runBtn.disabled = false; }
+  // Re-enable tier selector
+  document.querySelectorAll('.redteam-tier').forEach(el => {
+    el.style.pointerEvents = '';
+    el.style.opacity = '';
+  });
 }
 
 async function stopRedTeam() {
@@ -1035,6 +1181,9 @@ function renderRedTeamReport(data) {
     ${vulnHtml}
     ${errorHtml}
   </div>`;
+
+  // Refresh past reports list
+  loadPastReports();
 }
 
 function formatDuration(seconds) {
@@ -1042,6 +1191,38 @@ function formatDuration(seconds) {
   const m = Math.floor(seconds / 60);
   const s = Math.round(seconds % 60);
   return `${m}m ${s}s`;
+}
+
+async function loadPastReports() {
+  const container = document.getElementById('garak-past-reports');
+  if (!container) return;
+  try {
+    const res = await fetch('/api/redteam/reports');
+    if (!res.ok) return;
+    const data = await res.json();
+    const reports = data.reports || [];
+    if (reports.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
+    let html = '<div class="past-reports"><div class="past-reports-title">Past Reports</div>';
+    for (const r of reports.slice(0, 10)) {
+      const pct = Math.round((r.defense_rate || 0) * 100);
+      const scoreClass = pct >= 90 ? 'green' : pct >= 70 ? 'amber' : 'red';
+      const date = r.completed_at ? new Date(r.completed_at).toLocaleString() : 'Unknown';
+      const duration = r.duration_s ? formatDuration(r.duration_s) : '';
+      html += `<div class="past-report-row">
+        <div class="past-report-info">
+          <span class="past-report-score" style="color:var(--${scoreClass})">${pct}%</span>
+          <span>${escapeHtml(r.tier)} — ${r.total} probes${duration ? ', ' + duration : ''}</span>
+          <span class="past-report-meta">${escapeHtml(date)}</span>
+        </div>
+        <a class="past-report-dl" href="/api/redteam/reports/${encodeURIComponent(r.filename)}" download>Download JSON</a>
+      </div>`;
+    }
+    html += '</div>';
+    container.innerHTML = html;
+  } catch(e) {}
 }
 
 async function activateIntegration(name) {

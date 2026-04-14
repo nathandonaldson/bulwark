@@ -59,6 +59,9 @@ def main():
     except Exception:
         pass  # Don't block startup if sync fails
 
+    # Make the port available to the app (for red team / webhook emitter self-references)
+    os.environ["BULWARK_DASHBOARD_PORT"] = str(args.port)
+
     import uvicorn
     uvicorn.run("bulwark.dashboard.app:app", host=args.host, port=args.port, reload=False)
 

@@ -10,7 +10,7 @@ from fastapi import APIRouter
 from bulwark.dashboard.models import (
     CleanRequest, CleanResponse,
     GuardRequest, GuardResponse,
-    LLMTestRequest, PipelineRequest,
+    LLMModelsRequest, LLMTestRequest, PipelineRequest,
 )
 from bulwark.shortcuts import clean, guard
 from bulwark.sanitizer import Sanitizer
@@ -105,6 +105,23 @@ async def test_llm_connection(req: LLMTestRequest):
         execute_model=req.execute_model,
     )
     return test_connection(cfg)
+
+
+@router.post(
+    "/llm/models",
+    summary="List available models for the configured LLM backend",
+)
+async def list_llm_models(req: LLMModelsRequest):
+    """Return models available for the given backend configuration."""
+    from bulwark.dashboard.config import LLMBackendConfig
+    from bulwark.dashboard.llm_factory import list_models
+
+    cfg = LLMBackendConfig(
+        mode=req.mode,
+        api_key=req.api_key,
+        base_url=req.base_url,
+    )
+    return {"models": list_models(cfg)}
 
 
 @router.post(

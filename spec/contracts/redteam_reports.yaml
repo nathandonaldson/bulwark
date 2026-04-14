@@ -1,0 +1,19 @@
+endpoint: GET /api/redteam/reports, GET /api/redteam/reports/{filename}
+version: "0.6.0"
+
+guarantees:
+  - id: G-REDTEAM-REPORTS-001
+    summary: Completed red team scans are automatically saved to reports/ as JSON
+  - id: G-REDTEAM-REPORTS-002
+    summary: List endpoint returns reports sorted newest first with summary metadata
+  - id: G-REDTEAM-REPORTS-003
+    summary: Download endpoint validates filename to prevent path traversal
+  - id: G-REDTEAM-REPORTS-004
+    summary: Reports persist across dashboard restarts (saved to disk, not memory)
+  - id: G-REDTEAM-REPORTS-005
+    summary: Report JSON includes full per-probe results for gap analysis
+
+non_guarantees:
+  - id: NG-REDTEAM-REPORTS-001
+    summary: Does NOT automatically prune old reports
+    reason: Users may want to keep historical reports for trend analysis

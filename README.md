@@ -85,7 +85,7 @@ All env vars:
 | `BULWARK_API_KEY` | API key for Anthropic |
 | `BULWARK_BASE_URL` | Endpoint URL for OpenAI-compatible servers (Ollama, llama.cpp, vLLM) |
 | `BULWARK_ANALYZE_MODEL` | Phase 1 model (default: `claude-haiku-4-5-20251001`) |
-| `BULWARK_EXECUTE_MODEL` | Phase 2 model (default: `claude-sonnet-4-5-20241022`) |
+| `BULWARK_EXECUTE_MODEL` | Phase 2 model (default: `claude-sonnet-4-6`) |
 
 You can also configure everything in the dashboard UI, but those changes are lost on container restart. Env vars are the persistent config mechanism for Docker.
 

@@ -9,7 +9,7 @@ environment:
   - BULWARK_LLM_MODE=anthropic
   - BULWARK_API_KEY=sk-ant-...
   - BULWARK_ANALYZE_MODEL=claude-haiku-4-5-20251001
-  - BULWARK_EXECUTE_MODEL=claude-sonnet-4-5-20241022
+  - BULWARK_EXECUTE_MODEL=claude-sonnet-4-6
 ```
 
 Or with a `.env` file (keeps secrets out of version control):

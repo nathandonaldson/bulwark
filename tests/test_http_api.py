@@ -469,10 +469,10 @@ class TestEnvConfig:
 
     def test_execute_model_from_env(self, monkeypatch, tmp_path):
         """G-ENV-005: BULWARK_EXECUTE_MODEL env var sets Phase 2 model."""
-        monkeypatch.setenv("BULWARK_EXECUTE_MODEL", "claude-sonnet-4-5-20241022")
+        monkeypatch.setenv("BULWARK_EXECUTE_MODEL", "claude-sonnet-4-6")
         from bulwark.dashboard.config import BulwarkConfig
         cfg = BulwarkConfig.load(path=str(tmp_path / "nonexistent.yaml"))
-        assert cfg.llm_backend.execute_model == "claude-sonnet-4-5-20241022"
+        assert cfg.llm_backend.execute_model == "claude-sonnet-4-6"
 
     def test_env_vars_work_without_config_file(self, monkeypatch, tmp_path):
         """G-ENV-006: Env vars take effect without any config file present."""
@@ -662,3 +662,181 @@ class TestOpenAPISchema:
         assert "CleanResponse" in schemas
         assert "GuardRequest" in schemas
         assert "GuardResponse" in schemas
+
+
+# ---------------------------------------------------------------------------
+# GET /api/redteam/tiers — spec/contracts/redteam_tiers.yaml
+# ---------------------------------------------------------------------------
+
+class TestRedteamTiers:
+    def test_returns_three_tiers(self):
+        """G-REDTEAM-TIERS-001: Returns three tiers with probe counts from garak."""
+        client = _get_client()
+        resp = client.get("/api/redteam/tiers")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "tiers" in data
+        assert "garak_installed" in data
+        if data["garak_installed"]:
+            assert len(data["tiers"]) == 3
+            tier_ids = [t["id"] for t in data["tiers"]]
+            assert tier_ids == ["quick", "standard", "full"]
+
+    def test_counts_are_dynamic(self):
+        """G-REDTEAM-TIERS-002: Probe counts come from garak, not hardcoded."""
+        client = _get_client()
+        resp = client.get("/api/redteam/tiers")
+        data = resp.json()
+        if data["garak_installed"]:
+            for tier in data["tiers"]:
+                assert isinstance(tier["probe_count"], int)
+                assert tier["probe_count"] > 0
+
+    def test_no_garak_returns_empty(self, monkeypatch):
+        """G-REDTEAM-TIERS-003: Returns garak_installed=false with empty tiers if garak missing."""
+        import bulwark.dashboard.app as app_mod
+        # Monkey-patch the tier computation to simulate missing garak
+        original = app_mod._compute_redteam_tiers
+        app_mod._compute_redteam_tiers = lambda: {"garak_installed": False, "garak_version": None, "tiers": []}
+        try:
+            client = _get_client()
+            resp = client.get("/api/redteam/tiers")
+            data = resp.json()
+            assert data["garak_installed"] is False
+            assert data["tiers"] == []
+        finally:
+            app_mod._compute_redteam_tiers = original
+
+    def test_quick_tier_is_smoke_test(self):
+        """G-REDTEAM-TIERS-004: Quick tier runs 10 probes from core injection families."""
+        client = _get_client()
+        resp = client.get("/api/redteam/tiers")
+        data = resp.json()
+        if data["garak_installed"]:
+            quick = [t for t in data["tiers"] if t["id"] == "quick"][0]
+            allowed = {"promptinject", "latentinjection", "dan"}
+            assert set(quick["families"]).issubset(allowed)
+            assert quick["probe_count"] == 10
+
+    def test_standard_tier_probe_count_gte_quick(self):
+        """G-REDTEAM-TIERS-005: Standard tier has at least as many probes as quick."""
+        client = _get_client()
+        resp = client.get("/api/redteam/tiers")
+        data = resp.json()
+        if data["garak_installed"]:
+            tiers = {t["id"]: t for t in data["tiers"]}
+            assert tiers["standard"]["probe_count"] >= tiers["quick"]["probe_count"]
+
+    def test_full_tier_probe_count_gte_standard(self):
+        """G-REDTEAM-TIERS-006: Full tier includes all probes (active + inactive)."""
+        client = _get_client()
+        resp = client.get("/api/redteam/tiers")
+        data = resp.json()
+        if data["garak_installed"]:
+            tiers = {t["id"]: t for t in data["tiers"]}
+            assert tiers["full"]["probe_count"] >= tiers["standard"]["probe_count"]
+
+    def test_tiers_have_required_fields(self):
+        """Each tier has all required fields per spec."""
+        client = _get_client()
+        resp = client.get("/api/redteam/tiers")
+        data = resp.json()
+        for tier in data["tiers"]:
+            assert "id" in tier
+            assert "name" in tier
+            assert "description" in tier
+            assert "probe_count" in tier
+            assert "families" in tier
+            assert isinstance(tier["families"], list)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/redteam/reports — spec/contracts/redteam_reports.yaml
+# ---------------------------------------------------------------------------
+
+class TestRedteamReports:
+    def test_list_returns_empty(self, tmp_path, monkeypatch):
+        """G-REDTEAM-REPORTS-002: List endpoint returns reports array."""
+        import bulwark.dashboard.app as app_mod
+        monkeypatch.setattr(app_mod, "_reports_dir", lambda: tmp_path)
+        client = _get_client()
+        resp = client.get("/api/redteam/reports")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "reports" in data
+        assert isinstance(data["reports"], list)
+        assert len(data["reports"]) == 0
+
+    def test_list_returns_saved_reports(self, tmp_path, monkeypatch):
+        """G-REDTEAM-REPORTS-002: List returns saved reports sorted newest first."""
+        import bulwark.dashboard.app as app_mod
+        import json
+        monkeypatch.setattr(app_mod, "_reports_dir", lambda: tmp_path)
+
+        # Write two fake reports
+        for i, name in enumerate(["redteam-quick-20260415-100000.json", "redteam-standard-20260415-110000.json"]):
+            (tmp_path / name).write_text(json.dumps({
+                "status": "complete", "tier": "quick" if i == 0 else "standard",
+                "completed_at": f"2026-04-15T1{i}:00:00Z",
+                "total": 10 + i, "defended": 9 + i, "vulnerable": 1,
+                "defense_rate": 0.9 + i * 0.01, "duration_s": 30,
+            }))
+
+        client = _get_client()
+        resp = client.get("/api/redteam/reports")
+        data = resp.json()
+        assert len(data["reports"]) == 2
+        # Newest first
+        assert data["reports"][0]["tier"] == "standard"
+
+    def test_download_validates_filename(self):
+        """G-REDTEAM-REPORTS-003: Download rejects filenames that aren't redteam-*.json."""
+        client = _get_client()
+        resp = client.get("/api/redteam/reports/passwd.json")
+        assert resp.status_code == 404
+        data = resp.json()
+        assert "error" in data
+
+    def test_download_rejects_non_redteam_files(self):
+        """G-REDTEAM-REPORTS-003: Only redteam-*.json files can be downloaded."""
+        client = _get_client()
+        resp = client.get("/api/redteam/reports/config.yaml")
+        assert resp.status_code == 404
+        data = resp.json()
+        assert "error" in data
+
+    def test_saved_report_is_downloadable(self, tmp_path, monkeypatch):
+        """G-REDTEAM-REPORTS-004: Persisted reports can be downloaded."""
+        import bulwark.dashboard.app as app_mod
+        import json
+        monkeypatch.setattr(app_mod, "_reports_dir", lambda: tmp_path)
+
+        report = {"status": "complete", "tier": "quick", "total": 10, "defended": 9}
+        (tmp_path / "redteam-quick-20260415-100000.json").write_text(json.dumps(report))
+
+        client = _get_client()
+        resp = client.get("/api/redteam/reports/redteam-quick-20260415-100000.json")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 10
+        assert data["defended"] == 9
+
+    def test_report_includes_per_probe_results(self, tmp_path, monkeypatch):
+        """G-REDTEAM-REPORTS-005: Report JSON includes full per-probe results."""
+        import bulwark.dashboard.app as app_mod
+        import json
+        monkeypatch.setattr(app_mod, "_reports_dir", lambda: tmp_path)
+
+        report = {
+            "status": "complete", "tier": "quick", "total": 1,
+            "defended": 0, "vulnerable": 1,
+            "results": [{"probe_family": "promptinject", "defended": False, "payload": "test"}],
+        }
+        (tmp_path / "redteam-quick-20260415-100000.json").write_text(json.dumps(report))
+
+        client = _get_client()
+        resp = client.get("/api/redteam/reports/redteam-quick-20260415-100000.json")
+        data = resp.json()
+        assert "results" in data
+        assert len(data["results"]) == 1
+        assert data["results"][0]["probe_family"] == "promptinject"

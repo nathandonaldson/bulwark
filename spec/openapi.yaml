@@ -173,6 +173,170 @@ paths:
                   model:
                     type: string
 
+  /v1/llm/models:
+    post:
+      operationId: listLlmModels
+      summary: List available models for the configured LLM backend
+      description: |
+        Returns models available for the given backend configuration.
+        For Anthropic: returns the supported model family aliases.
+        For OpenAI-compatible: queries the endpoint's /models API.
+        Used by the dashboard Configure tab to populate model dropdowns.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode:
+                  type: string
+                  enum: ["none", "anthropic", "openai_compatible"]
+                api_key:
+                  type: string
+                base_url:
+                  type: string
+      responses:
+        "200":
+          description: Available models
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        recommended_for:
+                          type: array
+                          items:
+                            type: string
+                            enum: ["analyze", "execute"]
+
+  /api/redteam/tiers:
+    get:
+      operationId: redteamTiers
+      summary: List available red team scan tiers with dynamic probe counts
+      description: |
+        Returns the three scan tiers (Quick Scan, Standard Scan, Full Sweep)
+        with probe counts pulled dynamically from the installed garak version.
+        Counts reflect probe classes, not individual payloads (payloads load lazily).
+        Used by the dashboard red team UI to render tier selection cards.
+      responses:
+        "200":
+          description: Tier definitions with counts
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - tiers
+                  - garak_installed
+                properties:
+                  garak_installed:
+                    type: boolean
+                  garak_version:
+                    type: string
+                  tiers:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - id
+                        - name
+                        - description
+                        - probe_count
+                        - families
+                      properties:
+                        id:
+                          type: string
+                          enum: ["quick", "standard", "full"]
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        probe_count:
+                          type: integer
+                          description: Number of probe classes in this tier (from garak)
+                        families:
+                          type: array
+                          items:
+                            type: string
+                          description: Garak probe family names included in this tier
+
+  /api/redteam/reports:
+    get:
+      operationId: listRedteamReports
+      summary: List saved red team reports
+      description: |
+        Returns metadata for all persisted red team reports, sorted newest first.
+        Reports are saved automatically when a scan completes. Each entry includes
+        the tier, timestamp, probe count, defense rate, and filename for download.
+      responses:
+        "200":
+          description: List of saved reports
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - reports
+                properties:
+                  reports:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        filename:
+                          type: string
+                        tier:
+                          type: string
+                        completed_at:
+                          type: string
+                          format: date-time
+                        total:
+                          type: integer
+                        defended:
+                          type: integer
+                        vulnerable:
+                          type: integer
+                        defense_rate:
+                          type: number
+                        duration_s:
+                          type: number
+
+  /api/redteam/reports/{filename}:
+    get:
+      operationId: downloadRedteamReport
+      summary: Download a saved red team report as JSON
+      description: |
+        Returns the full red team report JSON for the given filename.
+        Filenames are validated to prevent path traversal — only files matching
+        the pattern redteam-*.json in the reports directory are served.
+      parameters:
+        - name: filename
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Full report JSON
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: Report not found or invalid filename
+
 components:
   schemas:
     CleanRequest:

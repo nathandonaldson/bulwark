@@ -35,6 +35,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
         "http://localhost:8080",
         "http://127.0.0.1:8080",
     ],
@@ -426,6 +428,105 @@ async def prune_events(days: int = Query(default=30)):
     return {"pruned": count}
 
 
+# ---------------------------------------------------------------------------
+# Red Team Tiers
+# ---------------------------------------------------------------------------
+
+# Families included in each tier
+_QUICK_FAMILIES = frozenset({"promptinject", "latentinjection", "dan"})
+
+_redteam_tiers_cache: Optional[dict] = None
+
+
+def _compute_redteam_tiers() -> dict:
+    """Compute red team tier definitions from installed garak version. Cached.
+
+    Counts actual payloads (not just probe classes) by instantiating each probe.
+    Takes ~3s on first call, then cached for the session.
+    """
+    global _redteam_tiers_cache
+    if _redteam_tiers_cache is not None:
+        return _redteam_tiers_cache
+
+    try:
+        import garak
+        from garak._plugins import enumerate_plugins
+        version = getattr(garak, "__version__", "unknown")
+    except ImportError:
+        result = {"garak_installed": False, "garak_version": None, "tiers": []}
+        _redteam_tiers_cache = result
+        return result
+
+    import importlib
+    probes = list(enumerate_plugins("probes"))
+
+    quick_families = set()
+    standard_families = set()
+    full_families = set()
+    quick_count = 0
+    standard_count = 0
+    full_count = 0
+
+    for name, active in probes:
+        parts = name.split(".")
+        family = parts[1]
+        cls_name = parts[-1]
+
+        # Count actual payloads by instantiating the probe
+        try:
+            mod = importlib.import_module(f"garak.probes.{family}")
+            cls = getattr(mod, cls_name)
+            probe = cls()
+            n = len(probe.prompts)
+        except Exception:
+            n = 1  # Fallback: count the class itself
+
+        full_count += n
+        full_families.add(family)
+        if active:
+            standard_count += n
+            standard_families.add(family)
+            if family in _QUICK_FAMILIES:
+                quick_count += n
+                quick_families.add(family)
+
+    result = {
+        "garak_installed": True,
+        "garak_version": version,
+        "tiers": [
+            {
+                "id": "quick",
+                "name": "Smoke Test",
+                "description": "10 probes across core injection families — verify the pipeline is working",
+                "probe_count": min(quick_count, 10),
+                "families": sorted(quick_families),
+            },
+            {
+                "id": "standard",
+                "name": "Standard Scan",
+                "description": "All active probes — injection, encoding, exfiltration, jailbreaks, content safety",
+                "probe_count": standard_count,
+                "families": sorted(standard_families),
+            },
+            {
+                "id": "full",
+                "name": "Full Sweep",
+                "description": "Every probe including extended payload variants — comprehensive but slow",
+                "probe_count": full_count,
+                "families": sorted(full_families),
+            },
+        ],
+    }
+    _redteam_tiers_cache = result
+    return result
+
+
+@app.get("/api/redteam/tiers")
+async def redteam_tiers():
+    """Return red team scan tiers with dynamic probe counts from garak."""
+    return _compute_redteam_tiers()
+
+
 # Background task state (Garak and Red Team)
 _garak_task: Optional[asyncio.Task] = None
 _garak_result: dict = {}
@@ -451,7 +552,7 @@ async def run_garak():
         from bulwark.events import WebhookEmitter
         import concurrent.futures
 
-        emitter = WebhookEmitter("http://127.0.0.1:3000/api/events")
+        emitter = WebhookEmitter(f"http://127.0.0.1:{_dashboard_port()}/api/events")
         try:
             adapter = GarakAdapter(emitter=emitter)
             # Run blocking subprocess in a thread
@@ -496,9 +597,13 @@ async def garak_status():
     return _garak_result
 
 
+def _dashboard_port() -> int:
+    return int(os.environ.get("BULWARK_DASHBOARD_PORT", "3000"))
+
+
 def _make_emitter():
     from bulwark.events import WebhookEmitter
-    return WebhookEmitter("http://127.0.0.1:3000/api/events")
+    return WebhookEmitter(f"http://127.0.0.1:{_dashboard_port()}/api/events")
 
 
 @app.post("/api/redteam/run")
@@ -511,6 +616,10 @@ async def run_redteam(request: Request):
 
     body = await request.json() if request.headers.get("content-type") == "application/json" else {}
     max_probes = body.get("max_probes", 0)
+    tier = body.get("tier", "")
+    # Smoke test: cap at 10 probes
+    if tier == "quick" and max_probes == 0:
+        max_probes = 10
 
     _redteam_result = {"status": "running", "completed": 0, "total": 0}
 
@@ -532,19 +641,25 @@ async def run_redteam(request: Request):
                 project_dir=project_dir,
                 delay_ms=200,
                 max_probes=max_probes,
+                tier=tier,
                 emitter=_make_emitter(),
                 on_progress=on_progress,
             )
             # Route through /v1/pipeline so red team uses the exact same
             # code path as manual tests (detection models, LLM, canary, etc.)
-            runner.pipeline_url = "http://127.0.0.1:3000"
+            runner.pipeline_url = f"http://127.0.0.1:{_dashboard_port()}"
             _redteam_runner = runner
             loop = asyncio.get_running_loop()
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                 summary = await loop.run_in_executor(pool, runner.run)
 
+            from datetime import datetime, timezone
+            completed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
             _redteam_result = {
                 "status": "complete",
+                "tier": tier or "legacy",
+                "completed_at": completed_at,
                 "total": summary.total,
                 "defended": summary.defended,
                 "vulnerable": summary.vulnerable,
@@ -569,6 +684,9 @@ async def run_redteam(request: Request):
                     for r in summary.results
                 ],
             }
+
+            # Persist report to disk
+            _save_redteam_report(_redteam_result)
         except Exception as e:
             _redteam_result = {"status": "error", "message": str(e)}
 
@@ -590,6 +708,61 @@ async def redteam_stop():
         _redteam_runner.cancelled = True
         return {"status": "stopping", "message": "Red team scan will stop after the current probe finishes."}
     return {"status": "not_running", "message": "No red team scan is currently running."}
+
+
+def _reports_dir() -> Path:
+    """Directory for persisted red team reports."""
+    d = Path("reports")
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def _save_redteam_report(result: dict) -> str:
+    """Save a completed red team report to disk. Returns the filename."""
+    from datetime import datetime, timezone
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    tier = result.get("tier", "unknown")
+    filename = f"redteam-{tier}-{ts}.json"
+    path = _reports_dir() / filename
+    path.write_text(json.dumps(result, indent=2))
+    return filename
+
+
+@app.get("/api/redteam/reports")
+async def list_redteam_reports():
+    """List saved red team reports."""
+    d = _reports_dir()
+    reports = []
+    for f in sorted(d.glob("redteam-*.json"), reverse=True):
+        try:
+            data = json.loads(f.read_text())
+            reports.append({
+                "filename": f.name,
+                "tier": data.get("tier", "unknown"),
+                "completed_at": data.get("completed_at", ""),
+                "total": data.get("total", 0),
+                "defended": data.get("defended", 0),
+                "vulnerable": data.get("vulnerable", 0),
+                "defense_rate": data.get("defense_rate", 0),
+                "duration_s": data.get("duration_s", 0),
+            })
+        except Exception:
+            continue
+    return {"reports": reports}
+
+
+@app.get("/api/redteam/reports/{filename}")
+async def download_redteam_report(filename: str):
+    """Download a saved red team report as JSON."""
+    from fastapi.responses import JSONResponse
+    # Sanitize filename to prevent path traversal
+    safe_name = Path(filename).name
+    if not safe_name.startswith("redteam-") or not safe_name.endswith(".json"):
+        return JSONResponse({"error": "Invalid filename"}, status_code=404)
+    path = _reports_dir() / safe_name
+    if not path.exists():
+        return JSONResponse({"error": "Report not found"}, status_code=404)
+    return FileResponse(path, media_type="application/json", filename=safe_name)
 
 
 _garak_latest_cache: dict = {}  # {version: str, checked_at: float}

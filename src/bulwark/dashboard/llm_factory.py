@@ -53,6 +53,48 @@ def _validate_base_url(url: str) -> str | None:
     return None
 
 
+# Anthropic model families — short aliases that resolve to the latest version.
+# The API handles version resolution, so these never go stale.
+ANTHROPIC_MODELS = [
+    {"id": "claude-haiku-4-5", "name": "Claude Haiku 4.5", "description": "Fastest, cheapest", "recommended_for": ["analyze"]},
+    {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "description": "Balanced speed and capability", "recommended_for": ["analyze", "execute"]},
+    {"id": "claude-opus-4-6", "name": "Claude Opus 4.6", "description": "Most capable", "recommended_for": ["execute"]},
+]
+
+
+def list_models(cfg: LLMBackendConfig) -> list[dict]:
+    """List available models for the configured backend."""
+    if cfg.mode == "anthropic":
+        return ANTHROPIC_MODELS
+    if cfg.mode == "openai_compatible":
+        return _list_openai_compatible_models(cfg)
+    return []
+
+
+def _list_openai_compatible_models(cfg: LLMBackendConfig) -> list[dict]:
+    """Fetch models from an OpenAI-compatible /models endpoint."""
+    base_url = cfg.base_url or "https://api.openai.com/v1"
+    url_error = _validate_base_url(base_url)
+    if url_error:
+        return []
+    try:
+        import httpx
+        headers = {"Content-Type": "application/json"}
+        if cfg.api_key:
+            headers["Authorization"] = f"Bearer {cfg.api_key}"
+        resp = httpx.get(f"{base_url.rstrip('/')}/models", headers=headers, timeout=10.0)
+        if resp.status_code == 200:
+            data = resp.json()
+            return [
+                {"id": m.get("id", ""), "name": m.get("id", ""), "description": "", "recommended_for": ["analyze", "execute"]}
+                for m in data.get("data", [])
+                if m.get("id")
+            ]
+    except Exception:
+        pass
+    return []
+
+
 def make_analyze_fn(cfg: LLMBackendConfig) -> Optional[Callable[[str], str]]:
     """Create a Phase 1 analysis function from config. Returns None if mode is 'none'."""
     if cfg.mode == "none" or not cfg.mode:
@@ -120,7 +162,7 @@ def _make_anthropic_execute(cfg: LLMBackendConfig) -> Callable[[str], str]:
         raise ImportError("Anthropic mode requires the anthropic package: pip install bulwark-shield[anthropic]")
 
     client = anthropic.Anthropic(api_key=cfg.api_key) if cfg.api_key else anthropic.Anthropic()
-    model = cfg.execute_model or cfg.analyze_model or "claude-sonnet-4-5-20241022"
+    model = cfg.execute_model or cfg.analyze_model or "claude-sonnet-4-6"
 
     def execute(prompt: str) -> str:
         response = client.messages.create(
