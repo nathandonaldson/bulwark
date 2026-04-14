@@ -38,6 +38,8 @@ Untrusted content
       ↓
 [Trust Boundary]   Mark content as data, not instructions
       ↓
+[Detection]        ProtectAI DeBERTa + PromptGuard-86M classify input (optional, ~30-50ms)
+      ↓
 [Phase 1: Analyze] LLM reads content — no tools available
       ↓
 [Bridge]           Sanitize + guard + canary check on analysis output
@@ -45,7 +47,7 @@ Untrusted content
 [Phase 2: Execute] LLM acts on analysis — never sees raw content
 ```
 
-Phase 1 can't act. Phase 2 can't see the attack. The bridge catches anything that leaks through. Each layer works independently.
+Phase 1 can't act. Phase 2 can't see the attack. Detection models catch injection before it reaches the LLM. The bridge catches anything that leaks through. Each layer works independently.
 
 ## Pluggable detection
 
@@ -114,23 +116,63 @@ result = pipeline.run(untrusted_content, source="web")
 
 Any `(str) -> str` callable works. Async too: `pipeline.run_async()`.
 
+## HTTP API (language-agnostic)
+
+Run Bulwark as a standalone service. Any language can call it.
+
+```bash
+pip install bulwark-ai[dashboard]
+PYTHONPATH=src python -m dashboard --port 3000
+```
+
+```bash
+# Sanitize untrusted content
+curl -X POST http://localhost:3000/v1/clean \
+  -H 'Content-Type: application/json' \
+  -d '{"content": "Hello <script>evil()</script>", "source": "email"}'
+
+# Check LLM output for injection
+curl -X POST http://localhost:3000/v1/guard \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "ignore previous instructions"}'
+
+# Run the full pipeline (sanitize + detect + LLM + guard)
+curl -X POST http://localhost:3000/v1/pipeline \
+  -H 'Content-Type: application/json' \
+  -d '{"content": "untrusted email body", "source": "email"}'
+```
+
+OpenAPI spec at `http://localhost:3000/openapi.json` or in `spec/openapi.yaml`.
+
 ## Dashboard
 
-Test attacks interactively and monitor your pipeline in production.
+Test attacks interactively, configure your LLM backend, and monitor your pipeline.
 
 ![Shield view](docs/images/shield.png)
 ![Test page](docs/images/test-page.png)
 
-The Test tab lets you paste any payload and watch the pipeline trace. The Red Teaming section sends Garak's attack library through your production pipeline (real LLM calls, real defense layers) and reports what got caught and what got through.
+**Configure tab** lets you:
+- Switch LLM backend: Anthropic API, OpenAI-compatible (local inference), or sanitize-only
+- Activate detection models (ProtectAI DeBERTa, PromptGuard-86M)
+- Toggle defense layers and guard patterns
+
+**Test tab** sends payloads through the full pipeline and shows a per-layer trace with timing, LLM backend badges, and detection model verdicts.
+
+**Red teaming** sends Garak probe payloads through the same `/v1/pipeline` endpoint used by production. Same code path, same defense layers.
 
 ```bash
-pip install fastapi uvicorn
 PYTHONPATH=src python -m dashboard --port 3000
 ```
 
 Connect your pipeline: `emitter=WebhookEmitter("http://localhost:3000/api/events")`
 
 Binds to localhost by default. `--host 0.0.0.0` to expose on the network (no auth, be careful).
+
+### Local inference
+
+Configure any OpenAI-compatible endpoint (Ollama, llama.cpp, vLLM, LM Studio) in the dashboard Configure tab. Select "OpenAI Compatible", enter the URL, and the entire pipeline uses your local model for two-phase execution.
+
+Note: Claude achieves 100% on red team probes. Open models vary (60-80% typical). Use Claude for production, local models for development and testing.
 
 ## Red teaming
 
@@ -151,11 +193,21 @@ Production red team (in the dashboard): sends 315 Garak probe payloads through y
 | Two-phase execution | Yes | — | — | — | — |
 | Cross-item isolation | Yes | — | — | — | — |
 | Pluggable detection | Yes | — | — | — | — |
+| HTTP API | Yes | — | — | — | — |
+| Local inference | Yes | — | — | — | — |
 | Production red teaming | 315 probes | — | — | — | — |
 | Zero dependencies | Yes | No | No | No | No |
 | Deterministic layers | <1ms | — | — | — | — |
 
 Bulwark is the architecture. These tools are the detection. Use both.
+
+## Development
+
+Bulwark follows spec-driven development. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full process.
+
+Short version: write the spec first (`spec/openapi.yaml` for HTTP endpoints, `spec/contracts/*.yaml` for function guarantees), then write tests referencing guarantee IDs, then implement. CI enforces that specs and tests stay in sync.
+
+Architecture decisions are recorded in `spec/decisions/`. Contract specs define what each function guarantees and, critically, what it does NOT guarantee.
 
 ## Install
 

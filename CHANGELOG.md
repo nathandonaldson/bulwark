@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.0] - 2026-04-14
+
+### Added
+- **LLM backend configuration** in the dashboard Configure tab. Three modes: Sanitize Only, Anthropic API, OpenAI Compatible (local inference via Ollama, llama.cpp, vLLM, LM Studio, or cloud OpenAI).
+- **`POST /v1/pipeline`** endpoint runs the full defense pipeline including LLM-backed two-phase execution, detection models, and canary checks. Language-agnostic.
+- **Detection models run before the LLM** (ProtectAI DeBERTa, PromptGuard-86M). If detection catches injection, the LLM call is skipped entirely.
+- **Individual detection model trace entries** with per-model verdicts and timing in the pipeline trace.
+- **Auto-load detection models on startup** from saved config. No more re-activating after every restart.
+- **Stop button** for red team runs. Cancels after the current probe finishes.
+- **Red team uses `/v1/pipeline`** instead of building its own pipeline. Same code path as manual tests and production.
+- **CONTRIBUTING.md** documenting the spec-first development process.
+
+### Changed
+- Dashboard Test tab now calls `/v1/pipeline` (our public API) instead of the internal `/api/test` endpoint.
+- Red team progress text no longer says "through Claude" (uses configured backend).
+- Classify `max_tokens` capped at 256 (was 4096). Classification responses are ~50 tokens.
+- Lightweight prompt for red team probes on local models (faster, less context).
+
 ## [0.3.0] - 2026-04-14
 
 ### Added
