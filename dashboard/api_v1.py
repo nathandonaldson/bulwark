@@ -153,10 +153,93 @@ async def run_pipeline(request: Request):
         pipeline = Pipeline.default(analyze_fn=analyze_fn, execute_fn=execute_fn,
                                     canary=canary, emitter=collector)
 
+    # Run detection models on the SANITIZED INPUT before sending to LLM.
+    # If detection catches injection, skip the LLM call entirely.
+    from dashboard.app import _detection_checks
+    detection_trace = []
+    detection_blocked = False
+    detection_reason = None
+
+    if _detection_checks and content:
+        # Run detection on sanitized content (after pipeline sanitizer)
+        sanitized_content = content
+        if pipeline.sanitizer:
+            sanitized_content = pipeline.sanitizer.clean(content)
+
+        step_num = 3  # After sanitizer (1) and trust_boundary (2)
+        for model_name, check_fn in _detection_checks.items():
+            t0 = _time.time()
+            try:
+                check_fn(sanitized_content)
+                elapsed = (_time.time() - t0) * 1000
+                detection_trace.append({
+                    "step": step_num,
+                    "layer": f"detection:{model_name}",
+                    "verdict": "passed",
+                    "detail": f"{model_name}: clean ({elapsed:.0f}ms)",
+                    "detection_model": model_name,
+                    "duration_ms": round(elapsed, 1),
+                })
+            except AnalysisSuspiciousError as e:
+                elapsed = (_time.time() - t0) * 1000
+                detection_trace.append({
+                    "step": step_num,
+                    "layer": f"detection:{model_name}",
+                    "verdict": "blocked",
+                    "detail": f"{model_name}: {e} ({elapsed:.0f}ms)",
+                    "detection_model": model_name,
+                    "duration_ms": round(elapsed, 1),
+                })
+                detection_blocked = True
+                detection_reason = f"Detection model {model_name}: {e}"
+            step_num += 1
+
+    if detection_blocked:
+        # Detection caught it — run pipeline for sanitizer + trust boundary trace only,
+        # but skip the LLM call by using a no-op analyze_fn
+        pipeline_noop = Pipeline.default(emitter=collector)
+        result = await pipeline_noop.run_async(content, source=source)
+        trace = list(result.trace) + detection_trace
+        # Renumber steps
+        for i, entry in enumerate(trace):
+            entry["step"] = i + 1
+        return {
+            "payload_length": len(content),
+            "analysis": None,
+            "execution": None,
+            "blocked": True,
+            "block_reason": detection_reason,
+            "neutralized": result.neutralized,
+            "blocked_at": detection_reason.split(":")[0].strip() if detection_reason else None,
+            "neutralized_by": "Sanitizer" if result.neutralized else None,
+            "trace": trace,
+            "llm_mode": config.llm_backend.mode,
+        }
+
+    # Detection passed (or no detection models active) — run full pipeline with LLM
     result = await pipeline.run_async(content, source=source)
 
-    # Enrich trace with LLM backend info
+    # Build trace: pipeline steps, then insert detection entries after trust_boundary
     trace = list(result.trace)
+
+    # Find where to insert detection entries (after trust_boundary, before analyze)
+    insert_idx = 0
+    for i, entry in enumerate(trace):
+        if entry.get("layer") in ("trust_boundary", "sanitizer"):
+            insert_idx = i + 1
+        if entry.get("layer") == "analyze":
+            insert_idx = i
+            break
+
+    # Insert detection trace entries
+    for j, det_entry in enumerate(detection_trace):
+        trace.insert(insert_idx + j, det_entry)
+
+    # Renumber all steps
+    for i, entry in enumerate(trace):
+        entry["step"] = i + 1
+
+    # Enrich analyze step with LLM backend info
     for entry in trace:
         if entry.get("layer") == "analyze":
             mode = config.llm_backend.mode
@@ -176,47 +259,14 @@ async def run_pipeline(request: Request):
                 entry["detail"] = f"Phase 1 (echo mode, no LLM): {len(result.analysis)} chars"
                 entry["backend"] = "echo"
 
-    # Run detection models individually with per-model trace entries
-    from dashboard.app import _detection_checks
-    blocked = result.blocked
-    block_reason = result.block_reason
-    if _detection_checks and result.analysis and not result.blocked:
-        step_num = len(trace) + 1
-        for model_name, check_fn in _detection_checks.items():
-            t0 = _time.time()
-            try:
-                check_fn(result.analysis)
-                elapsed = (_time.time() - t0) * 1000
-                trace.append({
-                    "step": step_num,
-                    "layer": f"detection:{model_name}",
-                    "verdict": "passed",
-                    "detail": f"{model_name}: clean ({elapsed:.0f}ms)",
-                    "detection_model": model_name,
-                    "duration_ms": round(elapsed, 1),
-                })
-            except AnalysisSuspiciousError as e:
-                elapsed = (_time.time() - t0) * 1000
-                trace.append({
-                    "step": step_num,
-                    "layer": f"detection:{model_name}",
-                    "verdict": "blocked",
-                    "detail": f"{model_name}: {e} ({elapsed:.0f}ms)",
-                    "detection_model": model_name,
-                    "duration_ms": round(elapsed, 1),
-                })
-                blocked = True
-                block_reason = f"Detection model {model_name}: {e}"
-            step_num += 1
-
     return {
         "payload_length": len(content),
         "analysis": result.analysis,
         "execution": result.execution,
-        "blocked": blocked,
-        "block_reason": block_reason,
+        "blocked": result.blocked,
+        "block_reason": result.block_reason,
         "neutralized": result.neutralized,
-        "blocked_at": block_reason.split(":")[0].strip() if block_reason else None,
+        "blocked_at": result.block_reason.split(":")[0].strip() if result.block_reason else None,
         "neutralized_by": "Sanitizer" if result.neutralized else None,
         "trace": trace,
         "llm_mode": config.llm_backend.mode,
