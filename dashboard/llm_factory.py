@@ -134,7 +134,7 @@ def _openai_chat(base_url: str, api_key: str, model: str, system: str, prompt: s
         "max_tokens": max_tokens,
     }
 
-    response = httpx.post(url, json=body, headers=headers, timeout=120.0)
+    response = httpx.post(url, json=body, headers=headers, timeout=300.0)
     response.raise_for_status()
     data = response.json()
     return data["choices"][0]["message"]["content"]
