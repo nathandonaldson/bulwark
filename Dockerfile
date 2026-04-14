@@ -1,5 +1,10 @@
 FROM python:3.11-slim
 
+# Build deps for garak's Rust-based dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc rustc cargo libffi-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Install dependencies first (cache layer)
