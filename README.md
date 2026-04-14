@@ -136,13 +136,33 @@ curl -X POST http://localhost:3000/v1/clean \
 curl http://localhost:3000/healthz
 ```
 
-Or with docker compose:
+### Configure via environment variables
 
-```bash
-docker compose up
+Set your LLM backend in `docker-compose.yml` so config survives restarts:
+
+```yaml
+services:
+  bulwark:
+    image: ghcr.io/nathandonaldson/bulwark
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      - BULWARK_LLM_MODE=anthropic
+      - BULWARK_API_KEY=sk-ant-...
 ```
 
-Config and event data are ephemeral (lost on container restart). For persistent storage, mount a volume to `/app/` or use environment variables in a future release.
+All env vars:
+
+| Variable | Description |
+|----------|-------------|
+| `BULWARK_LLM_MODE` | `anthropic`, `openai_compatible`, or `none` (default) |
+| `BULWARK_API_KEY` | API key for Anthropic |
+| `BULWARK_BASE_URL` | Endpoint URL for OpenAI-compatible servers (Ollama, llama.cpp, vLLM) |
+| `BULWARK_ANALYZE_MODEL` | Phase 1 model (default: `claude-haiku-4-5-20251001`) |
+| `BULWARK_EXECUTE_MODEL` | Phase 2 model (default: `claude-sonnet-4-5-20241022`) |
+
+You can also configure everything in the dashboard UI, but those changes are lost on container restart. Env vars are the persistent config mechanism for Docker.
 
 ## HTTP API (language-agnostic)
 
