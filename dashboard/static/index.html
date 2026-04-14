@@ -461,32 +461,7 @@
             </div>
           </div>
 
-          <div id="llm-fields" style="display: none;">
-            <div class="llm-field-group">
-              <div id="llm-field-base-url" class="llm-field" style="display: none;">
-                <label>Endpoint URL</label>
-                <input type="text" id="llm-base-url" placeholder="http://localhost:8080/v1" autocomplete="off" />
-                <div class="llm-presets" id="llm-url-presets"></div>
-              </div>
-              <div id="llm-field-api-key" class="llm-field">
-                <label>API Key <span style="color: var(--text-dim); font-weight: normal;">(optional for local)</span></label>
-                <input type="password" id="llm-api-key" placeholder="sk-..." autocomplete="off" />
-              </div>
-              <div class="llm-field">
-                <label>Phase 1 Model <span style="color: var(--text-dim); font-weight: normal;">(analyze, no tools)</span></label>
-                <input type="text" id="llm-analyze-model" placeholder="" autocomplete="off" />
-              </div>
-              <div class="llm-field">
-                <label>Phase 2 Model <span style="color: var(--text-dim); font-weight: normal;">(execute, optional)</span></label>
-                <input type="text" id="llm-execute-model" placeholder="Same as Phase 1 if blank" autocomplete="off" />
-              </div>
-            </div>
-            <div style="display: flex; gap: 8px; margin-top: 12px;">
-              <button class="llm-btn llm-btn-test" onclick="testLLMConnection()">Test Connection</button>
-              <button class="llm-btn llm-btn-save" onclick="saveLLMConfig()">Save</button>
-            </div>
-            <div id="llm-status" class="llm-status"></div>
-          </div>
+          <div id="llm-fields"></div>
         </div>
       </div>
 
@@ -587,86 +562,84 @@ function renderLLMConfig() {
   const backend = configData.llm_backend || {};
   const mode = backend.mode || 'none';
 
-  // Highlight the active mode
   document.querySelectorAll('.llm-mode-option').forEach(el => {
     el.classList.toggle('selected', el.dataset.mode === mode);
   });
 
-  // Show/hide fields
-  const fields = document.getElementById('llm-fields');
-  fields.style.display = mode === 'none' ? 'none' : 'block';
-
-  // Show/hide URL field (only for openai_compatible)
-  const urlField = document.getElementById('llm-field-base-url');
-  urlField.style.display = mode === 'openai_compatible' ? 'block' : 'none';
-
-  // Render URL presets
-  const presetsEl = document.getElementById('llm-url-presets');
-  if (mode === 'openai_compatible') {
-    presetsEl.innerHTML = LLM_URL_PRESETS.map(p =>
-      `<button class="llm-preset-btn" onclick="document.getElementById('llm-base-url').value='${p.url}'">${p.label}</button>`
-    ).join('');
-  }
-
-  // Set placeholder models based on mode
-  const analyzeInput = document.getElementById('llm-analyze-model');
-  const executeInput = document.getElementById('llm-execute-model');
-  if (mode === 'anthropic') {
-    analyzeInput.placeholder = 'claude-haiku-4-5';
-    executeInput.placeholder = 'claude-sonnet-4-5';
-  } else {
-    analyzeInput.placeholder = 'Enter model name';
-    executeInput.placeholder = 'Same as Phase 1 if blank';
-  }
-
-  // Populate saved values
-  document.getElementById('llm-base-url').value = backend.base_url || '';
-  document.getElementById('llm-api-key').value = backend.api_key || '';
-  analyzeInput.value = backend.analyze_model || '';
-  executeInput.value = backend.execute_model || '';
-
-  // Clear status
-  const status = document.getElementById('llm-status');
-  status.className = 'llm-status';
-  status.textContent = '';
+  renderLLMFields(mode, backend);
 }
 
 function selectLLMMode(mode) {
   document.querySelectorAll('.llm-mode-option').forEach(el => {
     el.classList.toggle('selected', el.dataset.mode === mode);
   });
-  const fields = document.getElementById('llm-fields');
-  fields.style.display = mode === 'none' ? 'none' : 'block';
-  const urlField = document.getElementById('llm-field-base-url');
-  urlField.style.display = mode === 'openai_compatible' ? 'block' : 'none';
+  const backend = configData.llm_backend || {};
+  renderLLMFields(mode, backend);
+}
 
-  const analyzeInput = document.getElementById('llm-analyze-model');
-  const executeInput = document.getElementById('llm-execute-model');
-  if (mode === 'anthropic') {
-    analyzeInput.placeholder = 'claude-haiku-4-5';
-    executeInput.placeholder = 'claude-sonnet-4-5';
-  } else {
-    analyzeInput.placeholder = 'Enter model name';
-    executeInput.placeholder = 'Same as Phase 1 if blank';
+function renderLLMFields(mode, backend) {
+  const container = document.getElementById('llm-fields');
+
+  if (mode === 'none') {
+    container.innerHTML = '';
+    return;
   }
 
-  // Render presets for openai_compatible
-  const presetsEl = document.getElementById('llm-url-presets');
-  if (mode === 'openai_compatible') {
-    presetsEl.innerHTML = LLM_URL_PRESETS.map(p =>
+  const showUrl = mode === 'openai_compatible';
+  const showApiKey = true;  // Both modes can use an API key
+  const apiKeyRequired = mode === 'anthropic';
+  const apiKeyLabel = apiKeyRequired
+    ? 'API Key'
+    : 'API Key <span style="color: var(--text-dim); font-weight: normal;">(optional for local)</span>';
+  const apiKeyPlaceholder = mode === 'anthropic' ? 'sk-ant-...' : 'sk-... (leave empty for local)';
+  const analyzePlaceholder = mode === 'anthropic' ? 'claude-haiku-4-5' : 'Enter model name';
+  const executePlaceholder = mode === 'anthropic' ? 'claude-sonnet-4-5' : 'Same as Phase 1 if blank';
+
+  let html = '<div class="llm-field-group">';
+
+  if (showUrl) {
+    const presetBtns = LLM_URL_PRESETS.map(p =>
       `<button class="llm-preset-btn" onclick="document.getElementById('llm-base-url').value='${p.url}'">${p.label}</button>`
     ).join('');
+    html += `
+      <div class="llm-field">
+        <label>Endpoint URL</label>
+        <input type="text" id="llm-base-url" placeholder="http://localhost:8080/v1" value="${backend.base_url || ''}" autocomplete="off" />
+        <div class="llm-presets">${presetBtns}</div>
+      </div>`;
   }
+
+  html += `
+    <div class="llm-field">
+      <label>${apiKeyLabel}</label>
+      <input type="password" id="llm-api-key" placeholder="${apiKeyPlaceholder}" value="${backend.api_key || ''}" autocomplete="off" />
+    </div>
+    <div class="llm-field">
+      <label>Phase 1 Model <span style="color: var(--text-dim); font-weight: normal;">(analyze, no tools)</span></label>
+      <input type="text" id="llm-analyze-model" placeholder="${analyzePlaceholder}" value="${backend.analyze_model || ''}" autocomplete="off" />
+    </div>
+    <div class="llm-field">
+      <label>Phase 2 Model <span style="color: var(--text-dim); font-weight: normal;">(execute, optional)</span></label>
+      <input type="text" id="llm-execute-model" placeholder="${executePlaceholder}" value="${backend.execute_model || ''}" autocomplete="off" />
+    </div>
+  </div>
+  <div style="display: flex; gap: 8px; margin-top: 12px;">
+    <button class="llm-btn llm-btn-test" onclick="testLLMConnection()">Test Connection</button>
+    <button class="llm-btn llm-btn-save" onclick="saveLLMConfig()">Save</button>
+  </div>
+  <div id="llm-status" class="llm-status"></div>`;
+
+  container.innerHTML = html;
 }
 
 function getLLMFormData() {
   const mode = document.querySelector('.llm-mode-option.selected')?.dataset.mode || 'none';
   return {
     mode,
-    api_key: document.getElementById('llm-api-key').value.trim(),
-    base_url: document.getElementById('llm-base-url').value.trim(),
-    analyze_model: document.getElementById('llm-analyze-model').value.trim(),
-    execute_model: document.getElementById('llm-execute-model').value.trim(),
+    api_key: (document.getElementById('llm-api-key')?.value || '').trim(),
+    base_url: (document.getElementById('llm-base-url')?.value || '').trim(),
+    analyze_model: (document.getElementById('llm-analyze-model')?.value || '').trim(),
+    execute_model: (document.getElementById('llm-execute-model')?.value || '').trim(),
   };
 }
 
