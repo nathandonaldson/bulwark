@@ -13,21 +13,6 @@ from typing import Optional
 from bulwark.dashboard.db import EventDB
 from bulwark.dashboard.config import BulwarkConfig, AVAILABLE_INTEGRATIONS, IntegrationConfig
 
-app = FastAPI(title="Bulwark Dashboard", version="0.1.0")
-
-# CORS: allow all origins so non-Python apps can call the API from browsers
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-from bulwark.dashboard.api_v1 import router as v1_router
-app.include_router(v1_router)
-db = EventDB()
-config = BulwarkConfig.load()
-
 
 def _read_version() -> str:
     """Read version from VERSION file or package metadata."""
@@ -39,6 +24,28 @@ def _read_version() -> str:
         return version("bulwark-shield")
     except Exception:
         return "unknown"
+
+
+app = FastAPI(title="Bulwark Dashboard", version=_read_version())
+
+# CORS: allow localhost origins so browser-based apps on the same machine can call the API.
+# Wildcard ("*") would expose /api/config (which contains API keys) to any website.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+from bulwark.dashboard.api_v1 import router as v1_router
+app.include_router(v1_router)
+db = EventDB()
+config = BulwarkConfig.load()
 
 
 @app.get("/healthz")
@@ -187,7 +194,7 @@ async def test_pipeline(request: Request):
         if entry.get("layer") == "analyze":
             mode = config.llm_backend.mode if config.llm_backend.mode != "none" else None
             if mode == "anthropic":
-                model = config.llm_backend.analyze_model or "claude-haiku-4-5"
+                model = config.llm_backend.analyze_model or "claude-haiku-4-5-20251001"
                 entry["detail"] = f"Phase 1 via Anthropic ({model}): {len(result.analysis)} chars"
                 entry["backend"] = "anthropic"
                 entry["model"] = model

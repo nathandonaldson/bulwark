@@ -158,7 +158,9 @@ class BulwarkConfig:
                     integrations[k] = IntegrationConfig()
             return cls(llm_backend=llm_backend, integrations=integrations, **{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
         except Exception:
-            return cls()
+            cfg = cls()
+            cls._apply_env_vars(cfg)
+            return cfg
 
     def update_from_dict(self, data: dict):
         """Update config fields from a dictionary (partial update)."""

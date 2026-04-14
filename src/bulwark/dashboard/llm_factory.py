@@ -7,10 +7,50 @@ Supports three modes:
 """
 from __future__ import annotations
 
-import json
-from typing import Any, Callable, Optional
+import ipaddress
+from typing import Callable, Optional
+from urllib.parse import urlparse
 
 from bulwark.dashboard.config import LLMBackendConfig
+
+
+def _validate_base_url(url: str) -> str | None:
+    """Validate that a base_url does not target internal/private networks.
+
+    Returns None if safe, or an error message if blocked.
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return "Invalid URL format"
+
+    if parsed.scheme not in ("http", "https"):
+        return f"Unsupported URL scheme: {parsed.scheme}"
+
+    hostname = parsed.hostname or ""
+
+    # Block cloud metadata endpoints
+    metadata_hosts = {"169.254.169.254", "metadata.google.internal", "100.100.100.200"}
+    if hostname in metadata_hosts:
+        return "Cloud metadata endpoints are blocked"
+
+    # Allow explicit localhost (common for local inference)
+    if hostname in ("localhost", "127.0.0.1", "::1"):
+        return None
+
+    # Allow Docker host.docker.internal
+    if hostname == "host.docker.internal":
+        return None
+
+    # Block private/link-local IP ranges (except localhost already allowed above)
+    try:
+        addr = ipaddress.ip_address(hostname)
+        if addr.is_private or addr.is_link_local or addr.is_loopback:
+            return f"Private/internal IP addresses are blocked: {hostname}"
+    except ValueError:
+        pass  # Not an IP literal, it's a hostname — allow it
+
+    return None
 
 
 def make_analyze_fn(cfg: LLMBackendConfig) -> Optional[Callable[[str], str]]:
@@ -178,6 +218,11 @@ def _make_openai_compatible_execute(cfg: LLMBackendConfig) -> Callable[[str], st
 def _test_openai_compatible(cfg: LLMBackendConfig) -> dict:
     base_url = cfg.base_url or "https://api.openai.com/v1"
     model = cfg.analyze_model or "gpt-4o-mini"
+
+    # SSRF protection: validate base_url before making any requests
+    url_error = _validate_base_url(base_url)
+    if url_error:
+        return {"ok": False, "message": f"Invalid base_url: {url_error}", "model": ""}
 
     # First try /models endpoint to list available models
     try:

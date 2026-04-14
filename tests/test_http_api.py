@@ -224,6 +224,107 @@ class TestGuardEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# POST /v1/llm/test — spec/contracts/http_llm_test.yaml
+# ---------------------------------------------------------------------------
+
+class TestLLMTestEndpoint:
+    def test_none_mode_returns_ok(self):
+        """G-HTTP-LLM-TEST-001: mode=none returns ok=true (no LLM needed)."""
+        client = _get_client()
+        resp = client.post("/v1/llm/test", json={"mode": "none"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+
+    def test_invalid_mode_returns_422(self):
+        """G-HTTP-LLM-TEST-003: Invalid mode values are rejected with 422."""
+        client = _get_client()
+        resp = client.post("/v1/llm/test", json={"mode": "banana"})
+        assert resp.status_code == 422
+
+    def test_anthropic_without_key_fails(self):
+        """G-HTTP-LLM-TEST-002: Returns ok=false when connection fails."""
+        client = _get_client()
+        resp = client.post("/v1/llm/test", json={
+            "mode": "anthropic",
+            "api_key": "sk-ant-invalid-key",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert isinstance(data["message"], str)
+
+    def test_ssrf_blocks_metadata_endpoint(self):
+        """G-HTTP-LLM-TEST-004: base_url is validated to block internal networks."""
+        client = _get_client()
+        resp = client.post("/v1/llm/test", json={
+            "mode": "openai_compatible",
+            "base_url": "http://169.254.169.254/latest/meta-data/",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert "blocked" in data["message"].lower() or "invalid" in data["message"].lower()
+
+    def test_ssrf_blocks_private_ip(self):
+        """G-HTTP-LLM-TEST-004: Private IP addresses are blocked."""
+        client = _get_client()
+        resp = client.post("/v1/llm/test", json={
+            "mode": "openai_compatible",
+            "base_url": "http://10.0.0.1:8080/v1",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+
+    def test_ssrf_allows_localhost(self):
+        """G-HTTP-LLM-TEST-004: localhost is allowed (common for local inference)."""
+        from bulwark.dashboard.llm_factory import _validate_base_url
+        assert _validate_base_url("http://localhost:11434/v1") is None
+        assert _validate_base_url("http://127.0.0.1:8080/v1") is None
+
+    def test_default_request_body(self):
+        """POST /v1/llm/test with empty body uses defaults."""
+        client = _get_client()
+        resp = client.post("/v1/llm/test", json={})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True  # mode defaults to "none"
+
+    def test_success_does_not_guarantee_pipeline_behavior(self):
+        """NG-HTTP-LLM-TEST-001: Successful test does not guarantee pipeline works.
+
+        The test endpoint sends a minimal prompt. Real pipeline content
+        may behave differently. This is by design.
+        """
+        client = _get_client()
+        resp = client.post("/v1/llm/test", json={"mode": "none"})
+        data = resp.json()
+        # Test succeeds, but this says nothing about pipeline execution quality
+        assert data["ok"] is True
+
+
+# ---------------------------------------------------------------------------
+# CORS — security enforcement
+# ---------------------------------------------------------------------------
+
+class TestCORSSecurity:
+    def test_cors_allows_localhost_origin(self):
+        """CORS allows requests from localhost origins."""
+        client = _get_client()
+        resp = client.get("/healthz", headers={"Origin": "http://localhost:3000"})
+        assert resp.status_code == 200
+        assert resp.headers.get("access-control-allow-origin") == "http://localhost:3000"
+
+    def test_cors_blocks_unknown_origin(self):
+        """CORS does not reflect arbitrary origins (no wildcard)."""
+        client = _get_client()
+        resp = client.get("/healthz", headers={"Origin": "https://evil.com"})
+        # With restricted CORS, unknown origins should NOT get an Access-Control-Allow-Origin header
+        assert resp.headers.get("access-control-allow-origin") != "https://evil.com"
+
+
+# ---------------------------------------------------------------------------
 # GET /healthz — spec/contracts/http_healthz.yaml
 # ---------------------------------------------------------------------------
 
@@ -439,6 +540,17 @@ class TestEnvConfig:
         cfg = BulwarkConfig.load(path=str(config_file))
         # Config file wins
         assert cfg.llm_backend.mode == "openai_compatible"
+
+    def test_env_vars_applied_when_config_corrupt(self, monkeypatch, tmp_path):
+        """Env vars should take effect even when config file is corrupt YAML."""
+        monkeypatch.setenv("BULWARK_LLM_MODE", "anthropic")
+        monkeypatch.setenv("BULWARK_API_KEY", "sk-test-fallback")
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("{{{{not valid yaml")
+        from bulwark.dashboard.config import BulwarkConfig
+        cfg = BulwarkConfig.load(path=str(config_file))
+        assert cfg.llm_backend.mode == "anthropic"
+        assert cfg.llm_backend.api_key == "sk-test-fallback"
 
 
 # ---------------------------------------------------------------------------

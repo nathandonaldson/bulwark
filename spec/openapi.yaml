@@ -129,6 +129,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PipelineResponse"
+        "422":
+          description: Validation error (missing required fields, wrong types)
 
   /v1/llm/test:
     post:
@@ -151,6 +153,7 @@ paths:
                   type: string
                 base_url:
                   type: string
+                  description: Base URL for OpenAI-compatible endpoints. Must not target internal/private networks.
                 analyze_model:
                   type: string
                 execute_model:
@@ -294,6 +297,10 @@ components:
           type: string
           nullable: true
           description: Which layer blocked the content, if any.
+        block_reason:
+          type: string
+          nullable: true
+          description: Human-readable reason for blocking, if any.
         analysis:
           type: string
           nullable: true
@@ -302,6 +309,20 @@ components:
           type: string
           nullable: true
           description: LLM Phase 2 execution output, if LLM was configured and ran.
+        payload_length:
+          type: integer
+          description: Length of the original input content.
+        neutralized:
+          type: boolean
+          description: True if the sanitizer modified the content.
+        neutralized_by:
+          type: string
+          nullable: true
+          description: Which sanitization step modified the content, if any.
+        llm_mode:
+          type: string
+          nullable: true
+          description: Which LLM backend mode was used (none, anthropic, openai_compatible).
         trace:
           type: array
           description: Per-layer trace entries with step number, layer name, verdict, detail, and timing.
@@ -319,3 +340,12 @@ components:
                 type: string
               duration_ms:
                 type: number
+              detection_model:
+                type: string
+                description: Name of the detection model, if this is a detection layer entry.
+              backend:
+                type: string
+                description: LLM backend type, if this is an analyze/execute layer entry.
+              model:
+                type: string
+                description: Model identifier used, if this is an analyze/execute layer entry.

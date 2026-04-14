@@ -5,7 +5,7 @@ and the Pipeline class. The spec lives at spec/openapi.yaml.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 
 from bulwark.dashboard.models import (
     CleanRequest, CleanResponse,

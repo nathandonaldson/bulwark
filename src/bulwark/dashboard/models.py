@@ -66,7 +66,7 @@ class CleanResponse(BaseModel):
 
 class LLMTestRequest(BaseModel):
     """Request body for POST /v1/llm/test."""
-    mode: str = Field(
+    mode: Literal["none", "anthropic", "openai_compatible"] = Field(
         default="none",
         description="LLM mode: none, anthropic, or openai_compatible.",
     )
