@@ -149,13 +149,42 @@ async def test_pipeline(request: Request):
 
     result = await pipeline.run_async(payload, source="test")
 
+    # Enrich the trace with LLM backend and detection model info
+    trace = list(result.trace)
+    for entry in trace:
+        if entry.get("layer") == "analyze":
+            mode = config.llm_backend.mode if config.llm_backend.mode != "none" else None
+            if mode == "anthropic":
+                model = config.llm_backend.analyze_model or "claude-haiku-4-5"
+                entry["detail"] = f"Phase 1 via Anthropic ({model}): {len(result.analysis)} chars"
+                entry["backend"] = "anthropic"
+                entry["model"] = model
+            elif mode == "openai_compatible":
+                model = config.llm_backend.analyze_model or "unknown"
+                url = config.llm_backend.base_url or "unknown"
+                entry["detail"] = f"Phase 1 via {url} ({model}): {len(result.analysis)} chars"
+                entry["backend"] = "openai_compatible"
+                entry["model"] = model
+                entry["url"] = url
+            else:
+                entry["detail"] = f"Phase 1 (echo mode, no LLM): {len(result.analysis)} chars"
+                entry["backend"] = "echo"
+        elif entry.get("layer") == "analysis_guard":
+            # Add info about active detection models
+            active_models = list(_detection_checks.keys()) if _detection_checks else []
+            if active_models:
+                models_str = ", ".join(active_models)
+                base_detail = entry.get("detail", "")
+                entry["detail"] = f"{base_detail} [{models_str} active]"
+                entry["detection_models"] = active_models
+
     return {
         "payload_length": len(payload),
         "blocked": result.blocked,
         "neutralized": result.neutralized,
         "blocked_at": result.block_reason.split(":")[0].strip() if result.block_reason else None,
         "neutralized_by": "Sanitizer" if result.neutralized else None,
-        "trace": result.trace,
+        "trace": trace,
     }
 
 
