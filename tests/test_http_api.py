@@ -334,6 +334,114 @@ class TestDockerPersistence:
 
 
 # ---------------------------------------------------------------------------
+# Environment variable config — spec/contracts/env_config.yaml
+# ---------------------------------------------------------------------------
+
+class TestEnvConfig:
+    def test_llm_mode_from_env(self, monkeypatch, tmp_path):
+        """G-ENV-001: BULWARK_LLM_MODE env var sets LLM backend mode."""
+        monkeypatch.setenv("BULWARK_LLM_MODE", "anthropic")
+        from bulwark.dashboard.config import BulwarkConfig
+        cfg = BulwarkConfig.load(path=str(tmp_path / "nonexistent.yaml"))
+        assert cfg.llm_backend.mode == "anthropic"
+
+    def test_api_key_from_env(self, monkeypatch, tmp_path):
+        """G-ENV-002: BULWARK_API_KEY env var sets API key."""
+        monkeypatch.setenv("BULWARK_API_KEY", "sk-ant-test123")
+        from bulwark.dashboard.config import BulwarkConfig
+        cfg = BulwarkConfig.load(path=str(tmp_path / "nonexistent.yaml"))
+        assert cfg.llm_backend.api_key == "sk-ant-test123"
+
+    def test_base_url_from_env(self, monkeypatch, tmp_path):
+        """G-ENV-003: BULWARK_BASE_URL env var sets OpenAI-compatible base URL."""
+        monkeypatch.setenv("BULWARK_BASE_URL", "http://localhost:8080/v1")
+        from bulwark.dashboard.config import BulwarkConfig
+        cfg = BulwarkConfig.load(path=str(tmp_path / "nonexistent.yaml"))
+        assert cfg.llm_backend.base_url == "http://localhost:8080/v1"
+
+    def test_analyze_model_from_env(self, monkeypatch, tmp_path):
+        """G-ENV-004: BULWARK_ANALYZE_MODEL env var sets Phase 1 model."""
+        monkeypatch.setenv("BULWARK_ANALYZE_MODEL", "claude-haiku-4-5-20251001")
+        from bulwark.dashboard.config import BulwarkConfig
+        cfg = BulwarkConfig.load(path=str(tmp_path / "nonexistent.yaml"))
+        assert cfg.llm_backend.analyze_model == "claude-haiku-4-5-20251001"
+
+    def test_execute_model_from_env(self, monkeypatch, tmp_path):
+        """G-ENV-005: BULWARK_EXECUTE_MODEL env var sets Phase 2 model."""
+        monkeypatch.setenv("BULWARK_EXECUTE_MODEL", "claude-sonnet-4-5-20241022")
+        from bulwark.dashboard.config import BulwarkConfig
+        cfg = BulwarkConfig.load(path=str(tmp_path / "nonexistent.yaml"))
+        assert cfg.llm_backend.execute_model == "claude-sonnet-4-5-20241022"
+
+    def test_env_vars_work_without_config_file(self, monkeypatch, tmp_path):
+        """G-ENV-006: Env vars take effect without any config file present."""
+        monkeypatch.setenv("BULWARK_LLM_MODE", "openai_compatible")
+        monkeypatch.setenv("BULWARK_BASE_URL", "http://localhost:11434/v1")
+        from bulwark.dashboard.config import BulwarkConfig
+        cfg = BulwarkConfig.load(path=str(tmp_path / "nonexistent.yaml"))
+        assert cfg.llm_backend.mode == "openai_compatible"
+        assert cfg.llm_backend.base_url == "http://localhost:11434/v1"
+
+    def test_env_vars_reflected_in_api_config(self, monkeypatch, tmp_path):
+        """G-ENV-007: Dashboard UI reflects env var values on load."""
+        monkeypatch.setenv("BULWARK_LLM_MODE", "anthropic")
+        monkeypatch.setenv("BULWARK_API_KEY", "sk-test")
+        # Reload config from a nonexistent path so env vars are the only source
+        import bulwark.dashboard.app as app_mod
+        from bulwark.dashboard.config import BulwarkConfig
+        old_config = app_mod.config
+        app_mod.config = BulwarkConfig.load(path=str(tmp_path / "nonexistent.yaml"))
+        try:
+            client = _get_client()
+            resp = client.get("/api/config")
+            data = resp.json()
+            assert data["llm_backend"]["mode"] == "anthropic"
+            assert data["llm_backend"]["api_key"] == "sk-test"
+        finally:
+            app_mod.config = old_config
+
+    def test_dashboard_changes_override_env(self, monkeypatch):
+        """G-ENV-008: Dashboard UI changes override env vars for current session."""
+        monkeypatch.setenv("BULWARK_LLM_MODE", "anthropic")
+        import bulwark.dashboard.app as app_mod
+        from bulwark.dashboard.config import BulwarkConfig
+        old_config = app_mod.config
+        app_mod.config = BulwarkConfig.load()
+        try:
+            client = _get_client()
+            # Override via dashboard API
+            client.put("/api/config", json={"llm_backend": {"mode": "none"}})
+            resp = client.get("/api/config")
+            data = resp.json()
+            assert data["llm_backend"]["mode"] == "none"
+        finally:
+            app_mod.config = old_config
+
+    def test_env_does_not_persist_across_restarts(self):
+        """NG-ENV-001: Dashboard changes don't persist without a config file."""
+        # This is a design property — env vars are the persistence mechanism,
+        # not the config file. Tested by verifying load() without a file
+        # returns defaults (not previous dashboard changes).
+        from bulwark.dashboard.config import BulwarkConfig
+        import tempfile, os
+        cfg = BulwarkConfig.load(path=os.path.join(tempfile.mkdtemp(), "nope.yaml"))
+        assert cfg.llm_backend.mode == "none"
+
+    def test_config_file_takes_precedence(self, monkeypatch, tmp_path):
+        """NG-ENV-002: Config file takes precedence over env vars."""
+        monkeypatch.setenv("BULWARK_LLM_MODE", "anthropic")
+        config_file = tmp_path / "config.yaml"
+        import yaml
+        config_file.write_text(yaml.dump({
+            "llm_backend": {"mode": "openai_compatible", "base_url": "http://local:8080/v1"}
+        }))
+        from bulwark.dashboard.config import BulwarkConfig
+        cfg = BulwarkConfig.load(path=str(config_file))
+        # Config file wins
+        assert cfg.llm_backend.mode == "openai_compatible"
+
+
+# ---------------------------------------------------------------------------
 # POST /v1/pipeline — spec/contracts/http_pipeline.yaml
 # ---------------------------------------------------------------------------
 

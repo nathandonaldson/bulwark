@@ -122,10 +122,28 @@ class BulwarkConfig:
         p.write_text(yaml.dump(d, default_flow_style=False, sort_keys=False))
 
     @classmethod
+    def _apply_env_vars(cls, cfg: "BulwarkConfig") -> None:
+        """Apply BULWARK_* env vars to config. Only sets fields that have an env var present."""
+        import os
+        env_map = {
+            "BULWARK_LLM_MODE": "mode",
+            "BULWARK_API_KEY": "api_key",
+            "BULWARK_BASE_URL": "base_url",
+            "BULWARK_ANALYZE_MODEL": "analyze_model",
+            "BULWARK_EXECUTE_MODEL": "execute_model",
+        }
+        for env_key, field_name in env_map.items():
+            val = os.environ.get(env_key)
+            if val is not None:
+                setattr(cfg.llm_backend, field_name, val)
+
+    @classmethod
     def load(cls, path: str = None) -> "BulwarkConfig":
         p = Path(path) if path else CONFIG_PATH
         if not p.exists():
-            return cls()
+            cfg = cls()
+            cls._apply_env_vars(cfg)
+            return cfg
         try:
             data = yaml.safe_load(p.read_text()) or {}
             # Reconstruct LLMBackendConfig
