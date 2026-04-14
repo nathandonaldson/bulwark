@@ -1,0 +1,22 @@
+feature: Docker ephemeral config warning
+version: "0.5.0"
+
+guarantees:
+  - id: G-DOCKER-001
+    summary: /healthz returns docker=true when running inside a Docker container
+  - id: G-DOCKER-002
+    summary: /healthz returns docker=false when running outside Docker
+  - id: G-DOCKER-003
+    summary: Dashboard Configure tab shows ephemeral warning when docker=true
+  - id: G-DOCKER-004
+    summary: Dashboard Configure tab hides ephemeral warning when docker=false
+  - id: G-DOCKER-005
+    summary: Warning text includes guidance on using docker volumes
+
+non_guarantees:
+  - id: NG-DOCKER-001
+    summary: Does NOT detect all container runtimes (only checks /.dockerenv)
+    reason: Podman, LXC, and other runtimes may not create /.dockerenv
+  - id: NG-DOCKER-002
+    summary: Does NOT prevent config changes in Docker
+    reason: Config changes work normally, they are just ephemeral without a volume mount

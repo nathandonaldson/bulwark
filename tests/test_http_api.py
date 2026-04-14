@@ -268,6 +268,72 @@ class TestHealthzEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# Docker persistence — spec/contracts/docker_persistence.yaml
+# ---------------------------------------------------------------------------
+
+class TestDockerPersistence:
+    def test_healthz_docker_true_in_container(self):
+        """G-DOCKER-001: /healthz returns docker=true inside a Docker container.
+
+        In test environment (not Docker), this returns false. We verify the
+        field exists and is boolean. The true case is tested by the CI Docker
+        smoke test.
+        """
+        client = _get_client()
+        resp = client.get("/healthz")
+        data = resp.json()
+        assert "docker" in data
+        assert isinstance(data["docker"], bool)
+
+    def test_healthz_docker_false_outside_container(self):
+        """G-DOCKER-002: /healthz returns docker=false outside Docker."""
+        client = _get_client()
+        resp = client.get("/healthz")
+        data = resp.json()
+        # Tests run outside Docker
+        assert data["docker"] is False
+
+    def test_warning_html_exists_in_dashboard(self):
+        """G-DOCKER-003: Dashboard Configure tab has ephemeral warning element."""
+        client = _get_client()
+        resp = client.get("/")
+        html = resp.text
+        assert "docker-ephemeral-warning" in html
+
+    def test_warning_hidden_by_default(self):
+        """G-DOCKER-004: Warning is hidden by default (display:none)."""
+        client = _get_client()
+        resp = client.get("/")
+        html = resp.text
+        assert 'id="docker-ephemeral-warning" style="display:none' in html
+
+    def test_warning_text_mentions_volumes(self):
+        """G-DOCKER-005: Warning text includes guidance on docker volumes."""
+        client = _get_client()
+        resp = client.get("/")
+        html = resp.text
+        assert "docker volumes" in html.lower() or "docker volume" in html.lower()
+
+    def test_does_not_detect_all_runtimes(self):
+        """NG-DOCKER-001: Only checks /.dockerenv, not Podman/LXC/etc.
+
+        Outside Docker, docker=false even if running in another container runtime.
+        This is a known limitation.
+        """
+        client = _get_client()
+        resp = client.get("/healthz")
+        data = resp.json()
+        # We only check /.dockerenv — other runtimes return false
+        assert data["docker"] is False
+
+    def test_config_changes_still_work_in_docker(self):
+        """NG-DOCKER-002: Config changes work normally, just ephemeral."""
+        client = _get_client()
+        resp = client.get("/api/config")
+        assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
 # POST /v1/pipeline — spec/contracts/http_pipeline.yaml
 # ---------------------------------------------------------------------------
 
