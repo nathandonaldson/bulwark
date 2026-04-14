@@ -66,6 +66,16 @@ AVAILABLE_INTEGRATIONS = {
 
 
 @dataclass
+class LLMBackendConfig:
+    """LLM backend configuration for two-phase pipeline execution."""
+    mode: str = "none"  # none, anthropic, openai_compatible
+    api_key: str = ""
+    base_url: str = ""  # For openai_compatible mode (e.g., http://localhost:8080/v1)
+    analyze_model: str = ""  # Phase 1 model (cheap/fast)
+    execute_model: str = ""  # Phase 2 model (smart), optional — falls back to analyze_model
+
+
+@dataclass
 class IntegrationConfig:
     enabled: bool = False
     installed: bool = False
@@ -94,6 +104,9 @@ class BulwarkConfig:
     canary_tokens: dict[str, str] = field(default_factory=dict)
     canary_file: str = ""
 
+    # LLM Backend
+    llm_backend: LLMBackendConfig = field(default_factory=LLMBackendConfig)
+
     # Integrations
     integrations: dict[str, IntegrationConfig] = field(default_factory=dict)
 
@@ -114,6 +127,9 @@ class BulwarkConfig:
             return cls()
         try:
             data = yaml.safe_load(p.read_text()) or {}
+            # Reconstruct LLMBackendConfig
+            llm_data = data.pop("llm_backend", {})
+            llm_backend = LLMBackendConfig(**llm_data) if isinstance(llm_data, dict) else LLMBackendConfig()
             # Reconstruct IntegrationConfig objects
             integrations = {}
             for k, v in data.pop("integrations", {}).items():
@@ -121,14 +137,18 @@ class BulwarkConfig:
                     integrations[k] = IntegrationConfig(**v)
                 else:
                     integrations[k] = IntegrationConfig()
-            return cls(integrations=integrations, **{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+            return cls(llm_backend=llm_backend, integrations=integrations, **{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
         except Exception:
             return cls()
 
     def update_from_dict(self, data: dict):
         """Update config fields from a dictionary (partial update)."""
         for key, value in data.items():
-            if key == "integrations":
+            if key == "llm_backend" and isinstance(value, dict):
+                for k, v in value.items():
+                    if hasattr(self.llm_backend, k):
+                        setattr(self.llm_backend, k, v)
+            elif key == "integrations":
                 for int_name, int_data in value.items():
                     if isinstance(int_data, dict):
                         if int_name not in self.integrations:

@@ -121,19 +121,24 @@ async def test_pipeline(request: Request):
     canary_file = Path(__file__).parent.parent.parent / "knowledge" / "comms" / "canaries.json"
     canary = CanarySystem.from_file(str(canary_file)) if canary_file.exists() else None
 
-    # Build pipeline from config (respects dashboard toggles) or defaults
+    # Build pipeline from config (respects dashboard toggles)
+    # Use configured LLM backend if available, otherwise echo payload for guard testing
+    from dashboard.llm_factory import make_analyze_fn as _make_analyze
+    llm_analyze = _make_analyze(config.llm_backend)
+    analyze_fn = llm_analyze if llm_analyze else lambda prompt: payload
+
     config_path = Path(__file__).parent.parent / "bulwark-config.yaml"
     if config_path.exists():
         pipeline = Pipeline.from_config(
             str(config_path),
-            analyze_fn=lambda prompt: payload,  # Echo payload as "analysis" to test guard
+            analyze_fn=analyze_fn,
         )
         pipeline.emitter = collector
         if canary:
             pipeline.canary = canary
     else:
         pipeline = Pipeline.default(
-            analyze_fn=lambda prompt: payload,
+            analyze_fn=analyze_fn,
             canary=canary,
             emitter=collector,
         )
