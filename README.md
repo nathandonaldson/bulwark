@@ -7,7 +7,7 @@ Other tools try to classify input as safe or unsafe. Bulwark separates reading f
 ## See it work
 
 ```bash
-pip install "git+https://github.com/nathandonaldson/bulwark.git#egg=bulwark-ai[cli]"
+pip install "git+https://github.com/nathandonaldson/bulwark.git#egg=bulwark-shield[cli]"
 bulwark test
 ```
 
@@ -116,13 +116,61 @@ result = pipeline.run(untrusted_content, source="web")
 
 Any `(str) -> str` callable works. Async too: `pipeline.run_async()`.
 
+## Deploy with Docker
+
+Run Bulwark as a service. No Python needed.
+
+```bash
+docker run -p 3000:3000 ghcr.io/nathandonaldson/bulwark
+```
+
+Dashboard at `http://localhost:3000`. API at `http://localhost:3000/v1/clean`.
+
+```bash
+# Sanitize untrusted content
+curl -X POST http://localhost:3000/v1/clean \
+  -H 'Content-Type: application/json' \
+  -d '{"content": "Hello <script>evil()</script>", "source": "email"}'
+
+# Health check
+curl http://localhost:3000/healthz
+```
+
+### Configure via environment variables
+
+Set your LLM backend in `docker-compose.yml` so config survives restarts:
+
+```yaml
+services:
+  bulwark:
+    image: ghcr.io/nathandonaldson/bulwark
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      - BULWARK_LLM_MODE=anthropic
+      - BULWARK_API_KEY=sk-ant-...
+```
+
+All env vars:
+
+| Variable | Description |
+|----------|-------------|
+| `BULWARK_LLM_MODE` | `anthropic`, `openai_compatible`, or `none` (default) |
+| `BULWARK_API_KEY` | API key for Anthropic |
+| `BULWARK_BASE_URL` | Endpoint URL for OpenAI-compatible servers (Ollama, llama.cpp, vLLM) |
+| `BULWARK_ANALYZE_MODEL` | Phase 1 model (default: `claude-haiku-4-5-20251001`) |
+| `BULWARK_EXECUTE_MODEL` | Phase 2 model (default: `claude-sonnet-4-5-20241022`) |
+
+You can also configure everything in the dashboard UI, but those changes are lost on container restart. Env vars are the persistent config mechanism for Docker.
+
 ## HTTP API (language-agnostic)
 
 Run Bulwark as a standalone service. Any language can call it.
 
 ```bash
-pip install bulwark-ai[dashboard]
-PYTHONPATH=src python -m dashboard --port 3000
+pip install bulwark-shield[dashboard]
+PYTHONPATH=src python -m bulwark.dashboard --port 3000
 ```
 
 ```bash
@@ -161,7 +209,7 @@ Test attacks interactively, configure your LLM backend, and monitor your pipelin
 **Red teaming** sends Garak probe payloads through the same `/v1/pipeline` endpoint used by production. Same code path, same defense layers.
 
 ```bash
-PYTHONPATH=src python -m dashboard --port 3000
+PYTHONPATH=src python -m bulwark.dashboard --port 3000
 ```
 
 Connect your pipeline: `emitter=WebhookEmitter("http://localhost:3000/api/events")`
@@ -212,12 +260,12 @@ Architecture decisions are recorded in `spec/decisions/`. Contract specs define 
 ## Install
 
 ```bash
-pip install bulwark-ai              # Core (zero deps)
-pip install bulwark-ai[cli]         # CLI tools
-pip install bulwark-ai[anthropic]   # Anthropic SDK
-pip install bulwark-ai[dashboard]   # Dashboard
-pip install bulwark-ai[testing]     # Garak red teaming
-pip install bulwark-ai[all]         # Everything
+pip install bulwark-shield              # Core (zero deps)
+pip install bulwark-shield[cli]         # CLI tools
+pip install bulwark-shield[anthropic]   # Anthropic SDK
+pip install bulwark-shield[dashboard]   # Dashboard
+pip install bulwark-shield[testing]     # Garak red teaming
+pip install bulwark-shield[all]         # Everything
 ```
 
 Python 3.11+. [Detailed docs →](docs/)

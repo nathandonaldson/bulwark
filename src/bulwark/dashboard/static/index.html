@@ -432,6 +432,9 @@
 
 <!-- ==================== CONFIGURE PAGE ==================== -->
 <div class="page" id="page-configure">
+  <div id="docker-ephemeral-warning" style="display:none; background: #3a2a00; border: 1px solid #664400; border-radius: 6px; padding: 10px 14px; margin-bottom: 16px; font-size: 12px; color: #ffcc66;">
+    Running in Docker. Config changes are not persisted across container restarts. Use docker volumes for persistent config.
+  </div>
   <div class="config-layout">
     <div>
       <div class="config-section">
@@ -1695,6 +1698,13 @@ function renderMiniSparkline(layer, data) {
 // Init
 // ============================================================
 window.addEventListener('DOMContentLoaded', () => {
+  // Show ephemeral config warning if running in Docker
+  fetch('/healthz').then(r => r.json()).then(d => {
+    if (d.docker) {
+      const w = document.getElementById('docker-ephemeral-warning');
+      if (w) w.style.display = 'block';
+    }
+  }).catch(() => {});
   fetchMetrics();
   fetchTimeseries();
   fetchEvents({}).then(() => {

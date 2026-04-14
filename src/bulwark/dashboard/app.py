@@ -1,5 +1,6 @@
 """Bulwark Dashboard — FastAPI application."""
 from fastapi import FastAPI, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 import asyncio
@@ -9,15 +10,52 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from dashboard.db import EventDB
-from dashboard.config import BulwarkConfig, AVAILABLE_INTEGRATIONS, IntegrationConfig
+from bulwark.dashboard.db import EventDB
+from bulwark.dashboard.config import BulwarkConfig, AVAILABLE_INTEGRATIONS, IntegrationConfig
 
-app = FastAPI(title="Bulwark Dashboard", version="0.1.0")
 
-from dashboard.api_v1 import router as v1_router
+def _read_version() -> str:
+    """Read version from VERSION file or package metadata."""
+    version_file = Path(__file__).parent.parent.parent.parent / "VERSION"
+    if version_file.exists():
+        return version_file.read_text().strip()
+    try:
+        from importlib.metadata import version
+        return version("bulwark-shield")
+    except Exception:
+        return "unknown"
+
+
+app = FastAPI(title="Bulwark Dashboard", version=_read_version())
+
+# CORS: allow localhost origins so browser-based apps on the same machine can call the API.
+# Wildcard ("*") would expose /api/config (which contains API keys) to any website.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+from bulwark.dashboard.api_v1 import router as v1_router
 app.include_router(v1_router)
 db = EventDB()
 config = BulwarkConfig.load()
+
+
+@app.get("/healthz")
+async def healthz():
+    """Liveness probe. Returns 200 with version info."""
+    return {
+        "status": "ok",
+        "version": _read_version(),
+        "docker": os.path.exists("/.dockerenv"),
+    }
 
 # SSE subscribers
 _subscribers: list[asyncio.Queue] = []
@@ -117,13 +155,16 @@ async def test_pipeline(request: Request):
 
     collector = CollectorEmitter()
 
-    # Load real canary tokens if available
-    canary_file = Path(__file__).parent.parent.parent / "knowledge" / "comms" / "canaries.json"
-    canary = CanarySystem.from_file(str(canary_file)) if canary_file.exists() else None
+    # Load canary tokens from config path (if set) or skip
+    canary = None
+    if config.canary_file:
+        cf = Path(config.canary_file)
+        if cf.exists():
+            canary = CanarySystem.from_file(str(cf))
 
     # Build pipeline from config (respects dashboard toggles)
     # Use configured LLM backend if available, otherwise echo payload for guard testing
-    from dashboard.llm_factory import make_analyze_fn as _make_analyze
+    from bulwark.dashboard.llm_factory import make_analyze_fn as _make_analyze
     llm_analyze = _make_analyze(config.llm_backend)
     analyze_fn = llm_analyze if llm_analyze else lambda prompt: payload
 
@@ -153,7 +194,7 @@ async def test_pipeline(request: Request):
         if entry.get("layer") == "analyze":
             mode = config.llm_backend.mode if config.llm_backend.mode != "none" else None
             if mode == "anthropic":
-                model = config.llm_backend.analyze_model or "claude-haiku-4-5"
+                model = config.llm_backend.analyze_model or "claude-haiku-4-5-20251001"
                 entry["detail"] = f"Phase 1 via Anthropic ({model}): {len(result.analysis)} chars"
                 entry["backend"] = "anthropic"
                 entry["model"] = model
@@ -472,8 +513,9 @@ async def run_redteam(request: Request):
         from bulwark.integrations.redteam import ProductionRedTeam
         import concurrent.futures
 
-        # Find project root (parent of bulwark-ai/)
-        project_dir = str(Path(__file__).parent.parent.parent)
+        # Find project root. Use BULWARK_PROJECT_DIR if set (e.g. in Docker),
+        # otherwise walk up from this file's location.
+        project_dir = os.environ.get("BULWARK_PROJECT_DIR", str(Path(__file__).parent.parent.parent))
 
         def on_progress(completed, total):
             _redteam_result["completed"] = completed

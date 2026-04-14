@@ -1,0 +1,28 @@
+feature: Environment variable configuration
+version: "0.5.0"
+
+guarantees:
+  - id: G-ENV-001
+    summary: BULWARK_LLM_MODE env var sets the LLM backend mode on startup
+  - id: G-ENV-002
+    summary: BULWARK_API_KEY env var sets the Anthropic API key on startup
+  - id: G-ENV-003
+    summary: BULWARK_BASE_URL env var sets the OpenAI-compatible base URL on startup
+  - id: G-ENV-004
+    summary: BULWARK_ANALYZE_MODEL env var sets the Phase 1 model on startup
+  - id: G-ENV-005
+    summary: BULWARK_EXECUTE_MODEL env var sets the Phase 2 model on startup
+  - id: G-ENV-006
+    summary: Env vars take effect without any config file present
+  - id: G-ENV-007
+    summary: Dashboard UI reflects env var values on load
+  - id: G-ENV-008
+    summary: Dashboard UI changes override env vars for the current session
+
+non_guarantees:
+  - id: NG-ENV-001
+    summary: Dashboard UI changes do NOT persist across container restarts
+    reason: Env vars are the persistent config mechanism in Docker. Dashboard changes are in-memory only.
+  - id: NG-ENV-002
+    summary: Env vars do NOT override a saved config file if one exists
+    reason: Config file (bulwark-config.yaml) takes precedence. Env vars are defaults when no file exists.

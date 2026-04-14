@@ -6,6 +6,8 @@ import threading
 from pathlib import Path
 from typing import Optional
 
+# Relative path — resolves against CWD. In Docker with WORKDIR /app, this is /app/bulwark-dashboard.db.
+# Ephemeral in Docker (no volume mount in Approach A). Container restarts lose event history.
 DB_PATH = Path("bulwark-dashboard.db")
 
 

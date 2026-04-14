@@ -1,0 +1,17 @@
+endpoint: POST /v1/llm/test
+version: "0.5.0"
+
+guarantees:
+  - id: G-HTTP-LLM-TEST-001
+    summary: Returns 200 with ok=true when mode is "none" (no LLM configured)
+  - id: G-HTTP-LLM-TEST-002
+    summary: Returns 200 with ok=false and error message when connection fails
+  - id: G-HTTP-LLM-TEST-003
+    summary: Rejects invalid mode values with 422
+  - id: G-HTTP-LLM-TEST-004
+    summary: base_url is validated to block internal/private network addresses
+
+non_guarantees:
+  - id: NG-HTTP-LLM-TEST-001
+    summary: Does NOT guarantee that a successful test means the model will work for pipeline
+    reason: Test sends a minimal prompt. Model behavior with real content may differ.

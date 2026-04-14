@@ -1,6 +1,6 @@
 """Run the Bulwark Dashboard server.
 
-Usage: python -m dashboard [--port PORT] [--host HOST] [--sync-from DIR]
+Usage: python -m bulwark.dashboard [--port PORT] [--host HOST]
 """
 import argparse
 import os
@@ -60,7 +60,7 @@ def main():
         pass  # Don't block startup if sync fails
 
     import uvicorn
-    uvicorn.run("dashboard.app:app", host=args.host, port=args.port, reload=False)
+    uvicorn.run("bulwark.dashboard.app:app", host=args.host, port=args.port, reload=False)
 
 
 if __name__ == "__main__":

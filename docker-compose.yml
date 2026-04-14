@@ -1,0 +1,14 @@
+services:
+  bulwark:
+    build: .
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      - BULWARK_PROJECT_DIR=/app
+      # LLM backend config — uncomment and set to persist across restarts
+      # - BULWARK_LLM_MODE=anthropic        # or: openai_compatible, none
+      # - BULWARK_API_KEY=sk-ant-...
+      # - BULWARK_BASE_URL=http://host.docker.internal:8080/v1
+      # - BULWARK_ANALYZE_MODEL=claude-haiku-4-5-20251001
+      # - BULWARK_EXECUTE_MODEL=claude-sonnet-4-5-20241022

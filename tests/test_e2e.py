@@ -398,7 +398,7 @@ class TestDashboardE2E:
     @pytest.fixture
     def dashboard_db(self, tmp_path):
         """Create a temporary dashboard DB."""
-        from dashboard.db import EventDB
+        from bulwark.dashboard.db import EventDB
         db_path = str(tmp_path / "test.db")
         return EventDB(db_path)
 

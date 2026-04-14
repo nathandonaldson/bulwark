@@ -8,7 +8,7 @@ try:
     import click
 except ImportError:
     raise ImportError(
-        "CLI requires click. Install with: pip install bulwark-ai[cli]"
+        "CLI requires click. Install with: pip install bulwark-shield[cli]"
     )
 
 from bulwark.sanitizer import Sanitizer
@@ -20,14 +20,14 @@ def _get_version() -> str:
     """Get version, falling back to __version__ if package metadata unavailable."""
     try:
         from importlib.metadata import version
-        return version("bulwark-ai")
+        return version("bulwark-shield")
     except Exception:
         from bulwark import __version__
         return __version__
 
 
 @click.group()
-@click.version_option(version=_get_version(), prog_name="bulwark-ai")
+@click.version_option(version=_get_version(), prog_name="bulwark-shield")
 def main():
     """Bulwark: Architectural defense against prompt injection."""
     pass

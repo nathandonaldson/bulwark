@@ -1,13 +1,13 @@
 openapi: "3.1.0"
 info:
   title: Bulwark API
-  version: "0.3.0"
+  version: "0.5.0"
   description: |
     Language-agnostic HTTP API for Bulwark prompt injection defense.
 
-    Two endpoints: /v1/clean sanitizes untrusted content, /v1/guard checks
-    LLM output for injection patterns. Both return 200 for completed analysis.
-    422 only for malformed requests.
+    Core endpoints: /v1/clean sanitizes untrusted content, /v1/guard checks
+    LLM output for injection patterns, /v1/pipeline runs the full defense
+    stack. All return 200 for completed analysis. 422 only for malformed requests.
   license:
     name: MIT
 
@@ -16,6 +16,32 @@ servers:
     description: Local dashboard (default)
 
 paths:
+  /healthz:
+    get:
+      operationId: healthz
+      summary: Liveness probe
+      description: Returns 200 with version info. Used by Docker HEALTHCHECK and k8s probes.
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - version
+                properties:
+                  status:
+                    type: string
+                    enum: ["ok"]
+                  version:
+                    type: string
+                    description: Current Bulwark version from VERSION file.
+                  docker:
+                    type: boolean
+                    description: True if running inside a Docker container.
+
   /v1/clean:
     post:
       operationId: clean
@@ -66,6 +92,86 @@ paths:
                 $ref: "#/components/schemas/GuardResponse"
         "422":
           description: Validation error (missing required fields, wrong types)
+
+  /v1/pipeline:
+    post:
+      operationId: pipeline
+      summary: Run content through the full Bulwark pipeline
+      description: |
+        Runs untrusted content through the complete Bulwark pipeline including
+        sanitization, trust boundary tagging, detection models (if activated),
+        LLM-backed two-phase execution (if configured), bridge guard, and
+        canary token checks. Returns full pipeline trace with per-layer timing.
+
+        Without an LLM configured, runs sanitizer + trust boundary + guard only.
+        Detection models run BEFORE the LLM — if they catch injection, the LLM
+        call is skipped entirely.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - content
+              properties:
+                content:
+                  type: string
+                  description: Untrusted content to process through the pipeline.
+                source:
+                  type: string
+                  default: external
+                  description: Source label for trust boundary tags.
+      responses:
+        "200":
+          description: Pipeline execution complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PipelineResponse"
+        "422":
+          description: Validation error (missing required fields, wrong types)
+
+  /v1/llm/test:
+    post:
+      operationId: testLlmConnection
+      summary: Test the configured LLM backend connection
+      description: |
+        Sends a minimal test prompt to the configured LLM backend and returns
+        whether the connection succeeded. Used by the dashboard Configure tab.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode:
+                  type: string
+                  enum: ["none", "anthropic", "openai_compatible"]
+                api_key:
+                  type: string
+                base_url:
+                  type: string
+                  description: Base URL for OpenAI-compatible endpoints. Must not target internal/private networks.
+                analyze_model:
+                  type: string
+                execute_model:
+                  type: string
+      responses:
+        "200":
+          description: Connection test result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  message:
+                    type: string
+                  model:
+                    type: string
 
 components:
   schemas:
@@ -177,3 +283,69 @@ components:
             - null
           default: null
           description: Which check triggered the block, if any.
+
+    PipelineResponse:
+      type: object
+      required:
+        - blocked
+        - trace
+      properties:
+        blocked:
+          type: boolean
+          description: True if any layer blocked the content.
+        blocked_at:
+          type: string
+          nullable: true
+          description: Which layer blocked the content, if any.
+        block_reason:
+          type: string
+          nullable: true
+          description: Human-readable reason for blocking, if any.
+        analysis:
+          type: string
+          nullable: true
+          description: LLM Phase 1 analysis output, if LLM was configured and ran.
+        execution:
+          type: string
+          nullable: true
+          description: LLM Phase 2 execution output, if LLM was configured and ran.
+        payload_length:
+          type: integer
+          description: Length of the original input content.
+        neutralized:
+          type: boolean
+          description: True if the sanitizer modified the content.
+        neutralized_by:
+          type: string
+          nullable: true
+          description: Which sanitization step modified the content, if any.
+        llm_mode:
+          type: string
+          nullable: true
+          description: Which LLM backend mode was used (none, anthropic, openai_compatible).
+        trace:
+          type: array
+          description: Per-layer trace entries with step number, layer name, verdict, detail, and timing.
+          items:
+            type: object
+            properties:
+              step:
+                type: integer
+              layer:
+                type: string
+              verdict:
+                type: string
+                enum: ["passed", "blocked", "modified"]
+              detail:
+                type: string
+              duration_ms:
+                type: number
+              detection_model:
+                type: string
+                description: Name of the detection model, if this is a detection layer entry.
+              backend:
+                type: string
+                description: LLM backend type, if this is an analyze/execute layer entry.
+              model:
+                type: string
+                description: Model identifier used, if this is an analyze/execute layer entry.

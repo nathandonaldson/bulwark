@@ -1,43 +1,49 @@
 # Bulwark Roadmap
 
-## Current State (v0.2.1)
+## Current State (v0.5.0)
 
-14 source modules, 617 tests, production red team validated (315/315 probes defended).
+5 defense layers, 709 tests, Docker distribution, HTTP API, interactive dashboard with LLM backend config.
 
 ### Shipped
 - 5 defense layers: Sanitizer, TrustBoundary, TwoPhaseExecutor, CanarySystem, MapReduceIsolator
 - Pipeline orchestrator with async support
 - 77 attack patterns across 10 categories
-- Production red team runner (Garak probes through real Bulwark+Claude pipeline)
-- ProtectAI DeBERTa detection integration (ungated, 99.99% accuracy)
-- PromptGuard-86M support (pending HuggingFace approval)
-- Anthropic SDK integration
-- Interactive dashboard with shield visualization, event stream, config management, red teaming
+- Convenience API: `bulwark.clean()`, `bulwark.guard()`, `bulwark.protect()`
+- HTTP API: `/v1/clean`, `/v1/guard`, `/v1/pipeline` (language-agnostic)
+- Docker distribution: `docker run -p 3000:3000 bulwark`
+- LLM backend config: Anthropic API, OpenAI-compatible (local inference), or sanitize-only
+- Detection models: ProtectAI DeBERTa (ungated, ~30ms), PromptGuard-86M (gated)
+- Production red team runner (Garak probes through real pipeline)
+- Interactive dashboard with shield visualization, event stream, config management
+- OpenAPI spec, contract specs with guarantee IDs, 7 ADRs
+- Anthropic SDK integration via `protect()`
 - `bulwark test` CLI with color output
-- GitHub Actions CI (Python 3.11, 3.12, 3.13)
-- PyPI publish workflow (tag-triggered)
-- Security audited, eng reviewed, benchmarked (<1ms deterministic layers)
+- GitHub Actions CI (Python 3.11, 3.12, 3.13) + Docker build + GHCR publish
+- Security audited, benchmarked (<1ms deterministic layers)
 
-### v0.3.0 (next)
-- **LLM Guard integration** — broader scanner coverage (PII, toxicity, prompt injection)
+### Next
 - **Dashboard auth** — bearer token for non-localhost deployments
-- **Dashboard sync automation** — run from repo or auto-sync on commit (stop manual file copying)
-- **Python 3.13 test fix** — Unicode handling edge case in isolator integration test
+- **Persistent config in Docker** — env var config, named volumes for data
+- **LLM Guard integration** — broader scanner coverage (PII, toxicity)
 
 ### Future
-- **Promptfoo CI eval pipeline** — assertion-based regression testing for defenses
-- **MCP/universal proxy** — Bulwark as infrastructure you deploy in front of your tools
-- **LangChain integration** — first-class module if adoption warrants
+- **Transparent proxy mode** — Bulwark as a reverse proxy between your app and the LLM provider. Zero-code integration.
+- **Promptfoo CI eval pipeline** — assertion-based regression testing
 - **CaMeL-style capability tracking** — fine-grained information flow control
 - **More attack patterns** — expand from 77+ with community contributions
-
-## Design Context
-
-Extracted from production defenses in the Wintermute personal AI agent. The Wintermute agent processes email, calendar, and Slack data daily through Bulwark's pipeline. The production red team (315 Garak probes through Claude Haiku) achieved 100% defense rate.
 
 ## Running Tests
 
 ```bash
-cd bulwark-ai
 PYTHONPATH=src python3 -m pytest tests/ -v
+```
+
+## Running the Dashboard
+
+```bash
+# From source
+PYTHONPATH=src python -m bulwark.dashboard --port 3000
+
+# Docker
+docker run -p 3000:3000 ghcr.io/nathandonaldson/bulwark
 ```

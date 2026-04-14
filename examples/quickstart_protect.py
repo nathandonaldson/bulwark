@@ -3,7 +3,7 @@
 protect() wraps your client so every messages.create() call auto-sanitizes
 user message content and tool_result content blocks.
 
-Requires: pip install bulwark-ai[anthropic]
+Requires: pip install bulwark-shield[anthropic]
 """
 import anthropic
 from bulwark.integrations.anthropic import protect

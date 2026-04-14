@@ -5,11 +5,12 @@ and the Pipeline class. The spec lives at spec/openapi.yaml.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 
-from dashboard.models import (
+from bulwark.dashboard.models import (
     CleanRequest, CleanResponse,
     GuardRequest, GuardResponse,
+    LLMTestRequest, PipelineRequest,
 )
 from bulwark.shortcuts import clean, guard
 from bulwark.sanitizer import Sanitizer
@@ -91,18 +92,17 @@ async def api_guard(req: GuardRequest) -> GuardResponse:
     "/llm/test",
     summary="Test the configured LLM backend connection",
 )
-async def test_llm_connection(request: Request):
+async def test_llm_connection(req: LLMTestRequest):
     """Test connectivity to the configured LLM backend."""
-    from dashboard.config import BulwarkConfig, LLMBackendConfig
-    from dashboard.llm_factory import test_connection
+    from bulwark.dashboard.config import LLMBackendConfig
+    from bulwark.dashboard.llm_factory import test_connection
 
-    body = await request.json()
     cfg = LLMBackendConfig(
-        mode=body.get("mode", "none"),
-        api_key=body.get("api_key", ""),
-        base_url=body.get("base_url", ""),
-        analyze_model=body.get("analyze_model", ""),
-        execute_model=body.get("execute_model", ""),
+        mode=req.mode,
+        api_key=req.api_key,
+        base_url=req.base_url,
+        analyze_model=req.analyze_model,
+        execute_model=req.execute_model,
     )
     return test_connection(cfg)
 
@@ -116,18 +116,17 @@ async def test_llm_connection(request: Request):
         "(ProtectAI, PromptGuard), and canary token checks. Returns full pipeline trace."
     ),
 )
-async def run_pipeline(request: Request):
+async def run_pipeline(req: PipelineRequest):
     """Run the full pipeline with the configured LLM backend and detection models."""
     import time as _time
     from pathlib import Path
     from bulwark.pipeline import Pipeline
     from bulwark.events import CollectorEmitter
-    from dashboard.config import BulwarkConfig
-    from dashboard.llm_factory import make_analyze_fn, make_execute_fn
+    from bulwark.dashboard.config import BulwarkConfig
+    from bulwark.dashboard.llm_factory import make_analyze_fn, make_execute_fn
 
-    body = await request.json()
-    content = body.get("content", "")
-    source = body.get("source", "external")
+    content = req.content
+    source = req.source
 
     config = BulwarkConfig.load()
     collector = CollectorEmitter()
@@ -135,13 +134,12 @@ async def run_pipeline(request: Request):
     analyze_fn = make_analyze_fn(config.llm_backend)
     execute_fn = make_execute_fn(config.llm_backend)
 
-    # Load canary tokens if available
+    # Load canary tokens from config path (if set) or skip
     canary = None
-    canary_file = Path(__file__).parent.parent / "knowledge" / "comms" / "canaries.json"
-    if not canary_file.exists():
-        canary_file = Path(__file__).parent.parent.parent / "knowledge" / "comms" / "canaries.json"
-    if canary_file.exists():
-        canary = CanarySystem.from_file(str(canary_file))
+    if config.canary_file:
+        cf = Path(config.canary_file)
+        if cf.exists():
+            canary = CanarySystem.from_file(str(cf))
 
     config_path = Path(__file__).parent.parent / "bulwark-config.yaml"
     if config_path.exists():
@@ -155,7 +153,7 @@ async def run_pipeline(request: Request):
 
     # Run detection models on the SANITIZED INPUT before sending to LLM.
     # If detection catches injection, skip the LLM call entirely.
-    from dashboard.app import _detection_checks
+    from bulwark.dashboard.app import _detection_checks
     detection_trace = []
     detection_blocked = False
     detection_reason = None
