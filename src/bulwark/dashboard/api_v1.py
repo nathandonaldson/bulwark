@@ -10,6 +10,7 @@ from fastapi import APIRouter, Request
 from bulwark.dashboard.models import (
     CleanRequest, CleanResponse,
     GuardRequest, GuardResponse,
+    LLMTestRequest, PipelineRequest,
 )
 from bulwark.shortcuts import clean, guard
 from bulwark.sanitizer import Sanitizer
@@ -91,18 +92,17 @@ async def api_guard(req: GuardRequest) -> GuardResponse:
     "/llm/test",
     summary="Test the configured LLM backend connection",
 )
-async def test_llm_connection(request: Request):
+async def test_llm_connection(req: LLMTestRequest):
     """Test connectivity to the configured LLM backend."""
-    from bulwark.dashboard.config import BulwarkConfig, LLMBackendConfig
+    from bulwark.dashboard.config import LLMBackendConfig
     from bulwark.dashboard.llm_factory import test_connection
 
-    body = await request.json()
     cfg = LLMBackendConfig(
-        mode=body.get("mode", "none"),
-        api_key=body.get("api_key", ""),
-        base_url=body.get("base_url", ""),
-        analyze_model=body.get("analyze_model", ""),
-        execute_model=body.get("execute_model", ""),
+        mode=req.mode,
+        api_key=req.api_key,
+        base_url=req.base_url,
+        analyze_model=req.analyze_model,
+        execute_model=req.execute_model,
     )
     return test_connection(cfg)
 
@@ -116,7 +116,7 @@ async def test_llm_connection(request: Request):
         "(ProtectAI, PromptGuard), and canary token checks. Returns full pipeline trace."
     ),
 )
-async def run_pipeline(request: Request):
+async def run_pipeline(req: PipelineRequest):
     """Run the full pipeline with the configured LLM backend and detection models."""
     import time as _time
     from pathlib import Path
@@ -125,9 +125,8 @@ async def run_pipeline(request: Request):
     from bulwark.dashboard.config import BulwarkConfig
     from bulwark.dashboard.llm_factory import make_analyze_fn, make_execute_fn
 
-    body = await request.json()
-    content = body.get("content", "")
-    source = body.get("source", "external")
+    content = req.content
+    source = req.source
 
     config = BulwarkConfig.load()
     collector = CollectorEmitter()

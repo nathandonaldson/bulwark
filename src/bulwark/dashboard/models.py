@@ -64,6 +64,31 @@ class CleanResponse(BaseModel):
     )
 
 
+class LLMTestRequest(BaseModel):
+    """Request body for POST /v1/llm/test."""
+    mode: str = Field(
+        default="none",
+        description="LLM mode: none, anthropic, or openai_compatible.",
+    )
+    api_key: str = Field(default="", description="API key for the LLM provider.")
+    base_url: str = Field(default="", description="Base URL for OpenAI-compatible endpoints.")
+    analyze_model: str = Field(default="", description="Model for Phase 1 analysis.")
+    execute_model: str = Field(default="", description="Model for Phase 2 execution.")
+
+
+class PipelineRequest(BaseModel):
+    """Request body for POST /v1/pipeline."""
+    content: str = Field(
+        ...,
+        max_length=1_000_000,
+        description="Untrusted content to process through the pipeline.",
+    )
+    source: str = Field(
+        default="external",
+        description="Source label for trust boundary tags.",
+    )
+
+
 class GuardRequest(BaseModel):
     """Request body for POST /v1/guard."""
     text: str = Field(

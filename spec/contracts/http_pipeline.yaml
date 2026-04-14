@@ -1,0 +1,22 @@
+endpoint: POST /v1/pipeline
+version: "0.5.0"
+
+guarantees:
+  - id: G-HTTP-PIPELINE-001
+    summary: Returns 200 with blocked boolean and trace array
+  - id: G-HTTP-PIPELINE-002
+    summary: Detection models run BEFORE the LLM call
+  - id: G-HTTP-PIPELINE-003
+    summary: If detection blocks, LLM call is skipped entirely
+  - id: G-HTTP-PIPELINE-004
+    summary: Works with zero config (sanitize-only mode, no LLM)
+  - id: G-HTTP-PIPELINE-005
+    summary: Trace includes per-layer entries with step number, verdict, and detail
+
+non_guarantees:
+  - id: NG-HTTP-PIPELINE-001
+    summary: Does NOT guarantee LLM quality or accuracy
+    reason: Pipeline orchestrates defense layers, LLM behavior depends on the model
+  - id: NG-HTTP-PIPELINE-002
+    summary: Does NOT persist results to the event database
+    reason: Pipeline endpoint returns the trace directly, event storage is via the /api/events webhook

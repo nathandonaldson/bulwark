@@ -1,0 +1,15 @@
+endpoint: GET /healthz
+version: "0.5.0"
+
+guarantees:
+  - id: G-HTTP-HEALTHZ-001
+    summary: Returns 200 with status "ok"
+  - id: G-HTTP-HEALTHZ-002
+    summary: Response includes version field matching VERSION file
+  - id: G-HTTP-HEALTHZ-003
+    summary: Response includes docker boolean (true inside container, false outside)
+
+non_guarantees:
+  - id: NG-HTTP-HEALTHZ-001
+    summary: Does NOT check database connectivity or readiness
+    reason: This is a liveness probe only, not a readiness probe
