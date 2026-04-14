@@ -313,6 +313,7 @@ _garak_task: Optional[asyncio.Task] = None
 _garak_result: dict = {}
 _redteam_task: Optional[asyncio.Task] = None
 _redteam_result: dict = {}
+_redteam_runner = None  # Reference to ProductionRedTeam for cancellation
 
 
 @app.post("/api/garak/run")
@@ -396,7 +397,7 @@ async def run_redteam(request: Request):
     _redteam_result = {"status": "running", "completed": 0, "total": 0}
 
     async def _run_in_background():
-        global _redteam_result
+        global _redteam_result, _redteam_runner
         from bulwark.integrations.redteam import ProductionRedTeam
         import concurrent.futures
 
@@ -420,6 +421,7 @@ async def run_redteam(request: Request):
                 on_progress=on_progress,
                 llm_fn=llm_fn,
             )
+            _redteam_runner = runner
             loop = asyncio.get_running_loop()
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                 summary = await loop.run_in_executor(pool, runner.run)
@@ -461,6 +463,16 @@ async def run_redteam(request: Request):
 async def redteam_status():
     """Check status of running red team scan."""
     return _redteam_result
+
+
+@app.post("/api/redteam/stop")
+async def redteam_stop():
+    """Stop a running red team scan."""
+    global _redteam_runner
+    if _redteam_runner and _redteam_task and not _redteam_task.done():
+        _redteam_runner.cancelled = True
+        return {"status": "stopping", "message": "Red team scan will stop after the current probe finishes."}
+    return {"status": "not_running", "message": "No red team scan is currently running."}
 
 
 @app.get("/api/integrations/detect")
