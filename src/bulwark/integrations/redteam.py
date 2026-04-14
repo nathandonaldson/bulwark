@@ -167,6 +167,22 @@ class ProductionRedTeam:
             return self._get_tier_payloads()
         return self._get_legacy_payloads()
 
+    @staticmethod
+    def _extract_prompt_text(prompt) -> Optional[str]:
+        """Extract text from a garak prompt (str or Conversation object)."""
+        if isinstance(prompt, str):
+            return prompt
+        # garak 0.14+ Conversation objects
+        if hasattr(prompt, "turns") and prompt.turns:
+            last = prompt.turns[-1]
+            if hasattr(last, "content"):
+                content = last.content
+                if isinstance(content, str):
+                    return content
+                if hasattr(content, "text"):
+                    return content.text
+        return None
+
     def _get_tier_payloads(self) -> list[tuple[str, str, int, str]]:
         """Load probes dynamically from garak based on tier."""
         import importlib
@@ -193,7 +209,9 @@ class ProductionRedTeam:
                 cls = getattr(mod, cls_name)
                 probe = cls()
                 for i, prompt in enumerate(probe.prompts):
-                    payloads.append((family, cls_name, i, prompt))
+                    text = self._extract_prompt_text(prompt)
+                    if text is not None:
+                        payloads.append((family, cls_name, i, text))
             except Exception:
                 continue
 
