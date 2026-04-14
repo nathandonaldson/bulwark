@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.1] - 2026-04-14
+
+### Changed
+- **Dashboard design polish** from /design-review audit (Design Score: B, AI Slop Score: A).
+- Shield page layout restructured: stats and recent activity now align horizontally in their own row.
+- Defense layer cards have consistent padding (16px 20px) and 8px spacing, matching stat cards.
+- Heading styles normalized: reusable `.config-section-label` class replaces inline overrides.
+- Mobile responsive: 640px breakpoint with smaller shield, stacked nav, 2-column stats grid.
+
 ## [0.4.0] - 2026-04-14
 
 ### Added
