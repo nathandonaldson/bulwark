@@ -1,9 +1,11 @@
 name: Publish to PyPI
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to publish (e.g. v0.5.0)"
+        required: true
 
 jobs:
   publish:
