@@ -165,6 +165,37 @@
   .canary-status .dot { width: 6px; height: 6px; border-radius: 50%; }
   .canary-status .dot.safe { background: var(--green); }
 
+  /* Trace badges */
+  .trace-badges { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0; }
+  .trace-badge { font-size: 10px; padding: 2px 8px; border-radius: 4px; font-weight: 600; }
+  .trace-badge-llm { background: var(--blue-dim); color: var(--blue); }
+  .trace-badge-echo { background: var(--surface-2); color: var(--text-dim); }
+  .trace-badge-detection { background: rgba(139,92,246,0.15); color: var(--purple); }
+
+  /* LLM Backend Config */
+  .llm-mode-selector { display: flex; gap: 8px; margin-bottom: 16px; }
+  .llm-mode-option { flex: 1; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; transition: all 0.2s; }
+  .llm-mode-option:hover { border-color: var(--text-dim); }
+  .llm-mode-option.selected { border-color: var(--blue); background: var(--blue-dim); }
+  .llm-mode-name { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+  .llm-mode-desc { font-size: 11px; color: var(--text-dim); }
+  .llm-field-group { display: flex; flex-direction: column; gap: 10px; }
+  .llm-field label { display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px; }
+  .llm-field input { width: 100%; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 13px; font-family: inherit; box-sizing: border-box; }
+  .llm-field input:focus { outline: none; border-color: var(--blue); }
+  .llm-presets { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+  .llm-preset-btn { font-size: 11px; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim); cursor: pointer; transition: all 0.15s; }
+  .llm-preset-btn:hover { border-color: var(--blue); color: var(--blue); }
+  .llm-btn { padding: 8px 20px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+  .llm-btn-test { background: var(--surface); color: var(--text); }
+  .llm-btn-test:hover { border-color: var(--text-dim); }
+  .llm-btn-save { background: var(--blue); border-color: var(--blue); color: white; }
+  .llm-btn-save:hover { opacity: 0.9; }
+  .llm-status { margin-top: 10px; padding: 10px 14px; border-radius: 8px; font-size: 12px; display: none; }
+  .llm-status.ok { display: block; background: var(--green-dim); color: var(--green); border: 1px solid var(--green); }
+  .llm-status.error { display: block; background: var(--red-dim); color: var(--red); border: 1px solid var(--red); }
+  .llm-status.loading { display: block; background: var(--surface); color: var(--text-dim); border: 1px solid var(--border); }
+
   /* Test Page */
   .test-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
   .test-input { width: 100%; min-height: 200px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; color: var(--text); font-family: 'SF Mono', monospace; font-size: 13px; resize: vertical; }
@@ -417,6 +448,31 @@
 
     <div>
       <div class="config-section">
+        <h2>LLM Backend</h2>
+        <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 12px;">
+          Configure the LLM for two-phase pipeline execution. Without an LLM, the pipeline runs sanitizer + trust boundary + guard only.
+        </p>
+        <div id="llm-backend-config">
+          <div class="llm-mode-selector">
+            <div class="llm-mode-option selected" data-mode="none" onclick="selectLLMMode('none')">
+              <div class="llm-mode-name">Sanitize Only</div>
+              <div class="llm-mode-desc">No LLM. Deterministic defense layers only.</div>
+            </div>
+            <div class="llm-mode-option" data-mode="anthropic" onclick="selectLLMMode('anthropic')">
+              <div class="llm-mode-name">Anthropic API</div>
+              <div class="llm-mode-desc">Claude models via Anthropic SDK</div>
+            </div>
+            <div class="llm-mode-option" data-mode="openai_compatible" onclick="selectLLMMode('openai_compatible')">
+              <div class="llm-mode-name">OpenAI Compatible</div>
+              <div class="llm-mode-desc">OpenAI, local inference, or any compatible endpoint</div>
+            </div>
+          </div>
+
+          <div id="llm-fields"></div>
+        </div>
+      </div>
+
+      <div class="config-section">
         <h2>Integrations</h2>
         <div id="config-integrations"></div>
       </div>
@@ -475,6 +531,7 @@ async function fetchConfig() {
     if (res.ok) configData = await res.json();
     renderConfigToggles();
     renderPatterns();
+    renderLLMConfig();
   } catch(e) {}
 }
 
@@ -495,6 +552,145 @@ async function fetchIntegrations() {
     if (res.ok) integrationsData = await res.json();
     renderIntegrations();
   } catch(e) {}
+}
+
+// ============================================================
+// LLM Backend Configuration
+// ============================================================
+const LLM_URL_PRESETS = [
+  { label: 'Ollama', url: 'http://localhost:11434/v1' },
+  { label: 'llama.cpp', url: 'http://localhost:8080/v1' },
+  { label: 'vLLM', url: 'http://localhost:8000/v1' },
+  { label: 'LM Studio', url: 'http://localhost:1234/v1' },
+  { label: 'OpenAI', url: 'https://api.openai.com/v1' },
+];
+
+function renderLLMConfig() {
+  const backend = configData.llm_backend || {};
+  const mode = backend.mode || 'none';
+
+  document.querySelectorAll('.llm-mode-option').forEach(el => {
+    el.classList.toggle('selected', el.dataset.mode === mode);
+  });
+
+  renderLLMFields(mode, backend);
+}
+
+function selectLLMMode(mode) {
+  document.querySelectorAll('.llm-mode-option').forEach(el => {
+    el.classList.toggle('selected', el.dataset.mode === mode);
+  });
+  const backend = configData.llm_backend || {};
+  renderLLMFields(mode, backend);
+}
+
+function renderLLMFields(mode, backend) {
+  const container = document.getElementById('llm-fields');
+
+  if (mode === 'none') {
+    container.innerHTML = '';
+    return;
+  }
+
+  const showUrl = mode === 'openai_compatible';
+  const showApiKey = true;  // Both modes can use an API key
+  const apiKeyRequired = mode === 'anthropic';
+  const apiKeyLabel = apiKeyRequired
+    ? 'API Key'
+    : 'API Key <span style="color: var(--text-dim); font-weight: normal;">(optional for local)</span>';
+  const apiKeyPlaceholder = mode === 'anthropic' ? 'sk-ant-...' : 'sk-... (leave empty for local)';
+  const analyzePlaceholder = mode === 'anthropic' ? 'claude-haiku-4-5' : 'Enter model name';
+  const executePlaceholder = mode === 'anthropic' ? 'claude-sonnet-4-5' : 'Same as Phase 1 if blank';
+
+  let html = '<div class="llm-field-group">';
+
+  if (showUrl) {
+    const presetBtns = LLM_URL_PRESETS.map(p =>
+      `<button class="llm-preset-btn" onclick="document.getElementById('llm-base-url').value='${p.url}'">${p.label}</button>`
+    ).join('');
+    html += `
+      <div class="llm-field">
+        <label>Endpoint URL</label>
+        <input type="text" id="llm-base-url" placeholder="http://localhost:8080/v1" value="${backend.base_url || ''}" autocomplete="off" />
+        <div class="llm-presets">${presetBtns}</div>
+      </div>`;
+  }
+
+  html += `
+    <div class="llm-field">
+      <label>${apiKeyLabel}</label>
+      <input type="password" id="llm-api-key" placeholder="${apiKeyPlaceholder}" value="${backend.api_key || ''}" autocomplete="off" />
+    </div>
+    <div class="llm-field">
+      <label>Phase 1 Model <span style="color: var(--text-dim); font-weight: normal;">(analyze, no tools)</span></label>
+      <input type="text" id="llm-analyze-model" placeholder="${analyzePlaceholder}" value="${backend.analyze_model || ''}" autocomplete="off" />
+    </div>
+    <div class="llm-field">
+      <label>Phase 2 Model <span style="color: var(--text-dim); font-weight: normal;">(execute, optional)</span></label>
+      <input type="text" id="llm-execute-model" placeholder="${executePlaceholder}" value="${backend.execute_model || ''}" autocomplete="off" />
+    </div>
+  </div>
+  <div style="display: flex; gap: 8px; margin-top: 12px;">
+    <button class="llm-btn llm-btn-test" onclick="testLLMConnection()">Test Connection</button>
+    <button class="llm-btn llm-btn-save" onclick="saveLLMConfig()">Save</button>
+  </div>
+  <div id="llm-status" class="llm-status"></div>`;
+
+  container.innerHTML = html;
+}
+
+function getLLMFormData() {
+  const mode = document.querySelector('.llm-mode-option.selected')?.dataset.mode || 'none';
+  return {
+    mode,
+    api_key: (document.getElementById('llm-api-key')?.value || '').trim(),
+    base_url: (document.getElementById('llm-base-url')?.value || '').trim(),
+    analyze_model: (document.getElementById('llm-analyze-model')?.value || '').trim(),
+    execute_model: (document.getElementById('llm-execute-model')?.value || '').trim(),
+  };
+}
+
+async function testLLMConnection() {
+  const status = document.getElementById('llm-status');
+  status.className = 'llm-status loading';
+  status.textContent = 'Testing connection...';
+
+  const data = getLLMFormData();
+  try {
+    const res = await fetch('/v1/llm/test', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data),
+    });
+    const result = await res.json();
+    if (result.ok) {
+      let msg = result.message;
+      if (result.model) msg += ` (model: ${result.model})`;
+      if (result.available_models && result.available_models.length > 0) {
+        msg += '\nAvailable: ' + result.available_models.join(', ');
+      }
+      status.className = 'llm-status ok';
+      status.textContent = msg;
+      status.style.whiteSpace = 'pre-wrap';
+    } else {
+      status.className = 'llm-status error';
+      status.textContent = result.message;
+    }
+  } catch(e) {
+    status.className = 'llm-status error';
+    status.textContent = 'Request failed: ' + e.message;
+  }
+}
+
+async function saveLLMConfig() {
+  const data = getLLMFormData();
+  await updateConfig({ llm_backend: data });
+  const status = document.getElementById('llm-status');
+  status.className = 'llm-status ok';
+  status.textContent = 'Saved. The pipeline will now use ' +
+    (data.mode === 'none' ? 'sanitize-only mode.' :
+     data.mode === 'anthropic' ? 'Anthropic API.' :
+     'the configured endpoint.');
 }
 
 // ============================================================
@@ -531,7 +727,7 @@ async function detectTools() {
         if (cd) cd.classList.add('running');
         const done = data.completed || 0;
         const total = data.total || '?';
-        if (st) st.innerHTML = `<span class="btn-spinner"></span> ${done}/${total} probes through Claude...`;
+        if (st) st.innerHTML = `<span class="btn-spinner"></span> ${done}/${total} probes...`;
         // Re-attach poll with fresh DOM lookups each tick
         if (garakPollTimer) clearInterval(garakPollTimer);
         garakPollTimer = setInterval(async () => {
@@ -561,7 +757,7 @@ async function detectTools() {
             } else {
               const done = d2.completed || 0;
               const total = d2.total || '?';
-              if (statusText) statusText.innerHTML = `<span class="btn-spinner"></span> ${done}/${total} probes through Claude...`;
+              if (statusText) statusText.innerHTML = `<span class="btn-spinner"></span> ${done}/${total} probes...`;
             }
           } catch(e2) {}
         }, 3000);
@@ -609,7 +805,7 @@ function renderGarakCard(info) {
       <span class="redteam-card-name">Production Red Team</span>
       ${version ? `<span class="redteam-card-version">Garak ${escapeHtml(version)}</span>` : ''}
     </div>
-    <div class="redteam-card-desc">Sends Garak's attack payloads through your production Bulwark+Claude pipeline. Tests the real defense, not a simulation.</div>
+    <div class="redteam-card-desc">Sends Garak's attack payloads through your Bulwark pipeline with the configured LLM backend. Tests the real defense, not a simulation.</div>
     ${footerHtml}
     <div id="garak-report"></div>
   </div>`;
@@ -624,8 +820,19 @@ async function runRedTeam(maxProbes) {
   const report = document.getElementById('garak-report');
   const label = maxProbes > 0 ? `${maxProbes} probes` : 'all 315 probes';
 
-  if (quickBtn) quickBtn.disabled = true;
-  if (fullBtn) fullBtn.disabled = true;
+  if (quickBtn) quickBtn.style.display = 'none';
+  if (fullBtn) fullBtn.style.display = 'none';
+  // Show stop button
+  const footer = quickBtn?.parentElement;
+  if (footer) {
+    const stopBtn = document.createElement('button');
+    stopBtn.className = 'redteam-btn redteam-btn-run';
+    stopBtn.id = 'garak-stop-btn';
+    stopBtn.style.background = 'var(--red)';
+    stopBtn.textContent = 'Stop';
+    stopBtn.onclick = stopRedTeam;
+    footer.appendChild(stopBtn);
+  }
   if (card) card.classList.add('running');
   if (statusText) statusText.innerHTML = `<span class="btn-spinner"></span> Starting ${label}...`;
   if (report) report.innerHTML = '';
@@ -651,31 +858,47 @@ async function runRedTeam(maxProbes) {
           clearInterval(garakPollTimer);
           garakPollTimer = null;
           if (card) card.classList.remove('running');
-          if (quickBtn) quickBtn.disabled = false;
-          if (fullBtn) fullBtn.disabled = false;
+          restoreRedTeamButtons();
           if (statusText) statusText.textContent = 'Complete';
           renderRedTeamReport(data);
         } else if (data.status === 'error') {
           clearInterval(garakPollTimer);
           garakPollTimer = null;
           if (card) card.classList.remove('running');
-          if (quickBtn) quickBtn.disabled = false;
-          if (fullBtn) fullBtn.disabled = false;
+          restoreRedTeamButtons()
           if (statusText) statusText.textContent = 'Error';
           if (report) report.innerHTML = `<div style="margin-top:12px;font-size:12px;color:var(--red);padding:12px;background:var(--red-dim);border-radius:6px;">${escapeHtml(data.message || 'Unknown error')}</div>`;
         } else {
           const done = data.completed || 0;
           const total = data.total || '?';
-          if (statusText) statusText.innerHTML = `<span class="btn-spinner"></span> ${done}/${total} probes through Claude...`;
+          if (statusText) statusText.innerHTML = `<span class="btn-spinner"></span> ${done}/${total} probes...`;
         }
       } catch(e) {}
     }, 3000);
   } catch(e) {
     if (card) card.classList.remove('running');
-    if (quickBtn) quickBtn.disabled = false;
-    if (fullBtn) fullBtn.disabled = false;
+    restoreRedTeamButtons();
     if (statusText) statusText.textContent = 'Connection failed';
   }
+}
+
+function restoreRedTeamButtons() {
+  const stopBtn = document.getElementById('garak-stop-btn');
+  if (stopBtn) stopBtn.remove();
+  const quickBtn = document.getElementById('garak-quick-btn');
+  const fullBtn = document.getElementById('garak-full-btn');
+  if (quickBtn) { quickBtn.style.display = ''; quickBtn.disabled = false; }
+  if (fullBtn) { fullBtn.style.display = ''; fullBtn.disabled = false; }
+}
+
+async function stopRedTeam() {
+  const statusText = document.getElementById('garak-status-text');
+  if (statusText) statusText.innerHTML = '<span class="btn-spinner"></span> Stopping...';
+  const stopBtn = document.getElementById('garak-stop-btn');
+  if (stopBtn) stopBtn.disabled = true;
+  try {
+    await fetch('/api/redteam/stop', { method: 'POST' });
+  } catch(e) {}
 }
 
 function renderRedTeamReport(data) {
@@ -965,7 +1188,15 @@ const LAYER_META = {
 const LAYER_COLORS = {
   sanitizer: 'var(--green)', boundary: '#06b6d4', executor: 'var(--blue)',
   canary: 'var(--purple)', isolator: '#ec4899', guard: 'var(--blue)',
+  analyze: 'var(--blue)', analysis_guard: 'var(--amber)',
+  trust_boundary: '#06b6d4',
 };
+
+// Detection model layers get purple color
+function getLayerColor(layer) {
+  if (layer && layer.startsWith('detection:')) return 'var(--purple)';
+  return LAYER_COLORS[layer] || 'var(--green)';
+}
 
 // ============================================================
 // Navigation
@@ -1233,10 +1464,10 @@ async function runTest() {
   resultEl.innerHTML = '';
 
   try {
-    const res = await fetch('/api/test', {
+    const res = await fetch('/v1/pipeline', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payload }),
+      body: JSON.stringify({ content: payload, source: 'test' }),
     });
     if (!res.ok) throw new Error('API returned ' + res.status);
     const data = await res.json();
@@ -1267,10 +1498,30 @@ function renderTrace(trace, blocked, blockedAt) {
 
     const connectorClass = dotClass === 'pass' || dotClass === 'modify' ? 'done' : '';
     const nameColor = dotClass === 'block' ? 'var(--red)' :
-      dotClass === 'pass' ? (LAYER_COLORS[step.layer] || 'var(--green)') :
+      dotClass === 'pass' ? getLayerColor(step.layer) :
       dotClass === 'modify' ? 'var(--amber)' : 'var(--text-dim)';
 
+    // Display friendly name for detection model layers
+    let layerName = step.layer || 'Step';
+    if (layerName.startsWith('detection:')) {
+      layerName = layerName.replace('detection:', '') + ' (detection)';
+    }
+
     const blockLabel = v === 'blocked' || v === 'detected' ? ' \u2014 BLOCKED' : '';
+
+    // Build badges for LLM backend and detection models
+    let badges = '';
+    if (step.backend && step.backend !== 'echo') {
+      const label = step.backend === 'anthropic' ? `Anthropic: ${step.model || ''}` : `${step.model || step.url || 'LLM'}`;
+      badges += `<span class="trace-badge trace-badge-llm">${escapeHtml(label)}</span>`;
+    } else if (step.backend === 'echo') {
+      badges += `<span class="trace-badge trace-badge-echo">No LLM (echo)</span>`;
+    }
+    if (step.detection_models && step.detection_models.length > 0) {
+      step.detection_models.forEach(m => {
+        badges += `<span class="trace-badge trace-badge-detection">${escapeHtml(m)}</span>`;
+      });
+    }
 
     return `<div class="trace-step">
       <div class="trace-line">
@@ -1278,7 +1529,8 @@ function renderTrace(trace, blocked, blockedAt) {
         ${!isLast ? `<div class="trace-connector ${connectorClass}"></div>` : ''}
       </div>
       <div class="trace-content">
-        <div class="trace-name" style="color: ${nameColor}">${step.step || (i+1)}. ${escapeHtml(step.name || step.layer || 'Step')}${blockLabel}</div>
+        <div class="trace-name" style="color: ${nameColor}">${step.step || (i+1)}. ${escapeHtml(step.name || layerName)}${blockLabel}</div>
+        ${badges ? `<div class="trace-badges">${badges}</div>` : ''}
         <div class="trace-detail">${escapeHtml(step.detail || '')}</div>
         ${step.output_preview ? `<div class="trace-diff">${escapeHtml(step.output_preview)}</div>` : ''}
       </div>

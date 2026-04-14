@@ -121,36 +121,94 @@ async def test_pipeline(request: Request):
     canary_file = Path(__file__).parent.parent.parent / "knowledge" / "comms" / "canaries.json"
     canary = CanarySystem.from_file(str(canary_file)) if canary_file.exists() else None
 
-    # Build pipeline from config (respects dashboard toggles) or defaults
+    # Build pipeline from config (respects dashboard toggles)
+    # Use configured LLM backend if available, otherwise echo payload for guard testing
+    from dashboard.llm_factory import make_analyze_fn as _make_analyze
+    llm_analyze = _make_analyze(config.llm_backend)
+    analyze_fn = llm_analyze if llm_analyze else lambda prompt: payload
+
     config_path = Path(__file__).parent.parent / "bulwark-config.yaml"
     if config_path.exists():
         pipeline = Pipeline.from_config(
             str(config_path),
-            analyze_fn=lambda prompt: payload,  # Echo payload as "analysis" to test guard
+            analyze_fn=analyze_fn,
         )
         pipeline.emitter = collector
         if canary:
             pipeline.canary = canary
     else:
         pipeline = Pipeline.default(
-            analyze_fn=lambda prompt: payload,
+            analyze_fn=analyze_fn,
             canary=canary,
             emitter=collector,
         )
 
-    # Attach any active detection model checks
-    if _detection_checks and pipeline.analysis_guard is not None:
-        pipeline.analysis_guard.custom_checks = list(_detection_checks.values())
-
+    # Don't attach detection checks to the pipeline — we'll run them separately
+    # so we can get per-model trace entries
     result = await pipeline.run_async(payload, source="test")
+
+    # Enrich the trace with LLM backend info
+    trace = list(result.trace)
+    for entry in trace:
+        if entry.get("layer") == "analyze":
+            mode = config.llm_backend.mode if config.llm_backend.mode != "none" else None
+            if mode == "anthropic":
+                model = config.llm_backend.analyze_model or "claude-haiku-4-5"
+                entry["detail"] = f"Phase 1 via Anthropic ({model}): {len(result.analysis)} chars"
+                entry["backend"] = "anthropic"
+                entry["model"] = model
+            elif mode == "openai_compatible":
+                model = config.llm_backend.analyze_model or "unknown"
+                url = config.llm_backend.base_url or "unknown"
+                entry["detail"] = f"Phase 1 via {url} ({model}): {len(result.analysis)} chars"
+                entry["backend"] = "openai_compatible"
+                entry["model"] = model
+                entry["url"] = url
+            else:
+                entry["detail"] = f"Phase 1 (echo mode, no LLM): {len(result.analysis)} chars"
+                entry["backend"] = "echo"
+
+    # Run detection models individually and add separate trace entries
+    blocked = result.blocked
+    block_reason = result.block_reason
+    if _detection_checks and result.analysis and not result.blocked:
+        from bulwark.executor import AnalysisSuspiciousError as _ASE
+        step_num = len(trace) + 1
+        for model_name, check_fn in _detection_checks.items():
+            import time as _time
+            t0 = _time.time()
+            try:
+                check_fn(result.analysis)
+                elapsed = (_time.time() - t0) * 1000
+                trace.append({
+                    "step": step_num,
+                    "layer": f"detection:{model_name}",
+                    "verdict": "passed",
+                    "detail": f"{model_name}: clean ({elapsed:.0f}ms)",
+                    "detection_model": model_name,
+                    "duration_ms": round(elapsed, 1),
+                })
+            except _ASE as e:
+                elapsed = (_time.time() - t0) * 1000
+                trace.append({
+                    "step": step_num,
+                    "layer": f"detection:{model_name}",
+                    "verdict": "blocked",
+                    "detail": f"{model_name}: {e} ({elapsed:.0f}ms)",
+                    "detection_model": model_name,
+                    "duration_ms": round(elapsed, 1),
+                })
+                blocked = True
+                block_reason = f"Detection model {model_name}: {e}"
+            step_num += 1
 
     return {
         "payload_length": len(payload),
-        "blocked": result.blocked,
+        "blocked": blocked,
         "neutralized": result.neutralized,
-        "blocked_at": result.block_reason.split(":")[0].strip() if result.block_reason else None,
+        "blocked_at": block_reason.split(":")[0].strip() if block_reason else None,
         "neutralized_by": "Sanitizer" if result.neutralized else None,
-        "trace": result.trace,
+        "trace": trace,
     }
 
 
@@ -206,6 +264,24 @@ async def list_integrations():
 
 # Loaded detection models (kept in memory while dashboard runs)
 _detection_checks: dict[str, object] = {}
+
+
+@app.on_event("startup")
+async def _auto_load_detection_models():
+    """Auto-load detection models that were previously activated."""
+    import concurrent.futures
+    for name in ("protectai", "promptguard"):
+        int_cfg = config.integrations.get(name)
+        if int_cfg and int_cfg.enabled:
+            try:
+                from bulwark.integrations.promptguard import load_detector, create_check
+                loop = asyncio.get_running_loop()
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    detector = await loop.run_in_executor(pool, lambda n=name: load_detector(n))
+                _detection_checks[name] = create_check(detector)
+                print(f"  Auto-loaded detection model: {name}")
+            except Exception as e:
+                print(f"  Failed to auto-load {name}: {e}")
 
 
 @app.post("/api/integrations/{name}/activate")
@@ -308,6 +384,7 @@ _garak_task: Optional[asyncio.Task] = None
 _garak_result: dict = {}
 _redteam_task: Optional[asyncio.Task] = None
 _redteam_result: dict = {}
+_redteam_runner = None  # Reference to ProductionRedTeam for cancellation
 
 
 @app.post("/api/garak/run")
@@ -391,7 +468,7 @@ async def run_redteam(request: Request):
     _redteam_result = {"status": "running", "completed": 0, "total": 0}
 
     async def _run_in_background():
-        global _redteam_result
+        global _redteam_result, _redteam_runner
         from bulwark.integrations.redteam import ProductionRedTeam
         import concurrent.futures
 
@@ -410,6 +487,10 @@ async def run_redteam(request: Request):
                 emitter=_make_emitter(),
                 on_progress=on_progress,
             )
+            # Route through /v1/pipeline so red team uses the exact same
+            # code path as manual tests (detection models, LLM, canary, etc.)
+            runner.pipeline_url = "http://127.0.0.1:3000"
+            _redteam_runner = runner
             loop = asyncio.get_running_loop()
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                 summary = await loop.run_in_executor(pool, runner.run)
@@ -451,6 +532,16 @@ async def run_redteam(request: Request):
 async def redteam_status():
     """Check status of running red team scan."""
     return _redteam_result
+
+
+@app.post("/api/redteam/stop")
+async def redteam_stop():
+    """Stop a running red team scan."""
+    global _redteam_runner
+    if _redteam_runner and _redteam_task and not _redteam_task.done():
+        _redteam_runner.cancelled = True
+        return {"status": "stopping", "message": "Red team scan will stop after the current probe finishes."}
+    return {"status": "not_running", "message": "No red team scan is currently running."}
 
 
 @app.get("/api/integrations/detect")
