@@ -408,12 +408,17 @@ async def run_redteam(request: Request):
             _redteam_result["total"] = total
 
         try:
+            # Use configured LLM backend if available
+            from dashboard.llm_factory import make_analyze_fn as _make_rt_analyze
+            llm_fn = _make_rt_analyze(config.llm_backend)
+
             runner = ProductionRedTeam(
                 project_dir=project_dir,
                 delay_ms=200,
                 max_probes=max_probes,
                 emitter=_make_emitter(),
                 on_progress=on_progress,
+                llm_fn=llm_fn,
             )
             loop = asyncio.get_running_loop()
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
