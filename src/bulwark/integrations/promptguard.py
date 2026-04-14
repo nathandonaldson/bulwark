@@ -78,14 +78,16 @@ def load_detector(
 def create_check(
     detector: object,
     threshold: float = DEFAULT_THRESHOLD,
-    injection_label: str = "INJECTION",
+    injection_labels: tuple[str, ...] = ("INJECTION", "JAILBREAK"),
 ) -> Callable[[str], None]:
     """Create an AnalysisGuard check function from a loaded detector.
 
     Args:
         detector: A transformers text-classification pipeline.
         threshold: Minimum confidence score to flag as injection. Default 0.9.
-        injection_label: The label that indicates injection. Default "INJECTION".
+        injection_labels: Labels that indicate injection. Default ("INJECTION", "JAILBREAK").
+            PromptGuard-86M uses three labels: BENIGN, INJECTION, JAILBREAK.
+            ProtectAI DeBERTa uses: SAFE, INJECTION.
 
     Returns:
         A callable that raises AnalysisSuspiciousError if injection detected.
@@ -95,9 +97,9 @@ def create_check(
         if not result:
             return
         top = result[0]
-        if top["label"] == injection_label and top["score"] >= threshold:
+        if top["label"] in injection_labels and top["score"] >= threshold:
             raise AnalysisSuspiciousError(
-                f"Prompt injection detected ({top['score']:.3f}) by {detector.model.name_or_path}"
+                f"Prompt injection detected ({top['score']:.3f}, {top['label']}) by {detector.model.name_or_path}"
             )
 
     return check

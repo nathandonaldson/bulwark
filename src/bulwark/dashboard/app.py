@@ -55,6 +55,7 @@ async def healthz():
         "status": "ok",
         "version": _read_version(),
         "docker": os.path.exists("/.dockerenv"),
+        "env_configured": bool(os.environ.get("BULWARK_LLM_MODE")),
     }
 
 # SSE subscribers
@@ -68,9 +69,14 @@ if _static_dir.exists():
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
+    from fastapi.responses import Response
     index_path = _static_dir / "index.html"
     if index_path.exists():
-        return index_path.read_text()
+        return Response(
+            content=index_path.read_text(),
+            media_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
     return "<h1>Bulwark Dashboard</h1><p>Static files not found. Place index.html in dashboard/static/</p>"
 
 

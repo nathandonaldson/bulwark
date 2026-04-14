@@ -15,6 +15,9 @@ RUN pip install --no-cache-dir ".[dashboard,testing]"
 # Copy remaining files (static assets, spec, etc.)
 COPY . .
 
+# Reinstall so the package reflects any files from COPY . .
+RUN pip install --no-cache-dir --no-deps "."
+
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
