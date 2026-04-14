@@ -266,6 +266,24 @@ async def list_integrations():
 _detection_checks: dict[str, object] = {}
 
 
+@app.on_event("startup")
+async def _auto_load_detection_models():
+    """Auto-load detection models that were previously activated."""
+    import concurrent.futures
+    for name in ("protectai", "promptguard"):
+        int_cfg = config.integrations.get(name)
+        if int_cfg and int_cfg.enabled:
+            try:
+                from bulwark.integrations.promptguard import load_detector, create_check
+                loop = asyncio.get_running_loop()
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    detector = await loop.run_in_executor(pool, lambda n=name: load_detector(n))
+                _detection_checks[name] = create_check(detector)
+                print(f"  Auto-loaded detection model: {name}")
+            except Exception as e:
+                print(f"  Failed to auto-load {name}: {e}")
+
+
 @app.post("/api/integrations/{name}/activate")
 async def activate_integration(name: str):
     """Load a detection model and register it as an AnalysisGuard check.
