@@ -34,9 +34,12 @@
   nav .tab:hover { color: var(--text); background: var(--surface-2); }
   nav .tab.active { color: var(--text); background: var(--surface-2); }
   nav .status-pill { margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 20px; background: var(--green-dim); font-size: 12px; font-weight: 600; color: var(--green); }
+  nav .status-pill.partial { background: var(--amber-dim); color: var(--amber); }
   nav .status-pill.disconnected { background: var(--red-dim); color: var(--red); }
   nav .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+  nav .status-pill.partial .status-dot { background: var(--amber); }
   nav .status-pill.disconnected .status-dot { background: var(--red); }
+  nav .status-version { font-weight: 400; opacity: 0.7; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
   /* Page */
@@ -869,8 +872,9 @@ async function saveLLMConfig() {
     (data.mode === 'none' ? 'sanitize-only mode.' :
      data.mode === 'anthropic' ? 'Anthropic API.' :
      'the configured endpoint.');
-  // Refresh live status to confirm the pipeline is using the new config
+  // Refresh live status and header pill
   checkLLMLiveStatus();
+  updateStatusPill();
 }
 
 // ============================================================
@@ -1346,6 +1350,7 @@ async function activateIntegration(name) {
     if (data.status === 'active') {
       if (status) status.innerHTML = `<span style="color:var(--green)">✓ ${escapeHtml(data.message)}</span>`;
       fetchIntegrations();
+      updateStatusPill();
     } else {
       if (status) status.innerHTML = `<span style="color:var(--red)">✗ ${escapeHtml(data.message)}</span>`;
       if (btn) { btn.disabled = false; btn.textContent = 'Activate'; }
@@ -1774,14 +1779,49 @@ function handleLiveEvent(event) {
 }
 
 function setConnected(connected) {
+  if (connected) {
+    updateStatusPill();
+  } else {
+    const pill = document.getElementById('status-pill');
+    const text = document.getElementById('status-text');
+    pill.className = 'status-pill disconnected';
+    text.textContent = 'Connecting...';
+  }
+}
+
+async function updateStatusPill() {
   const pill = document.getElementById('status-pill');
   const text = document.getElementById('status-text');
-  if (connected) {
-    pill.classList.remove('disconnected');
-    text.textContent = 'All layers active';
-  } else {
-    pill.classList.add('disconnected');
-    text.textContent = 'Connecting...';
+  try {
+    const healthRes = await fetch('/healthz');
+    const health = await healthRes.json();
+    const version = health.version || '?';
+
+    const cfgRes = await fetch('/api/config');
+    const cfg = await cfgRes.json();
+    const mode = (cfg.llm_backend || {}).mode || 'none';
+
+    const intRes = await fetch('/api/integrations/active-checks');
+    const checks = await intRes.json();
+    const detectionActive = (checks.count || 0) > 0;
+
+    // Determine state
+    if (mode !== 'none' && detectionActive) {
+      pill.className = 'status-pill';
+      text.innerHTML = `All layers active <span class="status-version">v${version}</span>`;
+    } else if (mode !== 'none') {
+      pill.className = 'status-pill partial';
+      text.innerHTML = `LLM active, no detection models <span class="status-version">v${version}</span>`;
+    } else if (detectionActive) {
+      pill.className = 'status-pill partial';
+      text.innerHTML = `Detection active, no LLM <span class="status-version">v${version}</span>`;
+    } else {
+      pill.className = 'status-pill partial';
+      text.innerHTML = `Sanitize only <span class="status-version">v${version}</span>`;
+    }
+  } catch(e) {
+    pill.className = 'status-pill disconnected';
+    text.textContent = 'Disconnected';
   }
 }
 
