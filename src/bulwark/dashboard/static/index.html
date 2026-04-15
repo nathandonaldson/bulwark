@@ -179,7 +179,8 @@
   .llm-mode-selector { display: flex; gap: 8px; margin-bottom: 16px; }
   .llm-mode-option { flex: 1; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; transition: all 0.2s; }
   .llm-mode-option:hover { border-color: var(--text-dim); }
-  .llm-mode-option.selected { border-color: var(--blue); background: var(--blue-dim); }
+  .llm-mode-option.selected { border-color: var(--green); background: var(--green-dim); }
+  .llm-mode-option.selected .llm-mode-name::after { content: ' \2713'; color: var(--green); }
   .llm-mode-name { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
   .llm-mode-desc { font-size: 11px; color: var(--text-dim); }
   .llm-field-group { display: flex; flex-direction: column; gap: 10px; }
@@ -500,7 +501,7 @@
         </p>
         <div id="llm-backend-config">
           <div class="llm-mode-selector">
-            <div class="llm-mode-option selected" data-mode="none" onclick="selectLLMMode('none')">
+            <div class="llm-mode-option" data-mode="none" onclick="selectLLMMode('none')">
               <div class="llm-mode-name">Sanitize Only</div>
               <div class="llm-mode-desc">No LLM. Deterministic defense layers only.</div>
             </div>
