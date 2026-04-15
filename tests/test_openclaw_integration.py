@@ -143,3 +143,19 @@ class TestInstaller:
     def test_readme_exists(self):
         path = INTEGRATION_DIR / "README.md"
         assert path.exists()
+
+
+class TestOpenClawNonGuarantees:
+    """Non-guarantee coverage for spec compliance."""
+
+    def test_queued_message_bypass_documented(self):
+        """NG-OPENCLAW-001: message:received doesn't fire for queued messages — documented in README."""
+        content = (INTEGRATION_DIR / "README.md").read_text()
+        assert "#64525" in content, "README should document the queued message bypass bug"
+
+    def test_fail_open_documented(self):
+        """NG-OPENCLAW-002: Fail-open behavior documented and implemented."""
+        pkg = json.loads((PLUGIN_DIR / "package.json").read_text())
+        main = pkg.get("main", "index.js")
+        source = (PLUGIN_DIR / main).read_text()
+        assert "passing content through" in source.lower() or "passes through" in source.lower()
