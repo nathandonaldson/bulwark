@@ -38,10 +38,13 @@ Three tiers (probe counts pulled dynamically from your installed garak version):
 Reports are automatically saved to `reports/` as JSON and downloadable from the dashboard for gap analysis.
 
 The report shows:
-- Overall defense rate
-- Which layer caught each attack (sanitizer, trust boundary, LLM judgment)
-- Per-probe-family breakdown
+- Overall defense rate (format failures counted as defended, hijacks counted separately)
+- Which layer caught each attack (sanitizer, trust boundary, detection models, LLM judgment)
+- Per-probe-family breakdown with defended/hijacked/format_failure counts
 - Specific vulnerabilities with recommendations
+- **Retest failures** button to re-run only the failed probes from a previous report
+
+Rate limiting is smart — only probes that reach the LLM are delayed (200ms). Probes blocked by detection models or the sanitizer run at full speed.
 
 Requires `pip install garak` for the probe payloads (included in the Docker image). LLM calls use your configured backend (Anthropic API, OpenAI-compatible, or local inference).
 

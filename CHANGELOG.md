@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.6.0] - 2026-04-15
+
+### Added
+- **Model dropdowns** — LLM config uses dropdowns with Anthropic short aliases (auto-resolve to latest version) and OpenAI-compatible `/models` fetch. No more broken model IDs.
+- **Red team tiers** — Smoke Test (10 probes), Standard Scan (~4k), Full Sweep (~33k). Probe counts pulled dynamically from installed garak version.
+- **Three-way scoring** — probe results classified as `defended`, `hijacked`, or `format_failure`. Format failures (LLM analyzed correctly but wrong output schema) no longer counted as vulnerabilities.
+- **Retest failures** — `POST /api/redteam/retest` re-runs only failed probes from a previous report. Minutes instead of hours.
+- **Report persistence** — red team reports auto-saved to `reports/` as JSON with download links in the dashboard.
+- **OpenClaw integration** — Docker sidecar + npm plugin with infrastructure-level hooks (`message:received`, `tool_result_persist`, `before_message_write`). Agent cannot bypass sanitization.
+- **Event emission** — `/v1/clean` and `/v1/guard` now emit events to the dashboard EventDB and SSE stream. Closes #8.
+- **Smart status pill** — header shows actual pipeline state (green/amber/red) with version number. Updates on config changes.
+- **Live LLM status** — Configure tab probes the actual pipeline and shows what's running.
+- **OpenClaw docs** — installation guide with copy-paste Claude Code prompt.
+
+### Fixed
+- **Model ID** `claude-sonnet-4-5-20241022` (nonexistent) replaced with `claude-sonnet-4-6`.
+- **Hardcoded port 3000** in red team/garak emitters — now reads actual running port.
+- **LLM mode selector** persists on click (was losing selection on page navigation).
+- **garak 0.14 Conversation objects** — red team handles both string and Conversation prompts.
+- **Non-dict JSON parsing** crash in `_parse_response` when LLM returns plain numbers.
+- **Activity feed** refreshes every 10s from DB as fallback to SSE.
+
+### Security
+- **SSRF fix** — `_validate_base_url()` now runs on OpenAI-compatible execution paths, not just test/list.
+- **API key masking** — `GET /api/config` returns masked key (first 7 + last 4 chars only).
+- **Defense minimum** — `PUT /api/config` rejects disabling all core defense layers simultaneously.
+- **XSS fix** — model names from remote `/models` endpoint escaped with `escapeHtml()`.
+- **Docker .env exclusion** — `.env` added to `.dockerignore` to prevent API key leaks in images.
+
+### Changed
+- **Docker registry** moved from GHCR to Docker Hub (`nathandonaldson/bulwark`).
+- **CI workflow** pushes to Docker Hub with `workflow_dispatch` support for manual builds.
+- **Red team rate limiting** — delay only applied after probes that hit the LLM, not pre-LLM-blocked probes.
+- **Pipeline endpoint** uses app config object instead of reloading from file on every request.
+- **807 tests** (up from 746), including security, scoring, tiers, reports, OpenClaw integration.
+
 ## [0.5.0] - 2026-04-14
 
 ### Added
