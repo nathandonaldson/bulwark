@@ -15,6 +15,11 @@ guarantees:
   - id: G-HTTP-GUARD-006
     summary: Text field in response is always the exact input text, unchanged
 
+  - id: G-HTTP-GUARD-007
+    summary: Emits a BulwarkEvent to the dashboard EventDB and SSE subscribers
+  - id: G-HTTP-GUARD-008
+    summary: Event verdict is BLOCKED when injection/canary detected, PASSED when safe
+
 non_guarantees:
   - id: NG-HTTP-GUARD-001
     summary: Exact reason string format is not guaranteed across versions

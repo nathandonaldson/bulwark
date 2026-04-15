@@ -5,6 +5,7 @@ and the Pipeline class. The spec lives at spec/openapi.yaml.
 """
 from __future__ import annotations
 
+import time
 from fastapi import APIRouter
 
 from bulwark.dashboard.models import (
@@ -20,6 +21,27 @@ from bulwark.canary import CanarySystem, CanaryLeakError
 router = APIRouter(prefix="/v1", tags=["Bulwark API v1"])
 
 
+def _emit_event(layer: str, verdict: str, source_id: str = "", detail: str = "", duration_ms: float = 0):
+    """Emit a BulwarkEvent to the dashboard's EventDB and SSE subscribers."""
+    from bulwark.dashboard.app import db, _subscribers
+    import asyncio
+    event = {
+        "timestamp": time.time(),
+        "layer": layer,
+        "verdict": verdict,
+        "source_id": source_id,
+        "detail": detail,
+        "duration_ms": duration_ms,
+        "metadata": {},
+    }
+    db.insert_batch([event])
+    for q in _subscribers:
+        try:
+            q.put_nowait(event)
+        except (asyncio.QueueFull, Exception):
+            pass
+
+
 @router.post(
     "/clean",
     response_model=CleanResponse,
@@ -33,6 +55,7 @@ router = APIRouter(prefix="/v1", tags=["Bulwark API v1"])
     ),
 )
 async def api_clean(req: CleanRequest) -> CleanResponse:
+    t0 = time.time()
     result = clean(
         req.content,
         source=req.source,
@@ -45,6 +68,16 @@ async def api_clean(req: CleanRequest) -> CleanResponse:
     # Run the sanitizer independently (<1ms) rather than refactoring clean().
     sanitizer = Sanitizer(max_length=req.max_length)
     modified = sanitizer.clean(req.content) != req.content
+    elapsed = (time.time() - t0) * 1000
+
+    verdict = "modified" if modified else "passed"
+    _emit_event(
+        layer="sanitizer",
+        verdict=verdict,
+        source_id=f"api:clean:{req.source}",
+        detail=f"Clean {req.source}: {len(req.content)} -> {len(result)} chars ({verdict})",
+        duration_ms=round(elapsed, 1),
+    )
 
     return CleanResponse(
         result=result,
@@ -71,14 +104,39 @@ async def api_guard(req: GuardRequest) -> GuardResponse:
     if req.canary_tokens:
         canary = CanarySystem.from_dict(req.canary_tokens)
 
+    t0 = time.time()
     try:
         guard(req.text, canary=canary)
+        elapsed = (time.time() - t0) * 1000
+        _emit_event(
+            layer="analysis_guard",
+            verdict="passed",
+            source_id="api:guard",
+            detail=f"Guard: {len(req.text)} chars (passed)",
+            duration_ms=round(elapsed, 1),
+        )
         return GuardResponse(safe=True, text=req.text)
     except AnalysisSuspiciousError as e:
+        elapsed = (time.time() - t0) * 1000
+        _emit_event(
+            layer="analysis_guard",
+            verdict="blocked",
+            source_id="api:guard",
+            detail=f"Guard: injection detected ({e})",
+            duration_ms=round(elapsed, 1),
+        )
         return GuardResponse(
             safe=False, text=req.text, reason=str(e), check="injection",
         )
     except CanaryLeakError as e:
+        elapsed = (time.time() - t0) * 1000
+        _emit_event(
+            layer="analysis_guard",
+            verdict="blocked",
+            source_id="api:guard",
+            detail=f"Guard: canary leak detected ({e})",
+            duration_ms=round(elapsed, 1),
+        )
         return GuardResponse(
             safe=False, text=req.text, reason=str(e), check="canary",
         )

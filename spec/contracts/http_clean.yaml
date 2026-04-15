@@ -22,6 +22,11 @@ guarantees:
   - id: G-HTTP-CLEAN-009
     summary: format=markdown produces non-XML boundaries
 
+  - id: G-HTTP-CLEAN-010
+    summary: Emits a BulwarkEvent to the dashboard EventDB and SSE subscribers
+  - id: G-HTTP-CLEAN-011
+    summary: Event verdict is MODIFIED when sanitizer stripped characters, PASSED when clean
+
 non_guarantees:
   - id: NG-HTTP-CLEAN-001
     summary: Exact trust boundary tag format is not guaranteed across versions
