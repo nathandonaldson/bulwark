@@ -35,7 +35,7 @@ Open http://localhost:3000.
 
 **Test** — two sections:
 - *Manual testing:* paste any payload (or select from 8 presets), hit "Run Through Pipeline," watch the pipeline trace. If detection models are active, they run at the bridge.
-- *Red teaming:* send Garak's attack probes through the real production Bulwark+Claude pipeline. Quick Test (10 probes, ~2 min) or Full Scan (315 probes, ~50 min). Inline report with defense score, layer breakdown, and vulnerability details.
+- *Red teaming:* send Garak's attack probes through the real production Bulwark+LLM pipeline. Three tiers — Smoke Test (10 probes), Standard Scan (~4k probes), Full Sweep (~33k probes) — with counts pulled dynamically from garak. Reports are saved to `reports/` and downloadable as JSON. Inline report with defense score, layer breakdown, and vulnerability details.
 
 ## Detection models
 

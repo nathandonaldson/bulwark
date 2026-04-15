@@ -236,7 +236,22 @@ bulwark test --full             # All 77 attacks, 10 seconds
 bulwark test -c steganography   # Filter by category
 ```
 
-Production red team (in the dashboard): sends 315 Garak probe payloads through your actual Bulwark+LLM pipeline and evaluates whether the LLM followed its instructions or the injection hijacked it. Quick Test (10 probes, ~2 min) or Full Scan (315 probes, ~50 min). Requires `pip install garak`.
+Production red team (in the dashboard): sends Garak probe payloads through your actual Bulwark+LLM pipeline and evaluates whether the LLM followed its instructions or the injection hijacked it. Three tiers — Smoke Test (10 probes), Standard Scan (~4k probes), Full Sweep (~33k probes) — with counts pulled dynamically from your installed garak version. Requires `pip install garak`.
+
+## OpenClaw integration
+
+Drop-in prompt injection defense for [OpenClaw](https://openclaw.ai) agents. A Docker sidecar + plugin hooks into OpenClaw's message pipeline at infrastructure level — the agent cannot bypass sanitization.
+
+```bash
+cd integrations/openclaw && ./install.sh
+```
+
+Three hooks enforced before the agent sees content:
+- `message:received` — sanitize inbound chat messages
+- `tool_result_persist` — sanitize web fetches, emails, MCP tool results
+- `before_message_write` — guard outbound content
+
+See [integrations/openclaw/README.md](integrations/openclaw/README.md) for setup.
 
 ## Development
 

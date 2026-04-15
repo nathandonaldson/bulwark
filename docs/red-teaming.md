@@ -28,11 +28,14 @@ bulwark test -c steganography # Filter by category
 
 ## Production red team
 
-The dashboard's Test tab includes a production red team runner. This is not a simulation. It sends Garak's 315 attack payloads through your actual pipeline: Sanitizer, TrustBoundary, real LLM call (via your configured backend), canary check. Then evaluates whether the LLM followed its instructions or the injection hijacked it.
+The dashboard's Test tab includes a production red team runner. This is not a simulation. It sends Garak's attack payloads through your actual pipeline: Sanitizer, TrustBoundary, detection models, real LLM call (via your configured backend), canary check. Then evaluates whether the LLM followed its instructions or the injection hijacked it.
 
-Two modes:
-- **Quick Test** (10 probes, ~2 min) for fast validation
-- **Full Scan** (315 probes, ~50 min) for complete coverage
+Three tiers (probe counts pulled dynamically from your installed garak version):
+- **Smoke Test** (10 probes) — quick check that the pipeline is working
+- **Standard Scan** (~4k probes) — all active garak probes across injection, encoding, exfiltration, jailbreaks, content safety
+- **Full Sweep** (~33k probes) — every probe including extended payload variants
+
+Reports are automatically saved to `reports/` as JSON and downloadable from the dashboard for gap analysis.
 
 The report shows:
 - Overall defense rate
