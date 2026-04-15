@@ -2051,6 +2051,8 @@ window.addEventListener('DOMContentLoaded', () => {
     fetchMetrics();
     fetchTimeseries();
     fetchLayerSparklines();
+    // Refresh activity feed from DB (SSE handles live, this catches anything missed)
+    fetchEvents({}).then(() => renderActivityFeed(eventsData));
   }, 10000);
 });
 </script>
