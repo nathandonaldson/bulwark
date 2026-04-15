@@ -12,6 +12,7 @@ from typing import Optional
 
 from bulwark.dashboard.db import EventDB
 from bulwark.dashboard.config import BulwarkConfig, AVAILABLE_INTEGRATIONS, IntegrationConfig
+from bulwark.dashboard.models import RetestRequest
 
 
 def _read_version() -> str:
@@ -663,6 +664,8 @@ async def run_redteam(request: Request):
                 "total": summary.total,
                 "defended": summary.defended,
                 "vulnerable": summary.vulnerable,
+                "hijacked": summary.hijacked,
+                "format_failures": summary.format_failures,
                 "errors": summary.errors,
                 "defense_rate": summary.defense_rate,
                 "duration_s": summary.duration_s,
@@ -675,6 +678,7 @@ async def run_redteam(request: Request):
                         "payload": r.payload[:200],
                         "llm_response": r.llm_response[:300],
                         "defended": r.defended,
+                        "verdict": r.verdict,
                         "blocked_by": r.blocked_by,
                         "sanitizer_modified": r.sanitizer_modified,
                         "suspicious_flagged": r.suspicious_flagged,
@@ -708,6 +712,106 @@ async def redteam_stop():
         _redteam_runner.cancelled = True
         return {"status": "stopping", "message": "Red team scan will stop after the current probe finishes."}
     return {"status": "not_running", "message": "No red team scan is currently running."}
+
+
+@app.post("/api/redteam/retest")
+async def retest_redteam(req: RetestRequest):
+    """Re-run only the non-defended probes from a previous report."""
+    global _redteam_task, _redteam_result
+
+    if _redteam_task and not _redteam_task.done():
+        return {"status": "running", "message": "Red team is already running"}
+
+    filename = req.filename
+
+    # Load the report
+    safe_name = Path(filename).name
+    if not safe_name.startswith("redteam-") or not safe_name.endswith(".json"):
+        return {"status": "error", "message": "Invalid filename"}
+    path = _reports_dir() / safe_name
+    if not path.exists():
+        return {"status": "error", "message": f"Report not found: {safe_name}"}
+
+    try:
+        report = json.loads(path.read_text())
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to parse report: {e}"}
+
+    from bulwark.integrations.redteam import ProductionRedTeam
+    failed_probes = ProductionRedTeam.extract_failed_probes(report)
+    if not failed_probes:
+        return {"status": "error", "message": "No failed probes to retest"}
+
+    _redteam_result = {"status": "running", "completed": 0, "total": len(failed_probes)}
+
+    async def _run_retest():
+        global _redteam_result, _redteam_runner
+        from bulwark.integrations.redteam import ProductionRedTeam
+        import concurrent.futures
+
+        project_dir = os.environ.get("BULWARK_PROJECT_DIR", str(Path(__file__).parent.parent.parent))
+
+        def on_progress(completed, total):
+            _redteam_result["completed"] = completed
+            _redteam_result["total"] = total
+
+        try:
+            runner = ProductionRedTeam(
+                project_dir=project_dir,
+                delay_ms=200,
+                emitter=_make_emitter(),
+                on_progress=on_progress,
+            )
+            runner.pipeline_url = f"http://127.0.0.1:{_dashboard_port()}"
+            _redteam_runner = runner
+
+            # Override the probe loading to use failed probes from the report
+            runner._get_probe_payloads = lambda: failed_probes
+
+            loop = asyncio.get_running_loop()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                summary = await loop.run_in_executor(pool, runner.run)
+
+            from datetime import datetime, timezone
+            completed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            _redteam_result = {
+                "status": "complete",
+                "tier": f"retest:{safe_name}",
+                "completed_at": completed_at,
+                "total": summary.total,
+                "defended": summary.defended,
+                "vulnerable": summary.vulnerable,
+                "hijacked": summary.hijacked,
+                "format_failures": summary.format_failures,
+                "errors": summary.errors,
+                "defense_rate": summary.defense_rate,
+                "duration_s": summary.duration_s,
+                "by_layer": summary.by_layer,
+                "by_family": summary.by_family,
+                "results": [
+                    {
+                        "probe_family": r.probe_family,
+                        "probe_class": r.probe_class,
+                        "payload": r.payload[:200],
+                        "llm_response": r.llm_response[:300],
+                        "defended": r.defended,
+                        "verdict": r.verdict,
+                        "blocked_by": r.blocked_by,
+                        "sanitizer_modified": r.sanitizer_modified,
+                        "suspicious_flagged": r.suspicious_flagged,
+                        "classification": r.classification,
+                        "error": r.error,
+                    }
+                    for r in summary.results
+                ],
+            }
+            _save_redteam_report(_redteam_result)
+        except Exception as e:
+            _redteam_result = {"status": "error", "message": str(e)}
+
+    _redteam_task = asyncio.create_task(_run_retest())
+    return {"status": "started", "message": f"Retesting {len(failed_probes)} failed probes from {safe_name}"}
 
 
 def _reports_dir() -> Path:

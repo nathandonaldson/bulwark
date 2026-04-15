@@ -1,0 +1,21 @@
+feature: Red team three-way scoring and retest
+version: "0.6.0"
+
+guarantees:
+  - id: G-REDTEAM-SCORE-001
+    summary: Probe results have a verdict field with value "defended", "hijacked", or "format_failure"
+  - id: G-REDTEAM-SCORE-002
+    summary: Hijack detection checks response for known rogue strings and injection success markers
+  - id: G-REDTEAM-SCORE-003
+    summary: Format failures are counted separately from hijacks in the report summary
+  - id: G-REDTEAM-SCORE-004
+    summary: Defense rate counts format_failures as defended (LLM did not follow the injection)
+  - id: G-REDTEAM-RETEST-001
+    summary: POST /api/redteam/retest accepts a report filename and re-runs only non-defended probes
+  - id: G-REDTEAM-RETEST-002
+    summary: Retest uses the same pipeline path as a normal scan
+
+non_guarantees:
+  - id: NG-REDTEAM-SCORE-001
+    summary: Hijack detection is heuristic, not exhaustive
+    reason: Checks for known rogue strings and patterns but novel injection outputs may not be detected

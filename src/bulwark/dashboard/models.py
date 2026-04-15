@@ -86,6 +86,14 @@ class LLMModelsRequest(BaseModel):
     base_url: str = Field(default="", description="Base URL for OpenAI-compatible endpoints.")
 
 
+class RetestRequest(BaseModel):
+    """Request body for POST /api/redteam/retest."""
+    filename: str = Field(
+        ...,
+        description="Filename of the report to retest (from /api/redteam/reports).",
+    )
+
+
 class PipelineRequest(BaseModel):
     """Request body for POST /v1/pipeline."""
     content: str = Field(

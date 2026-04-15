@@ -337,6 +337,40 @@ paths:
         "404":
           description: Report not found or invalid filename
 
+  /api/redteam/retest:
+    post:
+      operationId: retestRedteam
+      summary: Re-run only the non-defended probes from a previous report
+      description: |
+        Accepts a report filename from /api/redteam/reports and re-runs only
+        the probes that were not defended (hijacked or format_failure).
+        Uses the same pipeline path as a normal scan. Saves results as a new report.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - filename
+              properties:
+                filename:
+                  type: string
+                  description: Filename of the report to retest (from /api/redteam/reports)
+      responses:
+        "200":
+          description: Retest started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: ["started", "error"]
+                  message:
+                    type: string
+
 components:
   schemas:
     CleanRequest:
