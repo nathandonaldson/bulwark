@@ -18,5 +18,7 @@ docs/
 examples/
 reports/
 bulwark-config.yaml
+.env
+.env.*
 *.md
 !README.md
