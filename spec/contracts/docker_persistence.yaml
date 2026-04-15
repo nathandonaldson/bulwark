@@ -11,7 +11,7 @@ guarantees:
   - id: G-DOCKER-004
     summary: Dashboard Configure tab hides ephemeral warning when docker=false
   - id: G-DOCKER-005
-    summary: Warning text includes guidance on using docker volumes
+    summary: Warning text includes guidance on persistent config (env vars or docker-compose)
 
 non_guarantees:
   - id: NG-DOCKER-001

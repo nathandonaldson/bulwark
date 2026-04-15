@@ -408,12 +408,12 @@ class TestDockerPersistence:
         html = resp.text
         assert 'id="docker-ephemeral-warning" style="display:none' in html
 
-    def test_warning_text_mentions_volumes(self):
-        """G-DOCKER-005: Warning text includes guidance on docker volumes."""
+    def test_warning_text_mentions_persistent_config(self):
+        """G-DOCKER-005: Warning text includes guidance on persistent config."""
         client = _get_client()
         resp = client.get("/")
-        html = resp.text
-        assert "docker volumes" in html.lower() or "docker volume" in html.lower()
+        html = resp.text.lower()
+        assert "environment variable" in html or "docker-compose" in html or ".env" in html
 
     def test_does_not_detect_all_runtimes(self):
         """NG-DOCKER-001: Only checks /.dockerenv, not Podman/LXC/etc.
