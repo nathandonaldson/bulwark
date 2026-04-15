@@ -797,7 +797,7 @@ function _populateModelDropdowns(models, backend) {
   for (const m of models) {
     const rec = (m.recommended_for || []).includes('analyze') ? ' ★' : '';
     const selected = m.id === currentAnalyze ? ' selected' : '';
-    analyzeHtml += `<option value="${m.id}"${selected}>${m.name}${rec}${m.description ? ' — ' + m.description : ''}</option>`;
+    analyzeHtml += `<option value="${escapeHtml(m.id)}"${selected}>${escapeHtml(m.name)}${rec}${m.description ? ' — ' + escapeHtml(m.description) : ''}</option>`;
   }
   analyzeSelect.innerHTML = analyzeHtml;
   // Re-select current value if it exists
@@ -808,7 +808,7 @@ function _populateModelDropdowns(models, backend) {
   for (const m of models) {
     const rec = (m.recommended_for || []).includes('execute') ? ' ★' : '';
     const selected = m.id === currentExecute ? ' selected' : '';
-    executeHtml += `<option value="${m.id}"${selected}>${m.name}${rec}${m.description ? ' — ' + m.description : ''}</option>`;
+    executeHtml += `<option value="${escapeHtml(m.id)}"${selected}>${escapeHtml(m.name)}${rec}${m.description ? ' — ' + escapeHtml(m.description) : ''}</option>`;
   }
   executeSelect.innerHTML = executeHtml;
   if (currentExecute) executeSelect.value = currentExecute;

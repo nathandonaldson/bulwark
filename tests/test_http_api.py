@@ -562,7 +562,8 @@ class TestEnvConfig:
             resp = client.get("/api/config")
             data = resp.json()
             assert data["llm_backend"]["mode"] == "anthropic"
-            assert data["llm_backend"]["api_key"] == "sk-test"
+            # API key is masked in response (G-HTTP-CONFIG-001)
+            assert data["llm_backend"]["api_key"]  # not empty — key is set
         finally:
             app_mod.config = old_config
 
@@ -619,10 +620,128 @@ class TestEnvConfig:
 
 
 # ---------------------------------------------------------------------------
+# GET/PUT /api/config — spec/contracts/http_config.yaml
+# ---------------------------------------------------------------------------
+
+class TestConfigSecurity:
+    def test_api_key_masked_in_response(self):
+        """G-HTTP-CONFIG-001: GET /api/config masks the API key."""
+        import bulwark.dashboard.app as app_mod
+        from bulwark.dashboard.config import BulwarkConfig, LLMBackendConfig
+        old_config = app_mod.config
+        app_mod.config = BulwarkConfig(
+            llm_backend=LLMBackendConfig(mode="anthropic", api_key="sk-ant-api03-ABCDEFGHIJKLMNOP-QRSTUVWXYZ")
+        )
+        try:
+            client = _get_client()
+            resp = client.get("/api/config")
+            data = resp.json()
+            key = data["llm_backend"]["api_key"]
+            assert "sk-ant-" in key  # starts with prefix
+            assert "..." in key  # has mask
+            assert "QRSTUVWXYZ" not in key or len(key) < 20  # full key not exposed
+        finally:
+            app_mod.config = old_config
+
+    def test_reject_disable_all_defenses(self):
+        """G-HTTP-CONFIG-002: PUT /api/config rejects disabling all core layers."""
+        client = _get_client()
+        resp = client.put("/api/config", json={
+            "sanitizer_enabled": False,
+            "trust_boundary_enabled": False,
+            "guard_bridge_enabled": False,
+        })
+        data = resp.json()
+        # Should reject — at least one core layer must stay on
+        assert "error" in data or data.get("sanitizer_enabled") is True or data.get("trust_boundary_enabled") is True or data.get("guard_bridge_enabled") is True
+
+    def test_masked_key_not_overwrite_real(self):
+        """G-HTTP-CONFIG-003: PUT /api/config with masked key doesn't overwrite real key."""
+        import bulwark.dashboard.app as app_mod
+        from bulwark.dashboard.config import BulwarkConfig, LLMBackendConfig
+        old_config = app_mod.config
+        real_key = "sk-ant-api03-REALKEY123456789"
+        app_mod.config = BulwarkConfig(
+            llm_backend=LLMBackendConfig(mode="anthropic", api_key=real_key)
+        )
+        try:
+            client = _get_client()
+            # Get the masked key
+            resp = client.get("/api/config")
+            masked = resp.json()["llm_backend"]["api_key"]
+            # Send it back via PUT — should not overwrite
+            client.put("/api/config", json={"llm_backend": {"api_key": masked}})
+            assert app_mod.config.llm_backend.api_key == real_key
+        finally:
+            app_mod.config = old_config
+
+    def test_no_auth_documented(self):
+        """NG-HTTP-CONFIG-001: No auth is a design choice, not a bug."""
+        # Verified by the contract existing — this is documentation coverage
+        from pathlib import Path
+        contract = Path(__file__).parent.parent / "spec" / "contracts" / "http_config.yaml"
+        assert contract.exists()
+
+
+class TestSSRFValidation:
+    def test_openai_analyze_validates_url(self):
+        """G-HTTP-PIPELINE-006: SSRF validation on analyze execution path."""
+        from bulwark.dashboard.config import LLMBackendConfig
+        from bulwark.dashboard.llm_factory import make_analyze_fn
+        cfg = LLMBackendConfig(
+            mode="openai_compatible",
+            base_url="http://169.254.169.254/latest",
+        )
+        try:
+            fn = make_analyze_fn(cfg)
+            # If it returns a function, calling it should fail on SSRF
+            # But ideally it raises at construction time
+            assert fn is None or False, "Should have raised ValueError for metadata URL"
+        except ValueError:
+            pass  # Expected — SSRF blocked
+
+    def test_openai_execute_validates_url(self):
+        """G-HTTP-PIPELINE-006: SSRF validation on execute execution path."""
+        from bulwark.dashboard.config import LLMBackendConfig
+        from bulwark.dashboard.llm_factory import make_execute_fn
+        cfg = LLMBackendConfig(
+            mode="openai_compatible",
+            base_url="http://10.0.0.1/internal",
+        )
+        try:
+            fn = make_execute_fn(cfg)
+            assert fn is None or False, "Should have raised ValueError for private IP"
+        except ValueError:
+            pass  # Expected — SSRF blocked
+
+    def test_localhost_allowed(self):
+        """Localhost URLs should still be allowed for local inference."""
+        from bulwark.dashboard.config import LLMBackendConfig
+        from bulwark.dashboard.llm_factory import make_analyze_fn
+        cfg = LLMBackendConfig(
+            mode="openai_compatible",
+            base_url="http://localhost:8080/v1",
+        )
+        # Should not raise — localhost is allowed
+        fn = make_analyze_fn(cfg)
+        assert fn is not None
+
+
+# ---------------------------------------------------------------------------
 # POST /v1/pipeline — spec/contracts/http_pipeline.yaml
 # ---------------------------------------------------------------------------
 
 class TestPipelineEndpoint:
+    @pytest.fixture(autouse=True)
+    def _force_no_llm(self):
+        """Isolate pipeline tests from local config — force sanitize-only mode."""
+        import bulwark.dashboard.app as app_mod
+        from bulwark.dashboard.config import BulwarkConfig
+        old = app_mod.config
+        app_mod.config = BulwarkConfig()  # defaults: mode=none
+        yield
+        app_mod.config = old
+
     def test_returns_200_with_trace(self):
         """G-HTTP-PIPELINE-001: Returns 200 with blocked boolean and trace array."""
         client = _get_client()

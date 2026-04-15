@@ -203,7 +203,8 @@ async def run_pipeline(req: PipelineRequest):
     content = req.content
     source = req.source
 
-    config = BulwarkConfig.load()
+    from bulwark.dashboard.app import config as app_config
+    config = app_config
     collector = CollectorEmitter()
 
     analyze_fn = make_analyze_fn(config.llm_backend)

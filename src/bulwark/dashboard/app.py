@@ -292,7 +292,9 @@ async def get_config():
 async def update_config(request: Request):
     """Update Bulwark configuration (partial update)."""
     data = await request.json()
-    config.update_from_dict(data)
+    error = config.update_from_dict(data)
+    if error:
+        return {"error": error}
     config.save()
     return config.to_dict()
 

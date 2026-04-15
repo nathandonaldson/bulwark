@@ -13,6 +13,9 @@ guarantees:
   - id: G-HTTP-PIPELINE-005
     summary: Trace includes per-layer entries with step number, verdict, and detail
 
+  - id: G-HTTP-PIPELINE-006
+    summary: OpenAI-compatible base_url is validated against SSRF on execution paths, not just test
+
 non_guarantees:
   - id: NG-HTTP-PIPELINE-001
     summary: Does NOT guarantee LLM quality or accuracy

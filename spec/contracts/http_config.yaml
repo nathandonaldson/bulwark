@@ -1,0 +1,15 @@
+endpoint: GET /api/config, PUT /api/config
+version: "0.6.0"
+
+guarantees:
+  - id: G-HTTP-CONFIG-001
+    summary: GET /api/config masks the API key (shows first 7 + last 4 chars only)
+  - id: G-HTTP-CONFIG-002
+    summary: PUT /api/config rejects updates that disable all core defense layers simultaneously
+  - id: G-HTTP-CONFIG-003
+    summary: PUT /api/config does not overwrite a real API key with a masked value
+
+non_guarantees:
+  - id: NG-HTTP-CONFIG-001
+    summary: Does NOT provide authentication on config endpoints
+    reason: Dashboard is designed for localhost. Network-level access control is the user's responsibility.

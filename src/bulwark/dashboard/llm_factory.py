@@ -224,6 +224,9 @@ def _openai_chat(base_url: str, api_key: str, model: str, system: str, prompt: s
 
 def _make_openai_compatible_analyze(cfg: LLMBackendConfig) -> Callable[[str], str]:
     base_url = cfg.base_url or "https://api.openai.com/v1"
+    url_error = _validate_base_url(base_url)
+    if url_error:
+        raise ValueError(f"Invalid base_url: {url_error}")
     model = cfg.analyze_model or "gpt-4o-mini"
 
     def analyze(prompt: str) -> str:
@@ -243,6 +246,9 @@ def _make_openai_compatible_analyze(cfg: LLMBackendConfig) -> Callable[[str], st
 
 def _make_openai_compatible_execute(cfg: LLMBackendConfig) -> Callable[[str], str]:
     base_url = cfg.base_url or "https://api.openai.com/v1"
+    url_error = _validate_base_url(base_url)
+    if url_error:
+        raise ValueError(f"Invalid base_url: {url_error}")
     model = cfg.execute_model or cfg.analyze_model or "gpt-4o"
 
     def execute(prompt: str) -> str:

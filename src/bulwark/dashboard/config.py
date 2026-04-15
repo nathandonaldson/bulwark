@@ -111,14 +111,24 @@ class BulwarkConfig:
     # Integrations
     integrations: dict[str, IntegrationConfig] = field(default_factory=dict)
 
+    @staticmethod
+    def _mask_key(key: str) -> str:
+        """Mask an API key for display: show first 7 + last 4 chars."""
+        if not key or len(key) <= 12:
+            return "***" if key else ""
+        return key[:7] + "..." + key[-4:]
+
     def to_dict(self) -> dict:
         d = asdict(self)
+        # Mask API key in responses — never expose the full key
+        if d.get("llm_backend", {}).get("api_key"):
+            d["llm_backend"]["api_key"] = self._mask_key(d["llm_backend"]["api_key"])
         return d
 
     def save(self, path: str = None):
         p = Path(path) if path else CONFIG_PATH
-        # Convert to plain dict for yaml serialization
-        d = self.to_dict()
+        # Use raw asdict — save() must write the real key, not the masked one
+        d = asdict(self)
         p.write_text(yaml.dump(d, default_flow_style=False, sort_keys=False))
 
     @classmethod
@@ -162,12 +172,24 @@ class BulwarkConfig:
             cls._apply_env_vars(cfg)
             return cfg
 
-    def update_from_dict(self, data: dict):
-        """Update config fields from a dictionary (partial update)."""
+    def update_from_dict(self, data: dict) -> str | None:
+        """Update config fields from a dictionary (partial update).
+
+        Returns an error string if the update is rejected, None on success.
+        """
+        # Reject updates that disable all core defense layers
+        core_layers = ("sanitizer_enabled", "trust_boundary_enabled", "guard_bridge_enabled")
+        proposed = {k: data.get(k, getattr(self, k)) for k in core_layers}
+        if not any(proposed.values()):
+            return "Cannot disable all core defense layers simultaneously. At least one of sanitizer, trust boundary, or guard bridge must stay enabled."
+
         for key, value in data.items():
             if key == "llm_backend" and isinstance(value, dict):
                 for k, v in value.items():
                     if hasattr(self.llm_backend, k):
+                        # Don't overwrite real key with masked value
+                        if k == "api_key" and isinstance(v, str) and "..." in v:
+                            continue
                         setattr(self.llm_backend, k, v)
             elif key == "integrations":
                 for int_name, int_data in value.items():
@@ -179,3 +201,4 @@ class BulwarkConfig:
                                 setattr(self.integrations[int_name], k, v)
             elif hasattr(self, key):
                 setattr(self, key, value)
+        return None
