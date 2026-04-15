@@ -16,5 +16,7 @@ build/
 tests/
 docs/
 examples/
+reports/
+bulwark-config.yaml
 *.md
 !README.md

@@ -25,3 +25,5 @@ bulwark-dashboard.db
 bulwark-config.yaml
 .gstack/
 .env
+reports/
+.venv/
