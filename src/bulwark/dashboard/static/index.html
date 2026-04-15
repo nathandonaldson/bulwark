@@ -1217,12 +1217,73 @@ async function loadPastReports() {
           <span>${escapeHtml(r.tier)} — ${r.total} probes${duration ? ', ' + duration : ''}</span>
           <span class="past-report-meta">${escapeHtml(date)}</span>
         </div>
-        <a class="past-report-dl" href="/api/redteam/reports/${encodeURIComponent(r.filename)}" download>Download JSON</a>
+        <div style="display:flex;gap:6px">
+          <button class="past-report-dl" onclick="retestReport('${escapeHtml(r.filename)}')">Retest Failures</button>
+          <a class="past-report-dl" href="/api/redteam/reports/${encodeURIComponent(r.filename)}" download>Download JSON</a>
+        </div>
       </div>`;
     }
     html += '</div>';
     container.innerHTML = html;
   } catch(e) {}
+}
+
+async function retestReport(filename) {
+  const card = document.getElementById('garak-card');
+  const statusText = document.getElementById('garak-status-text');
+  const report = document.getElementById('garak-report');
+
+  if (card) card.classList.add('running');
+  if (statusText) statusText.innerHTML = `<span class="btn-spinner"></span> Retesting failures from ${escapeHtml(filename)}...`;
+  if (report) report.innerHTML = '';
+
+  // Disable all retest buttons
+  document.querySelectorAll('.past-report-dl').forEach(el => { el.disabled = true; el.style.opacity = '0.5'; });
+
+  try {
+    const res = await fetch('/api/redteam/retest', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ filename }),
+    });
+    const start = await res.json();
+    if (start.status === 'error') {
+      if (card) card.classList.remove('running');
+      if (statusText) statusText.textContent = start.message;
+      document.querySelectorAll('.past-report-dl').forEach(el => { el.disabled = false; el.style.opacity = ''; });
+      return;
+    }
+
+    if (garakPollTimer) clearInterval(garakPollTimer);
+    garakPollTimer = setInterval(async () => {
+      try {
+        const r = await fetch('/api/redteam/status');
+        const data = await r.json();
+        if (data.status === 'complete') {
+          clearInterval(garakPollTimer);
+          garakPollTimer = null;
+          if (card) card.classList.remove('running');
+          if (statusText) statusText.textContent = 'Retest complete';
+          document.querySelectorAll('.past-report-dl').forEach(el => { el.disabled = false; el.style.opacity = ''; });
+          renderRedTeamReport(data);
+        } else if (data.status === 'error') {
+          clearInterval(garakPollTimer);
+          garakPollTimer = null;
+          if (card) card.classList.remove('running');
+          if (statusText) statusText.textContent = 'Error';
+          document.querySelectorAll('.past-report-dl').forEach(el => { el.disabled = false; el.style.opacity = ''; });
+        } else {
+          const done = data.completed || 0;
+          const total = data.total || '?';
+          if (statusText) statusText.innerHTML = `<span class="btn-spinner"></span> Retesting ${done}/${total} probes...`;
+        }
+      } catch(e) {}
+    }, 3000);
+  } catch(e) {
+    if (card) card.classList.remove('running');
+    if (statusText) statusText.textContent = 'Connection failed';
+    document.querySelectorAll('.past-report-dl').forEach(el => { el.disabled = false; el.style.opacity = ''; });
+  }
 }
 
 async function activateIntegration(name) {
