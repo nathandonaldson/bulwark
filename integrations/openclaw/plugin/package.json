@@ -1,0 +1,19 @@
+{
+  "name": "openclaw-bulwark",
+  "version": "1.0.0",
+  "description": "Bulwark Shield prompt injection defense for OpenClaw",
+  "main": "index.js",
+  "license": "MIT",
+  "openclaw": {
+    "hooks": true,
+    "displayName": "Bulwark Shield",
+    "description": "Infrastructure-level prompt injection defense — sanitizes all external content before the agent sees it"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "security",
+    "prompt-injection",
+    "bulwark"
+  ]
+}

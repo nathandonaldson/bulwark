@@ -1,0 +1,30 @@
+feature: OpenClaw integration (Docker sidecar + plugin + skill)
+version: "0.6.0"
+
+guarantees:
+  - id: G-OPENCLAW-001
+    summary: Docker sidecar compose overlay starts Bulwark alongside OpenClaw on port 8100
+  - id: G-OPENCLAW-002
+    summary: Plugin sanitizes inbound chat messages via message:received hook before LLM sees them
+  - id: G-OPENCLAW-003
+    summary: Plugin sanitizes all tool results (web, email, MCP, files) via tool_result_persist hook
+  - id: G-OPENCLAW-004
+    summary: Plugin guards outbound content via before_message_write hook using /v1/guard
+  - id: G-OPENCLAW-005
+    summary: Integration uses only existing Bulwark HTTP API — no new endpoints required
+  - id: G-OPENCLAW-006
+    summary: Sidecar shares network with OpenClaw gateway so localhost:8100 works from within the container
+  - id: G-OPENCLAW-007
+    summary: Plugin is an npm package installable via openclaw plugins install
+  - id: G-OPENCLAW-008
+    summary: If Bulwark sidecar is unreachable, plugin logs a warning and passes content through unchanged
+  - id: G-OPENCLAW-009
+    summary: Skill documents what Bulwark does for the agent's awareness
+
+non_guarantees:
+  - id: NG-OPENCLAW-001
+    summary: Does NOT guarantee message:received fires for queued/in-flight messages
+    reason: Known OpenClaw bug #64525. tool_result_persist provides defense-in-depth.
+  - id: NG-OPENCLAW-002
+    summary: Does NOT block content when Bulwark is unreachable
+    reason: Fail-open prevents breaking the agent when sidecar is down. Logs warning instead.
