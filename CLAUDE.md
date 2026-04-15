@@ -29,7 +29,7 @@ PYTHONPATH=src python3 -m pytest tests/ -v
 PYTHONPATH=src python -m bulwark.dashboard --port 3000
 
 # Docker
-docker run -p 3000:3000 ghcr.io/nathandonaldson/bulwark
+docker run -p 3000:3000 nathandonaldson/bulwark
 ```
 
 ## Project structure
@@ -44,5 +44,5 @@ docker run -p 3000:3000 ghcr.io/nathandonaldson/bulwark
 ## Package name
 
 PyPI: `bulwark-shield` (the name `bulwark` is taken on PyPI by a data analysis package)
-Docker: `ghcr.io/nathandonaldson/bulwark`
+Docker: `nathandonaldson/bulwark`
 Import: `import bulwark`

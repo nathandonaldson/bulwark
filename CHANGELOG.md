@@ -3,7 +3,7 @@
 ## [0.5.0] - 2026-04-14
 
 ### Added
-- **Docker distribution** — `docker run -p 3000:3000 ghcr.io/nathandonaldson/bulwark` starts the full dashboard and API with zero config.
+- **Docker distribution** — `docker run -p 3000:3000 nathandonaldson/bulwark` starts the full dashboard and API with zero config.
 - **`/healthz` endpoint** — liveness probe returning version, Docker detection, and env config status.
 - **`/v1/llm/test` endpoint** — test LLM backend connectivity from the dashboard with SSRF protection on base_url.
 - **CORS middleware** — restricted to localhost origins for browser-based API access without exposing API keys cross-origin.

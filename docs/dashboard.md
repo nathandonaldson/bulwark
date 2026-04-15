@@ -7,7 +7,7 @@ Interactive observability dashboard with real-time event streaming, attack testi
 **Docker (recommended):**
 
 ```bash
-docker run -p 3000:3000 ghcr.io/nathandonaldson/bulwark
+docker run -p 3000:3000 nathandonaldson/bulwark
 ```
 
 **From source:**

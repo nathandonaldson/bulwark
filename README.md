@@ -7,7 +7,7 @@ Other tools try to classify input as safe or unsafe. Bulwark separates reading f
 ## See it work
 
 ```bash
-docker run -p 3000:3000 ghcr.io/nathandonaldson/bulwark
+docker run -p 3000:3000 nathandonaldson/bulwark
 ```
 
 Dashboard at http://localhost:3000. API at http://localhost:3000/v1/clean. No Python needed.
@@ -60,7 +60,7 @@ Set your LLM backend so config persists across container restarts:
 # docker-compose.yml
 services:
   bulwark:
-    image: ghcr.io/nathandonaldson/bulwark
+    image: nathandonaldson/bulwark
     ports:
       - "3000:3000"
     restart: unless-stopped
@@ -265,7 +265,7 @@ Architecture decisions are recorded in `spec/decisions/`. Contract specs define 
 
 ```bash
 # Docker (recommended)
-docker run -p 3000:3000 ghcr.io/nathandonaldson/bulwark
+docker run -p 3000:3000 nathandonaldson/bulwark
 
 # Python
 pip install bulwark-shield              # Core (zero deps)

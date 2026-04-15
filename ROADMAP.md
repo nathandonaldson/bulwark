@@ -45,5 +45,5 @@ PYTHONPATH=src python3 -m pytest tests/ -v
 PYTHONPATH=src python -m bulwark.dashboard --port 3000
 
 # Docker
-docker run -p 3000:3000 ghcr.io/nathandonaldson/bulwark
+docker run -p 3000:3000 nathandonaldson/bulwark
 ```

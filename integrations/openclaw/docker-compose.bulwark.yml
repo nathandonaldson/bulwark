@@ -6,7 +6,7 @@
 
 services:
   bulwark:
-    image: ghcr.io/nathandonaldson/bulwark:latest
+    image: nathandonaldson/bulwark:latest
     network_mode: "service:openclaw-gateway"
     environment:
       - BULWARK_DASHBOARD_PORT=8100

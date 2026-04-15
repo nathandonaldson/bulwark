@@ -3,7 +3,7 @@
 ## Quick start
 
 ```bash
-docker run -p 3000:3000 ghcr.io/nathandonaldson/bulwark
+docker run -p 3000:3000 nathandonaldson/bulwark
 ```
 
 Dashboard at http://localhost:3000. See [Configuration](config.md) for env var setup.
