@@ -515,6 +515,7 @@
             </div>
           </div>
 
+          <div id="llm-live-status" style="font-size:11px;margin-bottom:10px;padding:6px 10px;border-radius:6px;display:none;"></div>
           <div id="llm-fields"></div>
         </div>
       </div>
@@ -621,6 +622,46 @@ function renderLLMConfig() {
   });
 
   renderLLMFields(mode, backend);
+  checkLLMLiveStatus();
+}
+
+async function checkLLMLiveStatus() {
+  const el = document.getElementById('llm-live-status');
+  if (!el) return;
+  try {
+    // Send a minimal probe through the pipeline to see what actually runs
+    const res = await fetch('/v1/pipeline', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({content: 'status check', source: 'dashboard'}),
+    });
+    const data = await res.json();
+    const mode = data.llm_mode || 'none';
+    const trace = data.trace || [];
+    const analyzeStep = trace.find(s => s.layer === 'analyze');
+
+    if (mode === 'none' || !analyzeStep) {
+      el.style.display = 'block';
+      el.style.background = 'var(--surface-2)';
+      el.style.color = 'var(--text-dim)';
+      el.style.border = '1px solid var(--border)';
+      el.textContent = 'Pipeline running in sanitize-only mode — no LLM connected';
+    } else {
+      const backend = analyzeStep.backend || mode;
+      const model = analyzeStep.model || '';
+      el.style.display = 'block';
+      el.style.background = 'var(--green-dim)';
+      el.style.color = 'var(--green)';
+      el.style.border = '1px solid var(--green)';
+      el.textContent = `Pipeline active — ${backend}${model ? ': ' + model : ''}`;
+    }
+  } catch(e) {
+    el.style.display = 'block';
+    el.style.background = 'var(--red-dim)';
+    el.style.color = 'var(--red)';
+    el.style.border = '1px solid var(--red)';
+    el.textContent = 'Pipeline unreachable';
+  }
 }
 
 function selectLLMMode(mode) {
@@ -629,6 +670,11 @@ function selectLLMMode(mode) {
   });
   const backend = configData.llm_backend || {};
   renderLLMFields(mode, backend);
+
+  // Save mode immediately so it persists across page navigation
+  if (!configData.llm_backend) configData.llm_backend = {};
+  configData.llm_backend.mode = mode;
+  updateConfig({ llm_backend: { mode } });
 }
 
 // Cached model lists per mode
@@ -823,6 +869,8 @@ async function saveLLMConfig() {
     (data.mode === 'none' ? 'sanitize-only mode.' :
      data.mode === 'anthropic' ? 'Anthropic API.' :
      'the configured endpoint.');
+  // Refresh live status to confirm the pipeline is using the new config
+  checkLLMLiveStatus();
 }
 
 // ============================================================
