@@ -210,22 +210,46 @@ async def run_pipeline(req: PipelineRequest):
     analyze_fn = make_analyze_fn(config.llm_backend)
     execute_fn = make_execute_fn(config.llm_backend)
 
-    # Load canary tokens from config path (if set) or skip
+    # Build pipeline from app config (respects dashboard toggles)
+    from bulwark.sanitizer import Sanitizer as _Sanitizer
+    from bulwark.trust_boundary import TrustBoundary as _TrustBoundary
+    from bulwark.executor import AnalysisGuard as _AnalysisGuard
+
+    sanitizer = _Sanitizer(
+        normalize_unicode=config.normalize_unicode,
+        strip_emoji_smuggling=config.strip_emoji_smuggling,
+        strip_bidi=config.strip_bidi,
+    ) if config.sanitizer_enabled else None
+
+    trust_boundary = _TrustBoundary() if config.trust_boundary_enabled else None
+
+    analysis_guard = None
+    if config.guard_bridge_enabled:
+        guard_kwargs = {}
+        if config.guard_patterns:
+            guard_kwargs["block_patterns"] = config.guard_patterns
+        if config.guard_max_length:
+            guard_kwargs["max_length"] = config.guard_max_length
+        analysis_guard = _AnalysisGuard(**guard_kwargs)
+
     canary = None
-    if config.canary_file:
+    if config.canary_enabled and config.canary_file:
         cf = Path(config.canary_file)
         if cf.exists():
             canary = CanarySystem.from_file(str(cf))
 
-    config_path = Path(__file__).parent.parent / "bulwark-config.yaml"
-    if config_path.exists():
-        pipeline = Pipeline.from_config(str(config_path), analyze_fn=analyze_fn, execute_fn=execute_fn)
-        pipeline.emitter = collector
-        if canary:
-            pipeline.canary = canary
-    else:
-        pipeline = Pipeline.default(analyze_fn=analyze_fn, execute_fn=execute_fn,
-                                    canary=canary, emitter=collector)
+    pipeline = Pipeline(
+        sanitizer=sanitizer,
+        trust_boundary=trust_boundary,
+        analysis_guard=analysis_guard,
+        canary=canary,
+        analyze_fn=analyze_fn,
+        execute_fn=execute_fn,
+        sanitize_bridge=config.sanitize_bridge_enabled,
+        guard_bridge=config.guard_bridge_enabled,
+        require_json=config.require_json,
+        emitter=collector,
+    )
 
     # Run detection models on the SANITIZED INPUT before sending to LLM.
     # If detection catches injection, skip the LLM call entirely.
