@@ -1,6 +1,7 @@
 """Runtime configuration for Bulwark Dashboard."""
 from __future__ import annotations
 import json
+import os
 import yaml
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -64,6 +65,14 @@ AVAILABLE_INTEGRATIONS = {
         "size_mb": None,
     },
 }
+
+
+def get_api_token() -> str:
+    """Read BULWARK_API_TOKEN from environment. Returns empty string if not set.
+
+    Read on every call (not cached) so token rotation doesn't need a restart.
+    """
+    return os.environ.get("BULWARK_API_TOKEN", "")
 
 
 @dataclass

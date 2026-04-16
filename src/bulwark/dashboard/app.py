@@ -10,9 +10,56 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse as StarletteJSONResponse
+
 from bulwark.dashboard.db import EventDB
-from bulwark.dashboard.config import BulwarkConfig, AVAILABLE_INTEGRATIONS, IntegrationConfig
+from bulwark.dashboard.config import BulwarkConfig, AVAILABLE_INTEGRATIONS, IntegrationConfig, get_api_token
 from bulwark.dashboard.models import RetestRequest
+
+
+# Endpoints that never require authentication
+_PUBLIC_PATHS = frozenset({
+    "/healthz",
+    "/v1/clean",
+    "/v1/guard",
+    "/v1/pipeline",
+    "/api/auth/login",
+})
+
+
+class BearerAuthMiddleware(BaseHTTPMiddleware):
+    """Optional bearer token auth. Disabled when BULWARK_API_TOKEN is not set."""
+
+    async def dispatch(self, request: Request, call_next):
+        # OPTIONS requests always pass through (CORS preflight)
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
+        token = get_api_token()
+        if not token:
+            # No token configured — auth disabled
+            return await call_next(request)
+
+        # Check if this is a public path
+        path = request.url.path
+        if path in _PUBLIC_PATHS:
+            return await call_next(request)
+
+        # Check Authorization header
+        auth_header = request.headers.get("authorization", "")
+        if auth_header == f"Bearer {token}":
+            return await call_next(request)
+
+        # Check cookie
+        cookie_token = request.cookies.get("bulwark_token", "")
+        if cookie_token == token:
+            return await call_next(request)
+
+        return StarletteJSONResponse(
+            {"error": "Authentication required. Set BULWARK_API_TOKEN and use Authorization: Bearer <token>."},
+            status_code=401,
+        )
 
 
 def _read_version() -> str:
@@ -45,6 +92,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(BearerAuthMiddleware)
+
 from bulwark.dashboard.api_v1 import router as v1_router
 app.include_router(v1_router)
 db = EventDB()
@@ -59,7 +108,35 @@ async def healthz():
         "version": _read_version(),
         "docker": os.path.exists("/.dockerenv"),
         "env_configured": bool(os.environ.get("BULWARK_LLM_MODE")),
+        "auth_required": bool(get_api_token()),
     }
+
+
+@app.post("/api/auth/login")
+async def auth_login(request: Request):
+    """Validate token and set HttpOnly cookie for SSE/browser auth."""
+    body = await request.json()
+    submitted_token = body.get("token", "")
+    expected_token = get_api_token()
+
+    if not expected_token:
+        return {"ok": True, "message": "Auth not configured"}
+
+    if submitted_token != expected_token:
+        return StarletteJSONResponse(
+            {"ok": False, "error": "Invalid token"},
+            status_code=401,
+        )
+
+    response = StarletteJSONResponse({"ok": True, "message": "Authenticated"})
+    response.set_cookie(
+        key="bulwark_token",
+        value=expected_token,
+        httponly=True,
+        samesite="strict",
+        max_age=86400,  # 24 hours
+    )
+    return response
 
 # SSE subscribers
 _subscribers: list[asyncio.Queue] = []

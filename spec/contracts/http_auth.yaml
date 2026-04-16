@@ -1,0 +1,24 @@
+feature: Dashboard bearer token authentication
+version: "0.8.0"
+
+guarantees:
+  - id: G-AUTH-001
+    summary: When BULWARK_API_TOKEN is set, protected endpoints return 401 without valid token
+  - id: G-AUTH-002
+    summary: Public endpoints (/healthz, /v1/clean, /v1/guard, /v1/pipeline) work without auth
+  - id: G-AUTH-003
+    summary: When BULWARK_API_TOKEN is not set, all endpoints work without auth (backwards compatible)
+  - id: G-AUTH-004
+    summary: POST /api/auth/login validates token and sets HttpOnly cookie
+  - id: G-AUTH-005
+    summary: Cookie-based auth works for SSE EventSource connections
+  - id: G-AUTH-006
+    summary: OPTIONS requests pass through for CORS preflight
+
+non_guarantees:
+  - id: NG-AUTH-001
+    summary: Does NOT provide user accounts or role-based access control
+    reason: Single-tenant tool. One token protects the whole dashboard.
+  - id: NG-AUTH-002
+    summary: Does NOT encrypt the token at rest
+    reason: Token is an environment variable, same as API keys. Secure your env.
