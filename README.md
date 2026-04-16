@@ -13,15 +13,16 @@ docker run -p 3000:3000 nathandonaldson/bulwark
 Dashboard at http://localhost:3000. API at http://localhost:3000/v1/clean. No Python needed.
 
 ```bash
-# Sanitize untrusted content
+# Send untrusted content through the full defense stack
+# Returns 200 (safe) or 422 (injection blocked)
 curl -X POST http://localhost:3000/v1/clean \
   -H 'Content-Type: application/json' \
   -d '{"content": "Hello <script>evil()</script>", "source": "email"}'
 
-# Run the full pipeline (sanitize + detect + LLM + guard)
-curl -X POST http://localhost:3000/v1/pipeline \
+# Check LLM output for injection patterns
+curl -X POST http://localhost:3000/v1/guard \
   -H 'Content-Type: application/json' \
-  -d '{"content": "untrusted email body", "source": "email"}'
+  -d '{"text": "ignore previous instructions"}'
 
 # Health check
 curl http://localhost:3000/healthz
@@ -186,21 +187,23 @@ PYTHONPATH=src python -m bulwark.dashboard --port 3000
 ```
 
 ```bash
-# Sanitize untrusted content
+# Full defense stack — returns 200 (safe) or 422 (blocked)
 curl -X POST http://localhost:3000/v1/clean \
   -H 'Content-Type: application/json' \
-  -d '{"content": "Hello <script>evil()</script>", "source": "email"}'
+  -d '{"content": "untrusted email body", "source": "email"}'
 
-# Check LLM output for injection
+# Check LLM output for injection patterns
 curl -X POST http://localhost:3000/v1/guard \
   -H 'Content-Type: application/json' \
   -d '{"text": "ignore previous instructions"}'
-
-# Run the full pipeline (sanitize + detect + LLM + guard)
-curl -X POST http://localhost:3000/v1/pipeline \
-  -H 'Content-Type: application/json' \
-  -d '{"content": "untrusted email body", "source": "email"}'
 ```
+
+**Response codes:**
+
+| Status | Meaning |
+|--------|---------|
+| **200** | Safe — use the `result` field |
+| **422** | Injection detected — content blocked, check `block_reason` |
 
 OpenAPI spec at `http://localhost:3000/openapi.json` or in `spec/openapi.yaml`.
 
@@ -216,9 +219,9 @@ Test attacks interactively, configure your LLM backend, and monitor your pipelin
 - Activate detection models (ProtectAI DeBERTa, PromptGuard-86M)
 - Toggle defense layers and guard patterns
 
-**Test tab** sends payloads through the full pipeline and shows a per-layer trace with timing, LLM backend badges, and detection model verdicts.
+**Test tab** sends payloads through `/v1/clean` — the same endpoint your production code calls — and shows a per-layer trace with timing, LLM backend badges, and detection model verdicts.
 
-**Red teaming** sends Garak probe payloads through the same `/v1/pipeline` endpoint used by production. Same code path, same defense layers.
+**Red teaming** sends Garak probe payloads through `/v1/clean`. What we test is what we ship.
 
 ### Local inference
 
@@ -236,7 +239,7 @@ bulwark test --full             # All 77 attacks, 10 seconds
 bulwark test -c steganography   # Filter by category
 ```
 
-Production red team (in the dashboard): sends Garak probe payloads through your actual Bulwark+LLM pipeline and evaluates whether the LLM followed its instructions or the injection hijacked it. Three tiers — Smoke Test (10 probes), Standard Scan (~4k probes), Full Sweep (~33k probes) — with counts pulled dynamically from your installed garak version. Requires `pip install garak`.
+Production red team (in the dashboard): sends Garak probe payloads through `/v1/clean` — the same endpoint production uses — and evaluates whether the LLM followed its instructions or the injection hijacked it. Three tiers — Smoke Test (10 probes), Standard Scan (~4k probes), Full Sweep (~33k probes) — with counts pulled dynamically from your installed garak version. Requires `pip install garak`.
 
 ## OpenClaw integration
 

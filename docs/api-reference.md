@@ -8,22 +8,17 @@ All endpoints accept and return `application/json`. The API runs via Docker or f
 
 ```bash
 # Start the server
-docker run -p 3000:3000 ghcr.io/nathandonaldson/bulwark
+docker run -p 3000:3000 nathandonaldson/bulwark
 
-# Sanitize untrusted content
+# Full defense stack — returns 200 (safe) or 422 (blocked)
 curl -X POST http://localhost:3000/v1/clean \
   -H 'Content-Type: application/json' \
-  -d '{"content": "user input here", "source": "email"}'
+  -d '{"content": "untrusted content", "source": "email"}'
 
 # Check LLM output for injection
 curl -X POST http://localhost:3000/v1/guard \
   -H 'Content-Type: application/json' \
   -d '{"text": "LLM output to check"}'
-
-# Run the full defense pipeline
-curl -X POST http://localhost:3000/v1/pipeline \
-  -H 'Content-Type: application/json' \
-  -d '{"content": "untrusted content", "source": "external"}'
 ```
 
 ---
