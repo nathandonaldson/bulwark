@@ -1,33 +1,30 @@
 endpoint: POST /v1/clean
-version: "0.3.0"
+version: "1.0.0"
 
 guarantees:
   - id: G-HTTP-CLEAN-001
-    summary: Returns 200 with sanitized, trust-bounded content in result field
+    summary: Returns 200 with sanitized, trust-bounded content when safe
   - id: G-HTTP-CLEAN-002
     summary: Returns 422 when required content field is missing
   - id: G-HTTP-CLEAN-003
-    summary: Returns 422 when format value is not xml/markdown/delimiter
+    summary: Returns 422 when injection is detected (content does not pass through)
   - id: G-HTTP-CLEAN-004
-    summary: Response includes content_length (original) and result_length (processed)
+    summary: Runs detection models (when active) before LLM call
   - id: G-HTTP-CLEAN-005
-    summary: Response modified field is true when sanitizer stripped characters
+    summary: Runs full pipeline (sanitize, detect, LLM analyze, bridge guard, LLM execute, canary) when LLM configured
   - id: G-HTTP-CLEAN-006
-    summary: Response modified field is false when content was clean
+    summary: Without LLM configured, runs sanitize + detect + guard (fast path)
   - id: G-HTTP-CLEAN-007
-    summary: Source and format fields echoed in response
-
+    summary: Response includes trace array with per-layer step, verdict, and detail
   - id: G-HTTP-CLEAN-008
-    summary: max_length truncates content and reduces result_length
+    summary: Respects dashboard layer toggles (sanitizer, trust boundary, guard bridge, canary)
   - id: G-HTTP-CLEAN-009
-    summary: format=markdown produces non-XML boundaries
-
-  - id: G-HTTP-CLEAN-010
-    summary: Emits a BulwarkEvent to the dashboard EventDB and SSE subscribers
-  - id: G-HTTP-CLEAN-011
-    summary: Event verdict is MODIFIED when sanitizer stripped characters, PASSED when clean
+    summary: Emits events to dashboard EventDB and SSE subscribers
 
 non_guarantees:
   - id: NG-HTTP-CLEAN-001
+    summary: Does NOT guarantee LLM quality or accuracy
+    reason: LLM behavior depends on the model. Bulwark orchestrates defense layers.
+  - id: NG-HTTP-CLEAN-002
     summary: Exact trust boundary tag format is not guaranteed across versions
     reason: Tag naming is an implementation detail. Clients should not parse the result string.
