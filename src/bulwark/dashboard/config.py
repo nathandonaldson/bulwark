@@ -175,7 +175,10 @@ class BulwarkConfig:
                     integrations[k] = IntegrationConfig(**v)
                 else:
                     integrations[k] = IntegrationConfig()
-            return cls(llm_backend=llm_backend, integrations=integrations, **{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+            cfg = cls(llm_backend=llm_backend, integrations=integrations, **{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+            # Env vars override config file values (so Docker .env always wins)
+            cls._apply_env_vars(cfg)
+            return cfg
         except Exception:
             cfg = cls()
             cls._apply_env_vars(cfg)
