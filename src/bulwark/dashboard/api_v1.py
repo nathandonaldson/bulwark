@@ -297,8 +297,12 @@ async def run_pipeline(req: PipelineRequest):
 
     if detection_blocked:
         # Detection caught it — run pipeline for sanitizer + trust boundary trace only,
-        # but skip the LLM call by using a no-op analyze_fn
-        pipeline_noop = Pipeline.default(emitter=collector)
+        # but skip the LLM call. Reuse the config-aware pipeline (no Pipeline.default()).
+        pipeline_noop = Pipeline(
+            sanitizer=sanitizer,
+            trust_boundary=trust_boundary,
+            emitter=collector,
+        )
         result = await pipeline_noop.run_async(content, source=source)
         trace = list(result.trace) + detection_trace
         # Renumber steps

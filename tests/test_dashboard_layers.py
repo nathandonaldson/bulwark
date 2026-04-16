@@ -92,6 +92,47 @@ class TestLayerStatus:
         html = (Path(__file__).parent.parent / "src" / "bulwark" / "dashboard" / "static" / "index.html").read_text()
         assert "fetchMetrics" in html and "handleToggle" in html
 
+    def test_detection_blocked_respects_sanitizer_toggle(self):
+        """G-HTTP-PIPELINE-007: Detection-blocked path skips sanitizer when toggle is off."""
+        import bulwark.dashboard.app as app_mod
+        from bulwark.dashboard.config import BulwarkConfig
+        from bulwark.executor import AnalysisSuspiciousError
+        old_config = app_mod.config
+        old_checks = dict(app_mod._detection_checks)
+        # Enable a fake detection model that always blocks
+        app_mod._detection_checks["fake"] = lambda text: (_ for _ in ()).throw(AnalysisSuspiciousError("fake block"))
+        app_mod.config = BulwarkConfig(sanitizer_enabled=False)
+        try:
+            client = _get_client()
+            resp = client.post("/v1/pipeline", json={"content": "test payload"})
+            data = resp.json()
+            layers = [s["layer"] for s in data.get("trace", [])]
+            assert "sanitizer" not in layers, f"Sanitizer should be skipped when toggled off, got layers: {layers}"
+        finally:
+            app_mod.config = old_config
+            app_mod._detection_checks.clear()
+            app_mod._detection_checks.update(old_checks)
+
+    def test_detection_blocked_respects_trust_boundary_toggle(self):
+        """G-HTTP-PIPELINE-007: Detection-blocked path skips trust boundary when toggle is off."""
+        import bulwark.dashboard.app as app_mod
+        from bulwark.dashboard.config import BulwarkConfig
+        from bulwark.executor import AnalysisSuspiciousError
+        old_config = app_mod.config
+        old_checks = dict(app_mod._detection_checks)
+        app_mod._detection_checks["fake"] = lambda text: (_ for _ in ()).throw(AnalysisSuspiciousError("fake block"))
+        app_mod.config = BulwarkConfig(trust_boundary_enabled=False)
+        try:
+            client = _get_client()
+            resp = client.post("/v1/pipeline", json={"content": "test payload"})
+            data = resp.json()
+            layers = [s["layer"] for s in data.get("trace", [])]
+            assert "trust_boundary" not in layers, f"Trust boundary should be skipped when toggled off, got layers: {layers}"
+        finally:
+            app_mod.config = old_config
+            app_mod._detection_checks.clear()
+            app_mod._detection_checks.update(old_checks)
+
     def test_disabled_layer_not_hidden(self):
         """NG-DASH-LAYERS-001: Disabled layers still visible, not hidden."""
         client = _get_client()
