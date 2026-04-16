@@ -1,22 +1,38 @@
-FROM python:3.11-slim
+# Stage 1: Build — install dependencies with build tools
+FROM python:3.11-slim AS builder
 
-# Build deps for garak's Rust-based dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc rustc cargo libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+WORKDIR /build
 
-# Install dependencies first (cache layer)
 COPY pyproject.toml VERSION README.md ./
 COPY src/ src/
-RUN pip install --no-cache-dir ".[dashboard,testing]"
+RUN pip install --no-cache-dir --prefix=/install ".[dashboard,testing]"
 
-# Copy remaining files (static assets, spec, etc.)
+# Reinstall the package itself into /install
+COPY . .
+RUN pip install --no-cache-dir --no-deps --prefix=/install "."
+
+
+# Stage 2: Runtime — clean image, no build tools, non-root user
+FROM python:3.11-slim
+
+# Copy installed packages from builder
+COPY --from=builder /install /usr/local
+
+WORKDIR /app
+
+# Copy application files (respects .dockerignore)
 COPY . .
 
-# Reinstall so the package reflects any files from COPY . .
-RUN pip install --no-cache-dir --no-deps "."
+# Create non-root user and set ownership
+RUN groupadd -r bulwark && useradd -r -g bulwark -d /app bulwark \
+    && mkdir -p /app/reports \
+    && chown -R bulwark:bulwark /app
+
+USER bulwark
 
 EXPOSE 3000
 

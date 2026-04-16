@@ -1,0 +1,15 @@
+feature: Docker image hardening
+version: "0.8.0"
+
+guarantees:
+  - id: G-DOCKER-HARDEN-001
+    summary: Final Docker image does not contain gcc, rustc, or cargo
+  - id: G-DOCKER-HARDEN-002
+    summary: Docker container runs as non-root user
+  - id: G-DOCKER-HARDEN-003
+    summary: HEALTHCHECK passes in the hardened image
+
+non_guarantees:
+  - id: NG-DOCKER-HARDEN-001
+    summary: Does NOT persist data across container restarts without volume mounts
+    reason: Ephemeral storage is the default. Users mount volumes for persistence.

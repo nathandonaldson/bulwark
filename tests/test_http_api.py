@@ -594,8 +594,8 @@ class TestEnvConfig:
         cfg = BulwarkConfig.load(path=os.path.join(tempfile.mkdtemp(), "nope.yaml"))
         assert cfg.llm_backend.mode == "none"
 
-    def test_config_file_takes_precedence(self, monkeypatch, tmp_path):
-        """NG-ENV-002: Config file takes precedence over env vars."""
+    def test_env_vars_override_config_file(self, monkeypatch, tmp_path):
+        """NG-ENV-002: Env vars override config file (Docker .env wins)."""
         monkeypatch.setenv("BULWARK_LLM_MODE", "anthropic")
         config_file = tmp_path / "config.yaml"
         import yaml
@@ -604,8 +604,8 @@ class TestEnvConfig:
         }))
         from bulwark.dashboard.config import BulwarkConfig
         cfg = BulwarkConfig.load(path=str(config_file))
-        # Config file wins
-        assert cfg.llm_backend.mode == "openai_compatible"
+        # Env var wins over config file
+        assert cfg.llm_backend.mode == "anthropic"
 
     def test_env_vars_applied_when_config_corrupt(self, monkeypatch, tmp_path):
         """Env vars should take effect even when config file is corrupt YAML."""

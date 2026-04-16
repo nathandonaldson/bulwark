@@ -155,12 +155,14 @@ async def test_llm_connection(req: LLMTestRequest):
     from bulwark.dashboard.config import LLMBackendConfig
     from bulwark.dashboard.llm_factory import test_connection
 
+    # Fall back to env var / app config for fields not provided in the request
+    from bulwark.dashboard.app import config as app_config
     cfg = LLMBackendConfig(
-        mode=req.mode,
-        api_key=req.api_key,
-        base_url=req.base_url,
-        analyze_model=req.analyze_model,
-        execute_model=req.execute_model,
+        mode=req.mode or app_config.llm_backend.mode,
+        api_key=req.api_key if req.api_key and "..." not in req.api_key else app_config.llm_backend.api_key,
+        base_url=req.base_url or app_config.llm_backend.base_url,
+        analyze_model=req.analyze_model or app_config.llm_backend.analyze_model,
+        execute_model=req.execute_model or app_config.llm_backend.execute_model,
     )
     return test_connection(cfg)
 
@@ -174,10 +176,11 @@ async def list_llm_models(req: LLMModelsRequest):
     from bulwark.dashboard.config import LLMBackendConfig
     from bulwark.dashboard.llm_factory import list_models
 
+    from bulwark.dashboard.app import config as app_config
     cfg = LLMBackendConfig(
-        mode=req.mode,
-        api_key=req.api_key,
-        base_url=req.base_url,
+        mode=req.mode or app_config.llm_backend.mode,
+        api_key=req.api_key if req.api_key and "..." not in req.api_key else app_config.llm_backend.api_key,
+        base_url=req.base_url or app_config.llm_backend.base_url,
     )
     return {"models": list_models(cfg)}
 

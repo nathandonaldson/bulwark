@@ -358,6 +358,17 @@
 </head>
 <body>
 
+<!-- Auth login overlay -->
+<div id="auth-overlay" style="display:none; position:fixed; inset:0; z-index:9999; background:var(--bg); display:none; align-items:center; justify-content:center;">
+  <div style="text-align:center; max-width:340px;">
+    <div style="font-size:24px; font-weight:700; margin-bottom:8px;"><span style="color:var(--green);">&#9632;</span> Bulwark</div>
+    <div style="font-size:13px; color:var(--text-dim); margin-bottom:24px;">Dashboard authentication required</div>
+    <input type="password" id="auth-token-input" placeholder="Enter API token" style="width:100%; padding:10px 14px; background:var(--surface); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:14px; margin-bottom:12px; box-sizing:border-box;" />
+    <button id="auth-login-btn" onclick="submitLogin()" style="width:100%; padding:10px; background:var(--green); border:none; border-radius:8px; color:white; font-size:14px; font-weight:600; cursor:pointer;">Login</button>
+    <div id="auth-error" style="margin-top:12px; font-size:12px; color:var(--red); display:none;"></div>
+  </div>
+</div>
+
 <nav>
   <div class="logo"><span>&#9632;</span> Bulwark</div>
   <div class="tabs">
@@ -695,14 +706,11 @@ function renderLLMFields(mode, backend) {
 
   const showUrl = mode === 'openai_compatible';
   const apiKeyRequired = mode === 'anthropic';
-  const apiKeyLabel = apiKeyRequired
-    ? 'API Key'
-    : 'API Key <span style="color: var(--text-dim); font-weight: normal;">(optional for local)</span>';
-  const apiKeyPlaceholder = mode === 'anthropic' ? 'sk-ant-...' : 'sk-... (leave empty for local)';
+  const envOverrides = configData.env_overrides || {};
 
   let html = '<div class="llm-field-group">';
 
-  if (showUrl) {
+  if (showUrl && !envOverrides.base_url) {
     const presetBtns = LLM_URL_PRESETS.map(p =>
       `<button class="llm-preset-btn" onclick="document.getElementById('llm-base-url').value='${p.url}'">${p.label}</button>`
     ).join('');
@@ -712,13 +720,33 @@ function renderLLMFields(mode, backend) {
         <input type="text" id="llm-base-url" placeholder="http://localhost:8080/v1" value="${backend.base_url || ''}" autocomplete="off" />
         <div class="llm-presets">${presetBtns}</div>
       </div>`;
+  } else if (showUrl && envOverrides.base_url) {
+    html += `
+      <div class="llm-field">
+        <label>Endpoint URL <span style="color:var(--green);font-weight:normal;">(set via BULWARK_BASE_URL)</span></label>
+        <div style="font-size:13px;color:var(--text-dim);padding:8px 0;">${escapeHtml(backend.base_url)}</div>
+      </div>`;
+  }
+
+  if (!envOverrides.api_key) {
+    const apiKeyLabel = apiKeyRequired
+      ? 'API Key'
+      : 'API Key <span style="color: var(--text-dim); font-weight: normal;">(optional for local)</span>';
+    const apiKeyPlaceholder = mode === 'anthropic' ? 'sk-ant-...' : 'sk-... (leave empty for local)';
+    html += `
+      <div class="llm-field">
+        <label>${apiKeyLabel}</label>
+        <input type="password" id="llm-api-key" placeholder="${apiKeyPlaceholder}" value="${backend.api_key || ''}" autocomplete="off" />
+      </div>`;
+  } else {
+    html += `
+      <div class="llm-field">
+        <label>API Key <span style="color:var(--green);font-weight:normal;">(set via BULWARK_API_KEY)</span></label>
+        <div style="font-size:13px;color:var(--text-dim);padding:8px 0;">${escapeHtml(backend.api_key)}</div>
+      </div>`;
   }
 
   html += `
-    <div class="llm-field">
-      <label>${apiKeyLabel}</label>
-      <input type="password" id="llm-api-key" placeholder="${apiKeyPlaceholder}" value="${backend.api_key || ''}" autocomplete="off" />
-    </div>
     <div class="llm-field">
       <label>Phase 1 Model <span style="color: var(--text-dim); font-weight: normal;">(analyze, no tools)</span></label>
       <div class="llm-model-row">
@@ -2073,7 +2101,88 @@ function renderMiniSparkline(layer, data) {
 // ============================================================
 // Init
 // ============================================================
-window.addEventListener('DOMContentLoaded', () => {
+// Auth token stored in localStorage for fetch() headers
+let _authToken = localStorage.getItem('bulwark_token') || '';
+
+// Override global fetch to inject auth token automatically
+const _originalFetch = window.fetch;
+window.fetch = function(url, options = {}) {
+  if (_authToken && typeof url === 'string' && !url.startsWith('http')) {
+    options.headers = options.headers || {};
+    if (!options.headers['Authorization']) {
+      options.headers['Authorization'] = `Bearer ${_authToken}`;
+    }
+  }
+  return _originalFetch.call(this, url, options);
+};
+
+function _authHeaders() {
+  const h = {'Content-Type': 'application/json'};
+  if (_authToken) h['Authorization'] = `Bearer ${_authToken}`;
+  return h;
+}
+
+async function submitLogin() {
+  const input = document.getElementById('auth-token-input');
+  const error = document.getElementById('auth-error');
+  const token = input.value.trim();
+  if (!token) return;
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token}),
+    });
+    if (res.ok) {
+      _authToken = token;
+      localStorage.setItem('bulwark_token', token);
+      document.getElementById('auth-overlay').style.display = 'none';
+      initDashboard();
+    } else {
+      error.textContent = 'Invalid token';
+      error.style.display = 'block';
+    }
+  } catch(e) {
+    error.textContent = 'Connection failed';
+    error.style.display = 'block';
+  }
+}
+
+// Allow Enter key to submit login
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && document.getElementById('auth-overlay').style.display === 'flex') {
+    submitLogin();
+  }
+});
+
+async function checkAuthAndInit() {
+  try {
+    const healthRes = await fetch('/healthz');
+    const health = await healthRes.json();
+    if (health.auth_required) {
+      // Try stored token
+      if (_authToken) {
+        const testRes = await fetch('/api/config', {headers: {'Authorization': `Bearer ${_authToken}`}});
+        if (testRes.ok) {
+          initDashboard();
+          return;
+        }
+        // Stored token is stale
+        localStorage.removeItem('bulwark_token');
+        _authToken = '';
+      }
+      // Show login
+      document.getElementById('auth-overlay').style.display = 'flex';
+      document.getElementById('auth-token-input').focus();
+    } else {
+      initDashboard();
+    }
+  } catch(e) {
+    initDashboard(); // Offline/error — try anyway
+  }
+}
+
+function initDashboard() {
   // Show ephemeral config warning if running in Docker without env var config
   fetch('/healthz').then(r => r.json()).then(d => {
     if (d.docker && !d.env_configured) {
@@ -2099,7 +2208,9 @@ window.addEventListener('DOMContentLoaded', () => {
     // Refresh activity feed from DB (SSE handles live, this catches anything missed)
     fetchEvents({}).then(() => renderActivityFeed(eventsData));
   }, 10000);
-});
+}
+
+window.addEventListener('DOMContentLoaded', () => checkAuthAndInit());
 </script>
 </body>
 </html>

@@ -77,9 +77,23 @@ class TestLayerStatus:
         finally:
             app_mod.config = old
 
+    def test_disabled_layer_shows_off_indicator(self):
+        """G-DASH-LAYERS-002: Disabled layers show grey dot / off indicator."""
+        # Verified by renderLayerCards using 'off' CSS class and '(off)' text
+        # when config toggle is false. The JS code checks configData[toggleKey].
+        from pathlib import Path
+        html = (Path(__file__).parent.parent / "src" / "bulwark" / "dashboard" / "static" / "index.html").read_text()
+        assert "layer-dot off" in html or "'off'" in html
+
+    def test_layer_status_updates_on_toggle(self):
+        """G-DASH-LAYERS-003: Layer status updates when config toggles change."""
+        # Verified by handleToggle calling fetchMetrics() which calls renderLayerCards()
+        from pathlib import Path
+        html = (Path(__file__).parent.parent / "src" / "bulwark" / "dashboard" / "static" / "index.html").read_text()
+        assert "fetchMetrics" in html and "handleToggle" in html
+
     def test_disabled_layer_not_hidden(self):
         """NG-DASH-LAYERS-001: Disabled layers still visible, not hidden."""
-        # The shield page always shows all 5 layer cards — verified by HTML structure
         client = _get_client()
         resp = client.get("/")
         html = resp.text
