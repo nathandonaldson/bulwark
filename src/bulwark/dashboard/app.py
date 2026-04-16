@@ -24,7 +24,6 @@ _PUBLIC_PATHS = frozenset({
     "/healthz",
     "/v1/clean",
     "/v1/guard",
-    "/v1/pipeline",
     "/api/auth/login",
 })
 
@@ -228,116 +227,6 @@ async def event_stream():
             _subscribers.remove(queue)
 
     return StreamingResponse(generate(), media_type="text/event-stream")
-
-
-@app.post("/api/test")
-async def test_pipeline(request: Request):
-    """Run a payload through the Bulwark pipeline and return per-layer trace."""
-    body = await request.json()
-    payload = body.get("payload", "")
-
-    from bulwark.pipeline import Pipeline
-    from bulwark import CanarySystem
-    from bulwark.events import CollectorEmitter
-
-    collector = CollectorEmitter()
-
-    # Load canary tokens from config path (if set) or skip
-    canary = None
-    if config.canary_file:
-        cf = Path(config.canary_file)
-        if cf.exists():
-            canary = CanarySystem.from_file(str(cf))
-
-    # Build pipeline from config (respects dashboard toggles)
-    # Use configured LLM backend if available, otherwise echo payload for guard testing
-    from bulwark.dashboard.llm_factory import make_analyze_fn as _make_analyze
-    llm_analyze = _make_analyze(config.llm_backend)
-    analyze_fn = llm_analyze if llm_analyze else lambda prompt: payload
-
-    config_path = Path(__file__).parent.parent / "bulwark-config.yaml"
-    if config_path.exists():
-        pipeline = Pipeline.from_config(
-            str(config_path),
-            analyze_fn=analyze_fn,
-        )
-        pipeline.emitter = collector
-        if canary:
-            pipeline.canary = canary
-    else:
-        pipeline = Pipeline.default(
-            analyze_fn=analyze_fn,
-            canary=canary,
-            emitter=collector,
-        )
-
-    # Don't attach detection checks to the pipeline — we'll run them separately
-    # so we can get per-model trace entries
-    result = await pipeline.run_async(payload, source="test")
-
-    # Enrich the trace with LLM backend info
-    trace = list(result.trace)
-    for entry in trace:
-        if entry.get("layer") == "analyze":
-            mode = config.llm_backend.mode if config.llm_backend.mode != "none" else None
-            if mode == "anthropic":
-                model = config.llm_backend.analyze_model or "claude-haiku-4-5-20251001"
-                entry["detail"] = f"Phase 1 via Anthropic ({model}): {len(result.analysis)} chars"
-                entry["backend"] = "anthropic"
-                entry["model"] = model
-            elif mode == "openai_compatible":
-                model = config.llm_backend.analyze_model or "unknown"
-                url = config.llm_backend.base_url or "unknown"
-                entry["detail"] = f"Phase 1 via {url} ({model}): {len(result.analysis)} chars"
-                entry["backend"] = "openai_compatible"
-                entry["model"] = model
-                entry["url"] = url
-            else:
-                entry["detail"] = f"Phase 1 (echo mode, no LLM): {len(result.analysis)} chars"
-                entry["backend"] = "echo"
-
-    # Run detection models individually and add separate trace entries
-    blocked = result.blocked
-    block_reason = result.block_reason
-    if _detection_checks and result.analysis and not result.blocked:
-        from bulwark.executor import AnalysisSuspiciousError as _ASE
-        step_num = len(trace) + 1
-        for model_name, check_fn in _detection_checks.items():
-            import time as _time
-            t0 = _time.time()
-            try:
-                check_fn(result.analysis)
-                elapsed = (_time.time() - t0) * 1000
-                trace.append({
-                    "step": step_num,
-                    "layer": f"detection:{model_name}",
-                    "verdict": "passed",
-                    "detail": f"{model_name}: clean ({elapsed:.0f}ms)",
-                    "detection_model": model_name,
-                    "duration_ms": round(elapsed, 1),
-                })
-            except _ASE as e:
-                elapsed = (_time.time() - t0) * 1000
-                trace.append({
-                    "step": step_num,
-                    "layer": f"detection:{model_name}",
-                    "verdict": "blocked",
-                    "detail": f"{model_name}: {e} ({elapsed:.0f}ms)",
-                    "detection_model": model_name,
-                    "duration_ms": round(elapsed, 1),
-                })
-                blocked = True
-                block_reason = f"Detection model {model_name}: {e}"
-            step_num += 1
-
-    return {
-        "payload_length": len(payload),
-        "blocked": blocked,
-        "neutralized": result.neutralized,
-        "blocked_at": block_reason.split(":")[0].strip() if block_reason else None,
-        "neutralized_by": "Sanitizer" if result.neutralized else None,
-        "trace": trace,
-    }
 
 
 @app.get("/api/pipeline-status")

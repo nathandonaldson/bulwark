@@ -646,11 +646,12 @@ async function checkLLMLiveStatus() {
   if (!el) return;
   try {
     // Send a minimal probe through the pipeline to see what actually runs
-    const res = await fetch('/v1/pipeline', {
+    const res = await fetch('/v1/clean', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({content: 'status check', source: 'dashboard'}),
     });
+    if (!res.ok && res.status !== 422) throw new Error(res.status);
     const data = await res.json();
     const mode = data.llm_mode || 'none';
     const trace = data.trace || [];
@@ -1913,15 +1914,22 @@ async function runTest() {
   resultEl.innerHTML = '';
 
   try {
-    const res = await fetch('/v1/pipeline', {
+    const res = await fetch('/v1/clean', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: payload, source: 'test' }),
     });
-    if (!res.ok) throw new Error('API returned ' + res.status);
     const data = await res.json();
-    renderTrace(data.trace || [], data.blocked, data.blocked_at);
-    renderTestResult(data);
+    if (res.status === 422) {
+      // Injection blocked — show the trace and block result
+      renderTrace(data.trace || [], true, data.blocked_at);
+      renderTestResult(data);
+    } else if (res.ok) {
+      renderTrace(data.trace || [], data.blocked, data.blocked_at);
+      renderTestResult(data);
+    } else {
+      throw new Error('API returned ' + res.status);
+    }
   } catch (e) {
     traceEl.innerHTML = `<div class="loading-msg" style="text-align:left; color: var(--red);">Error: ${escapeHtml(e.message)}</div>`;
   } finally {

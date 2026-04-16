@@ -40,7 +40,7 @@ class TestLayerStatus:
         app_mod.config = BulwarkConfig(sanitizer_enabled=False)
         try:
             client = _get_client()
-            resp = client.post("/v1/pipeline", json={"content": "hello\u200bworld"})
+            resp = client.post("/v1/clean", json={"content": "hello\u200bworld"})
             data = resp.json()
             layers = [s["layer"] for s in data["trace"]]
             assert "sanitizer" not in layers
@@ -55,7 +55,7 @@ class TestLayerStatus:
         app_mod.config = BulwarkConfig(trust_boundary_enabled=False)
         try:
             client = _get_client()
-            resp = client.post("/v1/pipeline", json={"content": "hello"})
+            resp = client.post("/v1/clean", json={"content": "hello"})
             data = resp.json()
             layers = [s["layer"] for s in data["trace"]]
             assert "trust_boundary" not in layers
@@ -70,7 +70,7 @@ class TestLayerStatus:
         app_mod.config = BulwarkConfig(sanitizer_enabled=True)
         try:
             client = _get_client()
-            resp = client.post("/v1/pipeline", json={"content": "hello"})
+            resp = client.post("/v1/clean", json={"content": "hello"})
             data = resp.json()
             layers = [s["layer"] for s in data["trace"]]
             assert "sanitizer" in layers

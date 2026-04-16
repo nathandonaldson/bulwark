@@ -1,13 +1,14 @@
 openapi: "3.1.0"
 info:
   title: Bulwark API
-  version: "0.5.0"
+  version: "1.0.0"
   description: |
     Language-agnostic HTTP API for Bulwark prompt injection defense.
 
-    Core endpoints: /v1/clean sanitizes untrusted content, /v1/guard checks
-    LLM output for injection patterns, /v1/pipeline runs the full defense
-    stack. All return 200 for completed analysis. 422 only for malformed requests.
+    /v1/clean is the primary endpoint — runs the full defense stack (sanitize,
+    detect, LLM two-phase execution, bridge guard, canary check). Returns 200
+    when safe, 422 when injection detected. /v1/guard checks LLM output
+    for injection patterns.
   license:
     name: MIT
 
@@ -45,14 +46,18 @@ paths:
   /v1/clean:
     post:
       operationId: clean
-      summary: Sanitize untrusted content and wrap in trust boundary tags
+      summary: Run untrusted content through the full Bulwark defense stack
       description: |
-        Maps to bulwark.clean(). Strips hidden characters, steganography, and
-        encoding tricks, then wraps in trust boundary tags. The result is safe
-        to interpolate into any LLM prompt.
+        The primary Bulwark endpoint. Runs the complete defense pipeline:
+        sanitizer, trust boundary, detection models, LLM two-phase execution
+        (if configured), bridge guard, and canary check.
 
-        This provides input sanitization + trust boundary tagging, not full
-        architectural defense. For two-phase execution, use the Pipeline Python API.
+        Returns 200 with the safe result when content passes all checks.
+        Returns 422 when injection is detected — content does not pass through.
+
+        Without an LLM configured, runs sanitizer + detection + guard (fast path).
+        Detection models run BEFORE the LLM — if they catch injection, the LLM
+        call is skipped and 422 is returned immediately.
       requestBody:
         required: true
         content:
@@ -61,13 +66,13 @@ paths:
               $ref: "#/components/schemas/CleanRequest"
       responses:
         "200":
-          description: Content sanitized and trust-boundary-tagged
+          description: Content passed all checks — safe result returned
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/CleanResponse"
         "422":
-          description: Validation error (missing required fields, wrong types)
+          description: Injection detected or validation error. Content blocked.
 
   /v1/guard:
     post:
@@ -93,44 +98,7 @@ paths:
         "422":
           description: Validation error (missing required fields, wrong types)
 
-  /v1/pipeline:
-    post:
-      operationId: pipeline
-      summary: Run content through the full Bulwark pipeline
-      description: |
-        Runs untrusted content through the complete Bulwark pipeline including
-        sanitization, trust boundary tagging, detection models (if activated),
-        LLM-backed two-phase execution (if configured), bridge guard, and
-        canary token checks. Returns full pipeline trace with per-layer timing.
-
-        Without an LLM configured, runs sanitizer + trust boundary + guard only.
-        Detection models run BEFORE the LLM — if they catch injection, the LLM
-        call is skipped entirely.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - content
-              properties:
-                content:
-                  type: string
-                  description: Untrusted content to process through the pipeline.
-                source:
-                  type: string
-                  default: external
-                  description: Source label for trust boundary tags.
-      responses:
-        "200":
-          description: Pipeline execution complete
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PipelineResponse"
-        "422":
-          description: Validation error (missing required fields, wrong types)
+  # /v1/pipeline — REMOVED in v1.0.0 (ADR-014). Use /v1/clean instead.
 
   /v1/llm/test:
     post:
