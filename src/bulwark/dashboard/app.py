@@ -20,6 +20,7 @@ from bulwark.dashboard.models import RetestRequest
 
 # Endpoints that never require authentication
 _PUBLIC_PATHS = frozenset({
+    "/",
     "/healthz",
     "/v1/clean",
     "/v1/guard",
@@ -43,7 +44,7 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
 
         # Check if this is a public path
         path = request.url.path
-        if path in _PUBLIC_PATHS:
+        if path in _PUBLIC_PATHS or path.startswith("/static/"):
             return await call_next(request)
 
         # Check Authorization header

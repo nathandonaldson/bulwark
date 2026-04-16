@@ -101,11 +101,12 @@ class TestAuthEnabled:
         resp = client.options("/api/config")
         assert resp.status_code != 401
 
-    def test_dashboard_html_protected(self):
-        """G-AUTH-001: Dashboard HTML is protected."""
+    def test_dashboard_html_serves_login_gate(self):
+        """G-AUTH-001: Dashboard HTML serves but shows login gate (JS handles auth)."""
         client = _get_client()
         resp = client.get("/")
-        assert resp.status_code == 401
+        assert resp.status_code == 200
+        assert "auth-overlay" in resp.text
 
     def test_redteam_protected(self):
         """G-AUTH-001: Red team endpoints are protected."""
