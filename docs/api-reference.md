@@ -42,7 +42,7 @@ docker run -p 3000:3000 \
   -e BULWARK_LLM_MODE=anthropic \
   -e BULWARK_API_KEY=sk-ant-... \
   -e BULWARK_ANALYZE_MODEL=claude-haiku-4-5 \
-  ghcr.io/nathandonaldson/bulwark
+  nathandonaldson/bulwark
 ```
 
 Without LLM configuration, the pipeline runs in sanitize-only mode (sanitizer + trust boundary + guard). This is still useful — it strips hidden characters, adds trust boundaries, and checks for injection patterns.
@@ -258,7 +258,7 @@ def check_llm_output(llm_response: str, canary_tokens: dict = None) -> str:
 
 ---
 
-### POST /v1/pipeline
+### POST /v1/clean
 
 Run untrusted content through the full Bulwark defense pipeline. This is the all-in-one endpoint that chains sanitization, trust boundaries, detection models, LLM two-phase execution, and output guards.
 
@@ -369,7 +369,7 @@ Without LLM configuration (`BULWARK_LLM_MODE=none` or unset), only layers 1-3 an
 ```python
 def process_untrusted_content(content: str, source: str = "external") -> dict:
     """Run content through the full Bulwark pipeline."""
-    resp = httpx.post(f"{BULWARK}/v1/pipeline", json={
+    resp = httpx.post(f"{BULWARK}/v1/clean", json={
         "content": content,
         "source": source,
     })
@@ -705,7 +705,7 @@ else:
 Let Bulwark handle the entire defense stack including two-phase LLM execution.
 
 ```python
-resp = httpx.post(f"{BULWARK}/v1/pipeline", json={
+resp = httpx.post(f"{BULWARK}/v1/clean", json={
     "content": untrusted_input,
     "source": "api_request",
 })
@@ -743,7 +743,7 @@ def wait_for_bulwark(url: str = "http://localhost:3000", timeout: int = 30):
 
 | Status | Meaning |
 |---|---|
-| `200` | Request processed. For `/v1/guard` and `/v1/pipeline`, check `safe`/`blocked` in the response body — 200 does not mean "safe". |
+| `200` | Request processed. For `/v1/guard` and `/v1/clean`, check `safe`/`blocked` in the response body — 200 does not mean "safe". |
 | `422` | Validation error. Missing required fields or invalid field values (e.g., invalid `format` enum). |
 | `500` | Internal server error. Check Bulwark logs. |
 
@@ -756,7 +756,7 @@ All `/v1/*` endpoints return 200 for completed analysis, even when the result is
 ```yaml
 services:
   bulwark:
-    image: ghcr.io/nathandonaldson/bulwark
+    image: nathandonaldson/bulwark
     ports:
       - "3000:3000"
     environment:
@@ -781,7 +781,7 @@ volumes:
 ```yaml
 services:
   bulwark:
-    image: ghcr.io/nathandonaldson/bulwark
+    image: nathandonaldson/bulwark
     ports:
       - "3000:3000"
     environment:

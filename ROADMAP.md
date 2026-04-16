@@ -1,15 +1,15 @@
 # Bulwark Roadmap
 
-## Current State (v0.7.0)
+## Current State (v1.0.1)
 
-5 defense layers, 811 tests, Docker distribution, HTTP API, interactive dashboard, OpenClaw integration, three-tier red teaming.
+5 defense layers, 843 tests, Docker distribution, unified HTTP API, dashboard with auth, OpenClaw integration, three-tier red teaming.
 
 ### Shipped
 - 5 defense layers: Sanitizer, TrustBoundary, TwoPhaseExecutor, CanarySystem, MapReduceIsolator
 - Pipeline orchestrator with async support
 - 77 attack patterns across 10 categories
 - Convenience API: `bulwark.clean()`, `bulwark.guard()`, `bulwark.protect()`
-- HTTP API: `/v1/clean`, `/v1/guard`, `/v1/pipeline` (language-agnostic)
+- Unified HTTP API: `/v1/clean` runs full defense stack, `/v1/guard` checks output (language-agnostic)
 - Docker distribution: `docker run -p 3000:3000 nathandonaldson/bulwark`
 - LLM backend config: Anthropic API, OpenAI-compatible (local inference), or sanitize-only
 - Model dropdowns with short aliases that auto-resolve to latest version
@@ -22,6 +22,9 @@
 - Event emission from /v1/clean and /v1/guard to dashboard
 - Smart status pill showing actual pipeline state + version
 - OpenClaw integration: Docker sidecar + npm plugin with infrastructure-level hooks
+- Dashboard bearer token auth via BULWARK_API_TOKEN
+- Docker hardening: multi-stage build, non-root user, no build tools in final image
+- Env vars override config file (Docker .env always wins)
 - Security: SSRF validation on execution paths, API key masking, defense-disable protection, XSS escaping
 - OpenAPI spec, contract specs with guarantee IDs, 12 ADRs
 - Anthropic SDK integration via `protect()`
@@ -30,10 +33,8 @@
 - Security audited, benchmarked (<1ms deterministic layers)
 
 ### Next
-- **Dashboard auth** — bearer token for non-localhost deployments
 - **LLM Guard integration** — broader scanner coverage (PII, toxicity)
 - **Transparent proxy mode** — Bulwark as a reverse proxy between your app and the LLM provider. Zero-code integration.
-- **Docker hardening** — multi-stage build, non-root user
 - **LLM-as-judge for edge cases** — cheap model call to classify ambiguous verdicts in red teaming
 
 ### Future

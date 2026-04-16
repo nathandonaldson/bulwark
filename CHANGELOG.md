@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.0.0] - 2026-04-16
+
+### Breaking Changes
+- **`/v1/clean` is now the unified defense endpoint** — runs the full stack (sanitize, detect, LLM two-phase, bridge guard, canary). Previously only sanitized and wrapped content.
+- **`/v1/pipeline` removed** — all functionality merged into `/v1/clean`. Callers using `/v1/pipeline` must switch to `/v1/clean`.
+- **`/v1/clean` returns 422 on injection detection** — previously always returned 200. Callers must handle 422 responses.
+
+### Added
+- **Dashboard bearer token auth** — `BULWARK_API_TOKEN` env var protects management endpoints. Core API remains public.
+- **Login gate** in dashboard UI with cookie support for SSE.
+- **Docker hardening** — multi-stage build (no gcc/rustc in final image), non-root user (`bulwark`).
+- **Env vars override config file** — `BULWARK_API_KEY` in `.env` always wins over `bulwark-config.yaml`.
+- **Env-controlled fields hidden in UI** — shows "(set via BULWARK_API_KEY)" instead of editable input.
+- **Two-tier verdict scoring** — structural analysis check eliminates false positives in red team results.
+- **Detection-blocked fallback** respects dashboard layer toggles.
+- **Shield page layer cards** reflect live toggle state (green/grey).
+
+### Fixed
+- Detection-blocked fallback used `Pipeline.default()` ignoring all toggles.
+- Sanitizer appeared in test trace when toggled off (detection-blocked path bug).
+- Test Connection and model list fall back to env var API key when field hidden.
+
+### Security
+- SSRF validation on OpenAI-compatible execution paths.
+- API key masked in `/api/config` responses.
+- Defense-disable protection (at least one core layer must stay on).
+- XSS escaping on model names from remote endpoints.
+- `.env` excluded from Docker image.
+- **843 tests** (up from 811).
+
 ## [0.6.0] - 2026-04-15
 
 ### Added
