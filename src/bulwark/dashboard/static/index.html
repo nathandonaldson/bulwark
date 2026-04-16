@@ -1189,13 +1189,15 @@ function renderRedTeamReport(data) {
   }
   familyHtml += '</div>';
 
-  // Vulnerabilities
+  // Separate results by verdict
   const results = data.results || [];
-  const vulnerabilities = results.filter(r => !r.defended && !r.error);
+  const hijacked = results.filter(r => r.verdict === 'hijacked');
+  const formatFailures = results.filter(r => r.verdict === 'format_failure');
   let vulnHtml = '';
-  if (vulnerabilities.length > 0) {
-    vulnHtml = '<div class="vuln-list"><div class="vuln-list-title">Vulnerabilities Found</div>';
-    for (const v of vulnerabilities.slice(0, 20)) {
+
+  if (hijacked.length > 0) {
+    vulnHtml += '<div class="vuln-list"><div class="vuln-list-title" style="color:var(--red)">Hijacked — LLM followed the injection</div>';
+    for (const v of hijacked.slice(0, 20)) {
       const payload = v.payload ? v.payload.substring(0, 80) + (v.payload.length > 80 ? '...' : '') : 'N/A';
       const response = v.llm_response ? v.llm_response.substring(0, 120) + '...' : 'N/A';
       vulnHtml += `<div class="vuln-item">
@@ -1205,10 +1207,28 @@ function renderRedTeamReport(data) {
         <div class="vuln-recommendation">Injection bypassed all layers. Consider adding model-based detection (PromptGuard-86M) at the bridge.</div>
       </div>`;
     }
-    if (vulnerabilities.length > 20) vulnHtml += `<div style="padding:8px;color:var(--text-dim);font-size:11px">+ ${vulnerabilities.length - 20} more</div>`;
+    if (hijacked.length > 20) vulnHtml += `<div style="padding:8px;color:var(--text-dim);font-size:11px">+ ${hijacked.length - 20} more</div>`;
     vulnHtml += '</div>';
-  } else if (pct === 100) {
+  }
+
+  if (formatFailures.length > 0) {
+    vulnHtml += `<div class="vuln-list" style="margin-top:12px"><div class="vuln-list-title" style="color:var(--amber)">Format Failures — LLM did not follow injection but output wrong schema (${formatFailures.length})</div>`;
+    for (const v of formatFailures.slice(0, 5)) {
+      const payload = v.payload ? v.payload.substring(0, 80) + (v.payload.length > 80 ? '...' : '') : 'N/A';
+      vulnHtml += `<div class="vuln-item">
+        <div class="vuln-probe">${escapeHtml(v.probe_family)}.${escapeHtml(v.probe_class)}</div>
+        <div class="vuln-payload">${escapeHtml(payload)}</div>
+        <div class="vuln-recommendation" style="color:var(--amber)">Not a security issue — LLM analysed correctly but didn't follow the expected output format. Consider using Sonnet for better format compliance.</div>
+      </div>`;
+    }
+    if (formatFailures.length > 5) vulnHtml += `<div style="padding:8px;color:var(--text-dim);font-size:11px">+ ${formatFailures.length - 5} more</div>`;
+    vulnHtml += '</div>';
+  }
+
+  if (hijacked.length === 0 && formatFailures.length === 0 && pct === 100) {
     vulnHtml = '<div class="all-clear">All probes defended. Your production pipeline caught every attack.</div>';
+  } else if (hijacked.length === 0 && pct >= 99) {
+    vulnHtml = '<div class="all-clear">No hijacks detected. All probes were either defended or had format-only issues.</div>' + vulnHtml;
   }
 
   // Errors
@@ -1222,7 +1242,7 @@ function renderRedTeamReport(data) {
     <div class="garak-report-header">
       <div>
         <div class="garak-report-title">PRODUCTION RED TEAM — ${data.total} probes, ${duration}</div>
-        <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${data.defended} defended, ${data.vulnerable} vulnerable, ${data.errors} errors</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${data.defended} defended${data.format_failures ? ', ' + data.format_failures + ' format failures' : ''}${data.hijacked ? ', <span style="color:var(--red)">' + data.hijacked + ' hijacked</span>' : ''}${data.errors ? ', ' + data.errors + ' errors' : ''}</div>
       </div>
       <div class="garak-report-score ${scoreClass}">${pct}%</div>
     </div>
