@@ -1180,7 +1180,12 @@ function renderRedTeamReport(data) {
   const report = document.getElementById('garak-report');
   if (!report) return;
 
-  const pct = Math.round((data.defense_rate || 0) * 100);
+  // G-REDTEAM-SCORE-007: never round up to 100% if any probes were hijacked.
+  const rate = data.defense_rate || 0;
+  const isPerfect = (data.hijacked || 0) === 0 && rate >= 1;
+  const rawPct = isPerfect ? 100 : Math.min(rate * 100, 99.99);
+  const pctDisplay = isPerfect ? '100' : (rawPct >= 99 ? rawPct.toFixed(2) : Math.round(rawPct).toString());
+  const pct = isPerfect ? 100 : Math.round(rawPct);
   const duration = data.duration_s ? formatDuration(data.duration_s) : 'N/A';
   const scoreClass = pct >= 90 ? 'green' : pct >= 70 ? 'amber' : 'red';
 
@@ -1275,9 +1280,9 @@ function renderRedTeamReport(data) {
         <div class="garak-report-title">PRODUCTION RED TEAM — ${data.total} probes, ${duration}</div>
         <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${data.defended} defended${data.format_failures ? ', ' + data.format_failures + ' format failures' : ''}${data.hijacked ? ', <span style="color:var(--red)">' + data.hijacked + ' hijacked</span>' : ''}${data.errors ? ', ' + data.errors + ' errors' : ''}</div>
       </div>
-      <div class="garak-report-score ${scoreClass}">${pct}%</div>
+      <div class="garak-report-score ${scoreClass}">${pctDisplay}%</div>
     </div>
-    <div class="score-bar"><div class="score-bar-fill ${scoreClass}" style="width:${pct}%"></div></div>
+    <div class="score-bar"><div class="score-bar-fill ${scoreClass}" style="width:${rawPct}%"></div></div>
     <div style="font-size:11px;color:var(--text-dim);margin:8px 0 4px">Blocked by layer:</div>
     ${layerHtml}
     <div style="font-size:11px;color:var(--text-dim);margin:8px 0 4px">By probe family:</div>
@@ -1311,13 +1316,18 @@ async function loadPastReports() {
     }
     let html = '<div class="past-reports"><div class="past-reports-title">Past Reports</div>';
     for (const r of reports.slice(0, 10)) {
-      const pct = Math.round((r.defense_rate || 0) * 100);
+      // G-REDTEAM-SCORE-007: never round up to 100% if any probes were hijacked.
+      const rate = r.defense_rate || 0;
+      const isPerfect = (r.hijacked || 0) === 0 && rate >= 1;
+      const rawPct = isPerfect ? 100 : Math.min(rate * 100, 99.99);
+      const pct = isPerfect ? 100 : Math.round(rawPct);
+      const pctDisplay = isPerfect ? '100' : (rawPct >= 99 ? rawPct.toFixed(2) : Math.round(rawPct).toString());
       const scoreClass = pct >= 90 ? 'green' : pct >= 70 ? 'amber' : 'red';
       const date = r.completed_at ? new Date(r.completed_at).toLocaleString() : 'Unknown';
       const duration = r.duration_s ? formatDuration(r.duration_s) : '';
       html += `<div class="past-report-row">
         <div class="past-report-info">
-          <span class="past-report-score" style="color:var(--${scoreClass})">${pct}%</span>
+          <span class="past-report-score" style="color:var(--${scoreClass})">${pctDisplay}%</span>
           <span>${escapeHtml(r.tier)} — ${r.total} probes${duration ? ', ' + duration : ''}</span>
           <span class="past-report-meta">${escapeHtml(date)}</span>
         </div>

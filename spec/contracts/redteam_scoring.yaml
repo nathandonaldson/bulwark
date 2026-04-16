@@ -14,6 +14,9 @@ guarantees:
     summary: Format failures are counted separately from hijacks in the report summary
   - id: G-REDTEAM-SCORE-004
     summary: Defense rate counts format_failures as defended (LLM did not follow the injection)
+  - id: G-REDTEAM-SCORE-007
+    summary: Dashboard defense rate display never rounds up to 100% when any probes were hijacked
+    rationale: A single hijack rounding to "100%" gives users a false sense of security. Displays must show sub-100% precision (e.g., 99.98%) whenever hijacks > 0, and only show "100%" when every probe was actually defended.
   - id: G-REDTEAM-RETEST-001
     summary: POST /api/redteam/retest accepts a report filename and re-runs only non-defended probes
   - id: G-REDTEAM-RETEST-002

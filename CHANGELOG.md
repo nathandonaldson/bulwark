@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.3] - 2026-04-17
+
+### Fixed
+- **Dashboard defense-rate display no longer rounds up to 100% when hijacks occurred** (G-REDTEAM-SCORE-007). A single hijack in 4268 probes previously displayed as "100%" via `Math.round(99.98)`, giving users a false sense of security. Display now shows `99.98%` (two decimals) whenever the true rate is ≥99% but not perfect, and only shows `100%` when every probe was actually defended.
+- Past-reports list endpoint now surfaces `hijacked` so the display guard has the data it needs.
+
 ## [1.0.0] - 2026-04-16
 
 ### Breaking Changes

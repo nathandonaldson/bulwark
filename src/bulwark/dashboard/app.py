@@ -827,6 +827,7 @@ async def list_redteam_reports():
                 "total": data.get("total", 0),
                 "defended": data.get("defended", 0),
                 "vulnerable": data.get("vulnerable", 0),
+                "hijacked": data.get("hijacked", 0),
                 "defense_rate": data.get("defense_rate", 0),
                 "duration_s": data.get("duration_s", 0),
             })

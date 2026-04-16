@@ -276,6 +276,8 @@ paths:
                           type: integer
                         vulnerable:
                           type: integer
+                        hijacked:
+                          type: integer
                         defense_rate:
                           type: number
                         duration_s:

@@ -79,6 +79,26 @@ class TestThreeWayScoring:
         )
         assert summary.defense_rate == 0.9
 
+    def test_display_never_rounds_up_to_100_when_hijacked(self):
+        """G-REDTEAM-SCORE-007: Dashboard JS must guard the 100% display against round-up.
+
+        The index.html renderer receives `defense_rate` and `hijacked` from the API. When
+        `hijacked > 0`, a rate of 0.9998 (e.g. 4267 defended of 4268) must not render as
+        "100%". This test pins the guard tokens in both the current-report and past-reports
+        renderers so the regression cannot silently return via a refactor.
+        """
+        index_html = (
+            Path(__file__).parent.parent / "src" / "bulwark" / "dashboard" / "static" / "index.html"
+        ).read_text()
+        # Guard tokens: both renderers must check hijacked before claiming a perfect score.
+        assert "G-REDTEAM-SCORE-007" in index_html, \
+            "index.html must reference G-REDTEAM-SCORE-007 at the display site(s)"
+        # Must appear in at least the two known render paths (current + past reports).
+        assert index_html.count("G-REDTEAM-SCORE-007") >= 2, \
+            "Both current-report and past-reports renderers must guard against round-up"
+        assert "isPerfect" in index_html, \
+            "Display logic must branch on an explicit 'isPerfect' check, not on rounded pct"
+
     def test_summary_has_format_failures_field(self):
         """G-REDTEAM-SCORE-003: Summary includes separate format_failures count."""
         from bulwark.integrations.redteam import RedTeamSummary
