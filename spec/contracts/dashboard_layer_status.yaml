@@ -1,0 +1,15 @@
+feature: Dashboard defense layer status reflects live config
+version: "0.7.0"
+
+guarantees:
+  - id: G-DASH-LAYERS-001
+    summary: Shield page defense layer cards show enabled/disabled state from live config
+  - id: G-DASH-LAYERS-002
+    summary: Disabled layers show grey dot instead of green
+  - id: G-DASH-LAYERS-003
+    summary: Layer status updates when config toggles change
+
+non_guarantees:
+  - id: NG-DASH-LAYERS-001
+    summary: Does NOT hide disabled layers from the shield page
+    reason: Users should see all layers and their state, not just active ones

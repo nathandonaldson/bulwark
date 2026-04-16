@@ -87,6 +87,8 @@
   .layer-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   .layer-dot.green { background: var(--green); box-shadow: 0 0 8px var(--green); }
   .layer-dot.amber { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+  .layer-dot.off { background: var(--text-dim); opacity: 0.3; }
+  .layer-card.disabled { opacity: 0.5; }
   .layer-info { flex: 1; }
   .layer-name { font-size: 14px; font-weight: 600; }
   .layer-desc { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
@@ -1435,7 +1437,11 @@ function renderConfigToggles() {
 
 function handleToggle(key, el) {
   const isOn = el.classList.toggle('on');
+  configData[key] = isOn;
   updateConfig({[key]: isOn});
+  // Refresh shield page layer cards and status pill
+  fetchMetrics();
+  updateStatusPill();
 }
 
 // ============================================================
@@ -1635,6 +1641,16 @@ async function fetchMetrics() {
 function renderLayerCards(metrics) {
   const byLayer = metrics.by_layer || {};
   const total = metrics.total || 1;
+
+  // Map layer keys to config toggle keys
+  const toggleMap = {
+    sanitizer: 'sanitizer_enabled',
+    boundary: 'trust_boundary_enabled',
+    executor: null,  // always on (LLM backend controls this)
+    canary: 'canary_enabled',
+    isolator: null,  // always on
+  };
+
   const layers = [
     { key: 'sanitizer', stat: byLayer.sanitizer || 0, label: 'events' },
     { key: 'boundary', stat: byLayer.boundary || 0, label: 'events' },
@@ -1646,10 +1662,14 @@ function renderLayerCards(metrics) {
   container.innerHTML = layers.map(l => {
     const meta = LAYER_META[l.key] || {};
     const pct = total > 0 ? Math.round((1 - (byLayer[l.key + '_blocked'] || 0) / Math.max(l.stat, 1)) * 100) : 100;
-    return `<div class="layer-card" data-layer="${l.key}">
-      <div class="layer-dot green"></div>
+    const toggleKey = toggleMap[l.key];
+    const enabled = toggleKey ? configData[toggleKey] !== false : true;
+    const dotClass = enabled ? 'green' : 'off';
+    const cardClass = enabled ? '' : ' disabled';
+    return `<div class="layer-card${cardClass}" data-layer="${l.key}">
+      <div class="layer-dot ${dotClass}"></div>
       <div class="layer-info">
-        <div class="layer-name">${meta.name || l.key}</div>
+        <div class="layer-name">${meta.name || l.key}${enabled ? '' : ' <span style="font-size:10px;color:var(--text-dim)">(off)</span>'}</div>
         <div class="layer-desc">${meta.desc || ''}</div>
       </div>
       <div class="layer-stats">
