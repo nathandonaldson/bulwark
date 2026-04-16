@@ -1,8 +1,0 @@
-endpoint: POST /v1/pipeline
-version: "1.0.0"
-status: REMOVED
-
-note: |
-  Removed in v1.0.0 (ADR-014). All pipeline functionality merged into
-  POST /v1/clean. The test page and red team now call /v1/clean.
-  See spec/contracts/http_clean.yaml for the unified endpoint contract.

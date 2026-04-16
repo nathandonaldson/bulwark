@@ -5,7 +5,7 @@ The test_spec_compliance.py meta-test validates they agree.
 """
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -15,7 +15,7 @@ class CleanRequest(BaseModel):
     content: str = Field(
         ...,
         max_length=1_000_000,
-        description="Untrusted text to sanitize and wrap in trust boundary tags.",
+        description="Untrusted text to process through the full defense stack.",
     )
     source: str = Field(
         default="external",
@@ -37,10 +37,14 @@ class CleanRequest(BaseModel):
 
 
 class CleanResponse(BaseModel):
-    """Response body for POST /v1/clean."""
+    """Response body for POST /v1/clean (200 OK — content passed all checks)."""
     result: str = Field(
         ...,
         description="Sanitized content wrapped in trust boundary tags.",
+    )
+    blocked: bool = Field(
+        default=False,
+        description="Always false in 200 response. True only in 422 error body.",
     )
     source: str = Field(
         ...,
@@ -61,6 +65,22 @@ class CleanResponse(BaseModel):
     modified: bool = Field(
         ...,
         description="True if the sanitizer modified the content (stripped characters).",
+    )
+    analysis: Optional[str] = Field(
+        default=None,
+        description="Phase 1 LLM analysis output (if LLM configured).",
+    )
+    execution: Optional[str] = Field(
+        default=None,
+        description="Phase 2 LLM execution output (if LLM configured).",
+    )
+    trace: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Per-layer trace with step number, layer name, verdict, detail, and timing.",
+    )
+    llm_mode: Optional[str] = Field(
+        default=None,
+        description="LLM backend mode used: 'anthropic', 'openai_compatible', or 'none'.",
     )
 
 
@@ -91,19 +111,6 @@ class RetestRequest(BaseModel):
     filename: str = Field(
         ...,
         description="Filename of the report to retest (from /api/redteam/reports).",
-    )
-
-
-class PipelineRequest(BaseModel):
-    """Request body for POST /v1/pipeline."""
-    content: str = Field(
-        ...,
-        max_length=1_000_000,
-        description="Untrusted content to process through the pipeline.",
-    )
-    source: str = Field(
-        default="external",
-        description="Source label for trust boundary tags.",
     )
 
 
