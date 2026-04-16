@@ -17,9 +17,29 @@ Or with a `.env` file (keeps secrets out of version control):
 ```bash
 BULWARK_LLM_MODE=anthropic
 BULWARK_API_KEY=sk-ant-your-key
+BULWARK_API_TOKEN=$(openssl rand -hex 32)
 ```
 
-Env vars are the persistent config mechanism for Docker. Dashboard UI changes override them for the current session but reset on container restart.
+## Dashboard authentication
+
+Set `BULWARK_API_TOKEN` to protect the dashboard with bearer token auth:
+
+```bash
+# Generate a secure random token
+openssl rand -hex 32
+# Add it to your .env
+echo "BULWARK_API_TOKEN=your-generated-token" >> .env
+```
+
+When set:
+- The dashboard shows a login screen — enter the token to access
+- Management endpoints (`/api/config`, `/api/redteam/*`, etc.) require `Authorization: Bearer <token>`
+- Core API (`/v1/clean`, `/v1/guard`) remains public — no token needed
+- The token is also accepted via `bulwark_token` HttpOnly cookie (set automatically on login)
+
+When not set: all endpoints are open (fine for localhost development).
+
+Env vars override the config file and are the persistent config mechanism for Docker. Dashboard UI changes are session-only unless backed by env vars.
 
 ## YAML config
 
