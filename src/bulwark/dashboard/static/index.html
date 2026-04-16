@@ -706,14 +706,11 @@ function renderLLMFields(mode, backend) {
 
   const showUrl = mode === 'openai_compatible';
   const apiKeyRequired = mode === 'anthropic';
-  const apiKeyLabel = apiKeyRequired
-    ? 'API Key'
-    : 'API Key <span style="color: var(--text-dim); font-weight: normal;">(optional for local)</span>';
-  const apiKeyPlaceholder = mode === 'anthropic' ? 'sk-ant-...' : 'sk-... (leave empty for local)';
+  const envOverrides = configData.env_overrides || {};
 
   let html = '<div class="llm-field-group">';
 
-  if (showUrl) {
+  if (showUrl && !envOverrides.base_url) {
     const presetBtns = LLM_URL_PRESETS.map(p =>
       `<button class="llm-preset-btn" onclick="document.getElementById('llm-base-url').value='${p.url}'">${p.label}</button>`
     ).join('');
@@ -723,13 +720,33 @@ function renderLLMFields(mode, backend) {
         <input type="text" id="llm-base-url" placeholder="http://localhost:8080/v1" value="${backend.base_url || ''}" autocomplete="off" />
         <div class="llm-presets">${presetBtns}</div>
       </div>`;
+  } else if (showUrl && envOverrides.base_url) {
+    html += `
+      <div class="llm-field">
+        <label>Endpoint URL <span style="color:var(--green);font-weight:normal;">(set via BULWARK_BASE_URL)</span></label>
+        <div style="font-size:13px;color:var(--text-dim);padding:8px 0;">${escapeHtml(backend.base_url)}</div>
+      </div>`;
+  }
+
+  if (!envOverrides.api_key) {
+    const apiKeyLabel = apiKeyRequired
+      ? 'API Key'
+      : 'API Key <span style="color: var(--text-dim); font-weight: normal;">(optional for local)</span>';
+    const apiKeyPlaceholder = mode === 'anthropic' ? 'sk-ant-...' : 'sk-... (leave empty for local)';
+    html += `
+      <div class="llm-field">
+        <label>${apiKeyLabel}</label>
+        <input type="password" id="llm-api-key" placeholder="${apiKeyPlaceholder}" value="${backend.api_key || ''}" autocomplete="off" />
+      </div>`;
+  } else {
+    html += `
+      <div class="llm-field">
+        <label>API Key <span style="color:var(--green);font-weight:normal;">(set via BULWARK_API_KEY)</span></label>
+        <div style="font-size:13px;color:var(--text-dim);padding:8px 0;">${escapeHtml(backend.api_key)}</div>
+      </div>`;
   }
 
   html += `
-    <div class="llm-field">
-      <label>${apiKeyLabel}</label>
-      <input type="password" id="llm-api-key" placeholder="${apiKeyPlaceholder}" value="${backend.api_key || ''}" autocomplete="off" />
-    </div>
     <div class="llm-field">
       <label>Phase 1 Model <span style="color: var(--text-dim); font-weight: normal;">(analyze, no tools)</span></label>
       <div class="llm-model-row">

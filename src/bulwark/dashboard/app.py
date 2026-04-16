@@ -363,7 +363,18 @@ async def pipeline_status():
 @app.get("/api/config")
 async def get_config():
     """Get current Bulwark configuration."""
-    return config.to_dict()
+    d = config.to_dict()
+    # Tell the frontend which LLM fields are set via env vars (not editable)
+    d["env_overrides"] = {
+        k: True for k, v in {
+            "mode": "BULWARK_LLM_MODE",
+            "api_key": "BULWARK_API_KEY",
+            "base_url": "BULWARK_BASE_URL",
+            "analyze_model": "BULWARK_ANALYZE_MODEL",
+            "execute_model": "BULWARK_EXECUTE_MODEL",
+        }.items() if os.environ.get(v)
+    }
+    return d
 
 
 @app.put("/api/config")
