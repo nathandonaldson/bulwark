@@ -1,0 +1,157 @@
+# Bulwark Security — Codex Security Review
+
+## 1. Overview
+
+Bulwark is a prompt-injection defense toolkit for LLM applications. It ships as:
+
+- A **Python library** with `Sanitizer`, `TrustBoundary`, `AnalysisGuard`, `CanarySystem`, `Pipeline`, and `MapReduceIsolator`.
+- A **FastAPI dashboard + HTTP API** (`/v1/clean`, `/v1/guard`, `/v1/pipeline`) plus configuration and red-team tooling.
+- **Integrations** for Anthropic/OpenAI-compatible LLMs, PromptGuard detection models, Garak red-teaming, and an OpenClaw sidecar plugin.
+
+Typical deployments are single-tenant containers on localhost or embedded library use. Untrusted content (email bodies, web scrapes, tool outputs) is sanitized, tagged, optionally classified, then read by an LLM. In two-phase mode, the LLM that reads untrusted content cannot act; a second phase executes on structured analysis only.
+
+**Security goals:** Prevent prompt injection from triggering tools/actions or exfiltrating sensitive data, provide detection and canary leak alerts, and isolate untrusted items.
+
+**Non-goals:** User authentication/authorization for the dashboard, web application hardening for arbitrary multi-tenant exposure, or guaranteeing that every LLM model obeys trust boundary tags.
+
+---
+
+## 2. Threat Model, Trust Boundaries and Assumptions
+
+### Assets
+
+- LLM API keys and backend configuration.
+- Sensitive data that might be present in untrusted content or in LLM responses (emails, documents, tool outputs).
+- Canary tokens used to detect exfiltration.
+- Event logs and red-team reports stored on disk.
+- Tooling capabilities available to Phase 2 execution (if used).
+
+### Trust Boundaries and Inputs
+
+**Attacker-controlled inputs**
+
+- `content` and `text` fields in HTTP API requests (`/v1/clean`, `/v1/guard`, `/v1/pipeline`, `/api/test`).
+- Untrusted messages/tool outputs passed to library entry points (`clean`, `Pipeline.run`, OpenClaw plugin hooks).
+- LLM output from Phase 1 (treated as untrusted and guarded).
+- Potentially, network clients if the dashboard is exposed beyond localhost.
+
+**Operator-controlled inputs**
+
+- `bulwark-config.yaml`, environment variables, and LLM backend selection/credentials.
+- Optional canary token files and detection model activation.
+- Webhook endpoints used by `WebhookEmitter`.
+- Docker/network exposure (localhost vs. public interface).
+
+**Developer-controlled inputs**
+
+- `analyze_fn` and `execute_fn` functions, tool definitions, and custom guard checks.
+- Integration wiring (e.g., Anthropic `protect`, OpenClaw plugin behavior).
+- Test fixtures, attack suites, and red-team workflows.
+
+### Assumptions
+
+- Phase 1 has no tools and Phase 2 has restricted tools. If developers give Phase 1 tools or feed raw untrusted content to Phase 2, the architecture's core guarantee is lost.
+- The LLM respects trust boundary tags/instructions. This is strongest with Claude; other models may ignore or misinterpret tags.
+- The dashboard/API are typically used in a trusted, single-tenant environment (localhost or protected network). There is no built-in auth.
+- Config files and environment variables are not attacker-controlled in production deployments.
+- Optional dependencies (`transformers`, `garak`, `claude` CLI) are trusted and installed by operators.
+
+---
+
+## 3. Attack Surface, Mitigations and Attacker Stories
+
+### Attack Surface
+
+**1. HTTP API + Dashboard**
+
+- `/v1/clean`, `/v1/guard`, `/v1/pipeline`, `/api/test` accept attacker-supplied content.
+- `/api/config` and integration activation endpoints update runtime settings, including API keys and base URLs.
+- `/api/events` and `/api/stream` accept/emit event data; `/api/redteam/*` writes reports to disk.
+- No authentication; CORS allows localhost origins only (helps browser isolation but not network access control).
+
+**2. LLM Backend Connections**
+
+- Anthropic/OpenAI-compatible calls can be expensive and expose prompts to third-party APIs.
+- `openai_compatible` uses a configurable `base_url`; SSRF risk is mitigated by `_validate_base_url` (blocks private IPs and metadata endpoints), but DNS rebinding or misconfiguration remains possible if config is attacker-controlled.
+
+**3. Defense Layers**
+
+- `Sanitizer` removes hidden characters, scripts, CSS-hidden text, bidi overrides, and optionally normalizes Unicode.
+- `TrustBoundary` wraps content with sanitized tag names and security instructions.
+- `AnalysisGuard` blocks suspicious patterns and limits output length.
+- `CanarySystem` detects token leakage including encoded variants (base64/hex/reversed/spaced).
+- Bridge sanitizer and guard prevent raw analysis output from reaching Phase 2.
+
+**4. Integrations and Tooling**
+
+- Anthropic `protect` sanitizes `user` and `tool_result` blocks, but assumes those are the only untrusted roles.
+- OpenClaw plugin is fail-open if the sidecar is unreachable.
+- Garak/red-team integrations call subprocesses (`garak`, `claude` CLI) and may store payloads/responses.
+
+**5. Data Persistence**
+
+- SQLite event DB and red-team reports can store payload previews and LLM responses. These files are locally accessible and downloadable via API endpoints if exposed.
+
+### Mitigations and Robustness Measures
+
+- Pre-compiled regexes and bounded quantifiers in sanitizer/canary checks reduce ReDoS risk.
+- Tag name sanitization in `TrustBoundary` blocks XML attribute injection.
+- Config updates enforce that at least one core defense layer remains enabled.
+- API key masking in `/api/config` responses.
+- Path sanitization for report downloads (`Path(filename).name` and prefix checks).
+- SSRF protections in `llm_factory` for OpenAI-compatible endpoints.
+- Pydantic validation enforces maximum payload sizes (1,000,000 chars).
+
+### Attacker Stories
+
+**Prompt injection to trigger tool usage or data exfiltration.**
+An attacker sends malicious content through `/v1/pipeline` or a library integration. Mitigated by sanitizer, trust boundaries, two-phase execution, analysis guard, optional detection models, and canary leak detection. *Residual risk:* if the chosen LLM does not respect boundary tags or the developer exposes tools during Phase 1, the defense weakens.
+
+**Unauthorized configuration changes.**
+If the dashboard/API is exposed, an attacker could call `/api/config` to change `llm_backend` settings, disable some layers, or set a malicious `base_url`. This can lead to prompt exfiltration, unexpected LLM calls, or weakened defenses. In typical localhost deployments this is out of scope, but becomes critical in multi-tenant or internet-exposed setups.
+
+**SSRF via OpenAI-compatible backend.**
+If an attacker can set `base_url`, they may attempt to access internal hosts. The code blocks private IPs and metadata endpoints, but hostnames can still resolve to internal networks (DNS rebinding). Treat `base_url` as operator-only.
+
+**Denial of service / cost abuse.**
+Large payloads or repeated calls can drive CPU usage or LLM costs. There are input length limits, but no built-in rate limiting or auth. Production deployments should place Bulwark behind rate-limiting proxies.
+
+**Data leakage via logs/reports.**
+Event DB and red-team reports may include payload previews and model outputs. If these contain sensitive data and the API is exposed, attackers could retrieve them via `/api/redteam/reports/*`. Mitigated by local-only deployment and access controls outside the app.
+
+**OpenClaw plugin fail-open.**
+If the sidecar is down, the plugin passes content through unsanitized. This is a deliberate availability trade-off; operators should monitor and treat failures as security degradation.
+
+**Front-end injection/XSS.**
+The API returns user-supplied strings in responses and event details. The frontend (not in this repo) must escape output. If it renders raw HTML from event data, stored XSS is possible.
+
+---
+
+## 4. Criticality Calibration
+
+### Critical
+
+- Remote attacker can cause privileged tool execution or data exfiltration by bypassing the two-phase boundary (e.g., Phase 2 sees untrusted content) in a production system with real tools/PII.
+- Unauthenticated network access to `/api/config` in an exposed deployment enabling an attacker to disable defenses, redirect LLM traffic to a malicious endpoint, or change API keys.
+
+### High
+
+- SSRF to internal services via `openai_compatible` `base_url` if an attacker can modify configuration (operator-controlled in typical deployments).
+- Leakage of sensitive red-team reports or event logs when the dashboard is exposed.
+- Prompt injection that bypasses guard/canary and leads to LLM-mediated data disclosure or unsafe actions, especially when Phase 2 has powerful tools.
+
+### Medium
+
+- Denial-of-service or cost amplification via large payloads or repeated API calls.
+- Event log/metrics poisoning via `/api/events` in exposed deployments.
+- Misuse of `protect`/`clean` shortcuts that only sanitize inputs (no two-phase isolation), leading to partial defenses.
+
+### Low
+
+- Minor bypasses that only affect UI labels/trace output without compromising security goals.
+- Fail-open behavior in the OpenClaw plugin when the sidecar is unavailable (availability trade-off rather than a code defect).
+- False positives/negatives in regex-based `AnalysisGuard` that impact detection quality but not core isolation.
+
+---
+
+> **Note:** Severity depends heavily on deployment context. In default local-only use, unauthenticated endpoints are lower risk; when Bulwark is exposed or embedded in a tool-capable agent, configuration access and pipeline misconfiguration become critical.
