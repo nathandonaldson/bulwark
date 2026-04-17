@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.5] - 2026-04-17
+
+### Fixed
+- **Local `python -m bulwark.dashboard` now auto-loads `.env` from cwd** (G-ENV-010). Previously the local path ignored `.env` entirely — users who edited it and restarted saw `env_configured: false` and the pipeline silently fell back to `https://api.openai.com/v1` with no key → 401. Zero new dependencies (10-line hand-rolled parser). Existing env vars always win. Docker path is unaffected. See ADR-016.
+
+### Changed
+- **`NG-ENV-002` removed, replaced with `G-ENV-011`** (positive guarantee). The old non-guarantee claimed env vars did not override a saved config file; the code and tests had always implemented the opposite. Contract now matches reality: `BULWARK_*` env vars override corresponding fields from `bulwark-config.yaml`.
+
 ## [1.0.4] - 2026-04-17
 
 ### Added

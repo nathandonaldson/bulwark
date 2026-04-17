@@ -21,11 +21,14 @@ guarantees:
   - id: G-ENV-009
     summary: BULWARK_ALLOWED_HOSTS env var (comma-separated) adds hostnames to the SSRF allowlist
     rationale: Opt-in widening of the SSRF block for LAN inference servers. See ADR-015.
+  - id: G-ENV-010
+    summary: Dashboard auto-loads a .env file from cwd at startup, without overriding existing env vars
+    rationale: Eliminates the silent failure mode where local-source users edit .env, restart, and hit 401 because Python didn't read the file. Docker path unaffected — --env-file continues to populate os.environ. See ADR-016.
+  - id: G-ENV-011
+    summary: BULWARK_* env vars override corresponding fields loaded from the saved config file
+    rationale: Docker .env and shell env are the persistent source of truth for credentials. Dashboard UI edits are session-level; next load, env wins. Prior NG-ENV-002 documented the opposite and was wrong.
 
 non_guarantees:
   - id: NG-ENV-001
     summary: Dashboard UI changes do NOT persist across container restarts
     reason: Env vars are the persistent config mechanism in Docker. Dashboard changes are in-memory only.
-  - id: NG-ENV-002
-    summary: Env vars do NOT override a saved config file if one exists
-    reason: Config file (bulwark-config.yaml) takes precedence. Env vars are defaults when no file exists.

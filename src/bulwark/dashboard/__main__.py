@@ -8,6 +8,36 @@ import shutil
 from pathlib import Path
 
 
+def _load_dotenv(path: str = ".env") -> list[str]:
+    """G-ENV-010: Load KEY=VALUE pairs from a .env file into os.environ.
+
+    Existing env vars are never overridden. Returns the list of key names
+    that were newly set (for startup logging — values never leave this
+    function).
+    """
+    p = Path(path)
+    if not p.exists():
+        return []
+    loaded: list[str] = []
+    try:
+        text = p.read_text()
+    except Exception:
+        return []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip()
+        if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+            val = val[1:-1]
+        if key and key not in os.environ:
+            os.environ[key] = val
+            loaded.append(key)
+    return loaded
+
+
 def _auto_sync():
     """Sync from repo if running as installed service and repo is accessible."""
     runtime_dir = Path(__file__).parent.parent  # ~/Library/Application Support/bulwark-dashboard/
@@ -52,6 +82,14 @@ def main():
     parser.add_argument("--port", type=int, default=3000, help="Port to listen on")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Host to bind to (default: localhost only)")
     args = parser.parse_args()
+
+    # G-ENV-010: Pick up .env from cwd before any config is constructed.
+    loaded_keys = _load_dotenv()
+    if loaded_keys:
+        bulwark_keys = [k for k in loaded_keys if k.startswith("BULWARK_")]
+        print(f"Loaded {len(loaded_keys)} var(s) from .env" + (
+            f" (BULWARK_*: {', '.join(bulwark_keys)})" if bulwark_keys else ""
+        ))
 
     # Auto-sync from repo on startup if configured
     try:

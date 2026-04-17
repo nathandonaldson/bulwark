@@ -656,7 +656,7 @@ class TestEnvConfig:
         assert cfg.llm_backend.mode == "none"
 
     def test_env_vars_override_config_file(self, monkeypatch, tmp_path):
-        """NG-ENV-002: Env vars override config file (Docker .env wins)."""
+        """G-ENV-011: Env vars override config file (Docker .env wins)."""
         monkeypatch.setenv("BULWARK_LLM_MODE", "anthropic")
         config_file = tmp_path / "config.yaml"
         import yaml
@@ -669,7 +669,7 @@ class TestEnvConfig:
         assert cfg.llm_backend.mode == "anthropic"
 
     def test_env_vars_applied_when_config_corrupt(self, monkeypatch, tmp_path):
-        """Env vars should take effect even when config file is corrupt YAML."""
+        """G-ENV-011: Env vars take effect even when config file is corrupt YAML."""
         monkeypatch.setenv("BULWARK_LLM_MODE", "anthropic")
         monkeypatch.setenv("BULWARK_API_KEY", "sk-test-fallback")
         config_file = tmp_path / "config.yaml"
@@ -678,6 +678,42 @@ class TestEnvConfig:
         cfg = BulwarkConfig.load(path=str(config_file))
         assert cfg.llm_backend.mode == "anthropic"
         assert cfg.llm_backend.api_key == "sk-test-fallback"
+
+    def test_dotenv_autoload_populates_os_environ(self, monkeypatch, tmp_path):
+        """G-ENV-010: .env file in cwd is loaded into os.environ at dashboard startup."""
+        monkeypatch.delenv("BULWARK_LLM_MODE", raising=False)
+        monkeypatch.delenv("BULWARK_API_KEY", raising=False)
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".env").write_text(
+            "# comment\n"
+            "\n"
+            "BULWARK_LLM_MODE=anthropic\n"
+            'BULWARK_API_KEY="sk-quoted"\n'
+        )
+        import os
+        from bulwark.dashboard.__main__ import _load_dotenv
+        loaded = _load_dotenv()
+        assert "BULWARK_LLM_MODE" in loaded
+        assert "BULWARK_API_KEY" in loaded
+        assert os.environ["BULWARK_LLM_MODE"] == "anthropic"
+        assert os.environ["BULWARK_API_KEY"] == "sk-quoted"  # quotes stripped
+
+    def test_dotenv_autoload_does_not_override_existing(self, monkeypatch, tmp_path):
+        """G-ENV-010: existing env vars are never overridden by .env contents."""
+        monkeypatch.setenv("BULWARK_LLM_MODE", "shell-wins")
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".env").write_text("BULWARK_LLM_MODE=file-loses\n")
+        import os
+        from bulwark.dashboard.__main__ import _load_dotenv
+        loaded = _load_dotenv()
+        assert "BULWARK_LLM_MODE" not in loaded  # not re-set
+        assert os.environ["BULWARK_LLM_MODE"] == "shell-wins"
+
+    def test_dotenv_autoload_missing_file_is_noop(self, monkeypatch, tmp_path):
+        """G-ENV-010: no .env file → empty list, no side effects."""
+        monkeypatch.chdir(tmp_path)
+        from bulwark.dashboard.__main__ import _load_dotenv
+        assert _load_dotenv() == []
 
 
 # ---------------------------------------------------------------------------
