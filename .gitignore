@@ -27,3 +27,4 @@ bulwark-config.yaml
 .env
 reports/
 .venv/
+benchmarks/

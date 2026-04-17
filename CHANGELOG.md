@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.0] - 2026-04-17
+
+### Added
+- **`bulwark_bench` — sibling CLI for LLM model benchmarking.** Sweeps up to N models sequentially against a running Bulwark dashboard, captures efficacy / speed / cost, and emits `report.json` + `report.md`.
+  - Model swap via `PUT /api/config`, scan via `POST /api/redteam/run`, polling progress — no new pipeline code (G-BENCH-010).
+  - Efficacy = `defense_rate` from the red-team tier (reuses G-REDTEAM-SCORE-001..007).
+  - Speed = `duration_s / total` (avg seconds per probe).
+  - Cost = `tokens × $/Mtok` from a versioned pricing table; local inference $0.
+  - Resumable: each model's result persists to disk immediately; `--resume` skips completed entries (G-BENCH-002/003).
+  - Per-family defense rate breakdown in the markdown report when available.
+  - Probe-progress events during long sweeps.
+  - Warns on quick-tier usage (10 probes mostly get blocked upstream of the LLM — use `--tier standard` for meaningful comparisons).
+  - ADR-017, contract `spec/contracts/bulwark_bench.yaml`, 22 new tests.
+  - Entry point: `bulwark-bench` (installed script) or `python -m bulwark_bench`.
+
 ## [1.0.7] - 2026-04-17
 
 ### Fixed

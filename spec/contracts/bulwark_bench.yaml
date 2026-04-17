@@ -1,0 +1,56 @@
+feature: bulwark_bench — sibling CLI for LLM model benchmarking
+version: "1.0.0"
+
+guarantees:
+  - id: G-BENCH-001
+    summary: Benchmarks up to N models sequentially against a fixed red-team tier via a running Bulwark dashboard
+    rationale: Sequential execution keeps latency measurements uncontaminated by parallel GPU contention on local inference.
+
+  - id: G-BENCH-002
+    summary: Each model run persists its result file to disk before moving to the next model
+    rationale: A crashed sweep resumes with --resume; per-model results survive independently of whole-run success.
+
+  - id: G-BENCH-003
+    summary: With --resume, models whose result file already exists in the run directory are skipped
+    rationale: Hour-long local-GPU sweeps must not restart from zero after a power blip or timeout.
+
+  - id: G-BENCH-004
+    summary: Efficacy is reported as defense_rate from the red-team tier (reuses G-REDTEAM-SCORE-001..007)
+    rationale: Identical metric to what the dashboard reports — single source of truth for defense quality.
+
+  - id: G-BENCH-005
+    summary: Speed is reported as avg seconds per probe, computed as duration_s / total from the tier result
+    rationale: Wall-clock per-probe is what users experience; matches dashboard display.
+
+  - id: G-BENCH-006
+    summary: Cost is computed as prompt_tokens × $/Mtok_in + completion_tokens × $/Mtok_out, using a pricing table
+    rationale: Local inference defaults to $0; Anthropic/OpenAI rates are maintained in bulwark_bench/pricing.py.
+
+  - id: G-BENCH-007
+    summary: Every run produces report.json (machine-readable) and report.md (human-readable table)
+    rationale: JSON for diffing/history, markdown for immediate human consumption in CI and terminal.
+
+  - id: G-BENCH-008
+    summary: Markdown report sorts models by defense_rate descending, with a secondary sort on avg latency ascending
+    rationale: Deterministic ordering — best defender first, tie-break toward faster model.
+
+  - id: G-BENCH-009
+    summary: Pricing lookups are case-insensitive and fall back to $0 for unknown models with a warning
+    rationale: A missing price should not crash a sweep; it should be reported so the user can add the entry.
+
+  - id: G-BENCH-010
+    summary: The runner never kills a dashboard process; model swaps go only through PUT /api/config
+    rationale: Bench is a read-mostly orchestrator — it changes config but does not own the dashboard lifecycle.
+
+non_guarantees:
+  - id: NG-BENCH-001
+    summary: Token counts are estimates from a single pre-run sample call, not per-probe measurements
+    reason: Probe-by-probe token accounting would require instrumenting the pipeline. Single-sample extrapolation is adequate for ranking and within ~20% for variable-length probes.
+
+  - id: NG-BENCH-002
+    summary: Cost figures are "accurate as of the pricing table version", not current provider billing
+    reason: Provider rates change. The table is versioned in the code; users can override with --pricing custom.json.
+
+  - id: NG-BENCH-003
+    summary: No parallel execution across models — sequential only
+    reason: Parallel sweeps contend for local GPU RAM and pollute latency measurements. Explicit non-goal (see ADR-017).
