@@ -852,14 +852,20 @@ function _populateModelDropdowns(models, backend) {
 }
 
 function getLLMFormData() {
+  // G-ENV-012: omit fields whose <input> is absent (env-shadowed fields render as
+  // read-only text). Sending {api_key: ''} on Save would clobber env values in
+  // older backend versions.
   const mode = document.querySelector('.llm-mode-option.selected')?.dataset.mode || 'none';
-  return {
-    mode,
-    api_key: (document.getElementById('llm-api-key')?.value || '').trim(),
-    base_url: (document.getElementById('llm-base-url')?.value || '').trim(),
-    analyze_model: document.getElementById('llm-analyze-model')?.value || '',
-    execute_model: document.getElementById('llm-execute-model')?.value || '',
-  };
+  const data = { mode };
+  const apiKeyEl = document.getElementById('llm-api-key');
+  if (apiKeyEl) data.api_key = apiKeyEl.value.trim();
+  const baseUrlEl = document.getElementById('llm-base-url');
+  if (baseUrlEl) data.base_url = baseUrlEl.value.trim();
+  const analyzeEl = document.getElementById('llm-analyze-model');
+  if (analyzeEl) data.analyze_model = analyzeEl.value;
+  const executeEl = document.getElementById('llm-execute-model');
+  if (executeEl) data.execute_model = executeEl.value;
+  return data;
 }
 
 async function testLLMConnection() {

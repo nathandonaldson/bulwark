@@ -5,7 +5,7 @@ import os
 import yaml
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Optional
+from typing import ClassVar, Optional
 
 # Relative path — resolves against CWD. In Docker with WORKDIR /app, this is /app/bulwark-config.yaml.
 CONFIG_PATH = Path("bulwark-config.yaml")
@@ -134,10 +134,26 @@ class BulwarkConfig:
             d["llm_backend"]["api_key"] = self._mask_key(d["llm_backend"]["api_key"])
         return d
 
+    # Fields in llm_backend that can be populated from env vars. Shared by
+    # save() (G-ENV-013) and update_from_dict() (G-ENV-012).
+    _ENV_SHADOWED_LLM_FIELDS: ClassVar[dict[str, str]] = {
+        "mode": "BULWARK_LLM_MODE",
+        "api_key": "BULWARK_API_KEY",
+        "base_url": "BULWARK_BASE_URL",
+        "analyze_model": "BULWARK_ANALYZE_MODEL",
+        "execute_model": "BULWARK_EXECUTE_MODEL",
+    }
+
     def save(self, path: str = None):
+        import os
         p = Path(path) if path else CONFIG_PATH
-        # Use raw asdict — save() must write the real key, not the masked one
         d = asdict(self)
+        # G-ENV-013: never persist env-provided credentials to disk. Blank
+        # env-shadowed fields; _apply_env_vars() refills them on next load.
+        llm = d.get("llm_backend", {})
+        for field, env_var in self._ENV_SHADOWED_LLM_FIELDS.items():
+            if os.environ.get(env_var) and field in llm:
+                llm[field] = ""
         p.write_text(yaml.dump(d, default_flow_style=False, sort_keys=False))
 
     @classmethod
@@ -195,12 +211,20 @@ class BulwarkConfig:
         if not any(proposed.values()):
             return "Cannot disable all core defense layers simultaneously. At least one of sanitizer, trust boundary, or guard bridge must stay enabled."
 
+        import os
         for key, value in data.items():
             if key == "llm_backend" and isinstance(value, dict):
                 for k, v in value.items():
                     if hasattr(self.llm_backend, k):
                         # Don't overwrite real key with masked value
                         if k == "api_key" and isinstance(v, str) and "..." in v:
+                            continue
+                        # G-ENV-012: ignore empty-string updates to env-shadowed fields.
+                        # The dashboard UI renders these read-only and getLLMFormData()
+                        # returns "" when the input is absent — without this guard, a
+                        # Save click would clobber the env-provided value in memory.
+                        env_var = self._ENV_SHADOWED_LLM_FIELDS.get(k)
+                        if env_var and os.environ.get(env_var) and v == "":
                             continue
                         setattr(self.llm_backend, k, v)
             elif key == "integrations":

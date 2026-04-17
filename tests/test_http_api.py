@@ -715,6 +715,49 @@ class TestEnvConfig:
         from bulwark.dashboard.__main__ import _load_dotenv
         assert _load_dotenv() == []
 
+    def test_update_from_dict_ignores_empty_on_env_shadowed_field(self, monkeypatch, tmp_path):
+        """G-ENV-012: empty-string UI update must not clobber an env-provided api_key/base_url."""
+        monkeypatch.setenv("BULWARK_API_KEY", "env-key-value")
+        monkeypatch.setenv("BULWARK_BASE_URL", "http://192.168.1.78:1234/v1")
+        from bulwark.dashboard.config import BulwarkConfig
+        cfg = BulwarkConfig.load(path=str(tmp_path / "nonexistent.yaml"))
+        assert cfg.llm_backend.api_key == "env-key-value"
+        # Simulate the dashboard UI "Save" click when env-shadowed inputs are hidden:
+        # getLLMFormData() yields empty strings for fields whose input DOM node is absent.
+        cfg.update_from_dict({"llm_backend": {
+            "mode": "openai_compatible",  # non-env-shadowed-here (well, mode is, but value is real)
+            "api_key": "",
+            "base_url": "",
+            "analyze_model": "",
+            "execute_model": "",
+        }})
+        assert cfg.llm_backend.api_key == "env-key-value", "env api_key must survive empty UI save"
+        assert cfg.llm_backend.base_url == "http://192.168.1.78:1234/v1", "env base_url must survive empty UI save"
+
+    def test_update_from_dict_still_honors_real_ui_override(self, monkeypatch, tmp_path):
+        """G-ENV-008 preserved: a non-empty UI value still overrides env for the session."""
+        monkeypatch.setenv("BULWARK_LLM_MODE", "anthropic")
+        from bulwark.dashboard.config import BulwarkConfig
+        cfg = BulwarkConfig.load(path=str(tmp_path / "nonexistent.yaml"))
+        assert cfg.llm_backend.mode == "anthropic"
+        cfg.update_from_dict({"llm_backend": {"mode": "none"}})
+        assert cfg.llm_backend.mode == "none", "explicit non-empty UI change still overrides env"
+
+    def test_save_blanks_env_shadowed_fields_to_disk(self, monkeypatch, tmp_path):
+        """G-ENV-013: save() must not persist env values into bulwark-config.yaml."""
+        monkeypatch.setenv("BULWARK_API_KEY", "env-secret-should-never-hit-disk")
+        monkeypatch.setenv("BULWARK_BASE_URL", "http://192.168.1.78:1234/v1")
+        from bulwark.dashboard.config import BulwarkConfig
+        cfg_path = tmp_path / "bulwark-config.yaml"
+        cfg = BulwarkConfig.load(path=str(cfg_path))
+        # In memory, env value is present (G-ENV-011).
+        assert cfg.llm_backend.api_key == "env-secret-should-never-hit-disk"
+        cfg.save(path=str(cfg_path))
+        import yaml as _yaml
+        on_disk = _yaml.safe_load(cfg_path.read_text())
+        assert on_disk["llm_backend"]["api_key"] == "", "env secret must not be written to disk"
+        assert on_disk["llm_backend"]["base_url"] == "", "env base_url must not be written to disk"
+
 
 # ---------------------------------------------------------------------------
 # GET/PUT /api/config — spec/contracts/http_config.yaml

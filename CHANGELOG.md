@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.0.6] - 2026-04-17
+
+### Fixed
+- **Dashboard "Save" no longer clobbers env-provided credentials with empty strings** (G-ENV-012). The UI renders env-shadowed fields as read-only, but `getLLMFormData()` was still packing `api_key: '', base_url: ''` into the PUT body; the backend wrote those blanks to memory, and the very next pipeline request fell back to `https://api.openai.com/v1` with no key → 401 + "Pipeline unreachable" banner.
+  - Backend: `update_from_dict` skips empty-string updates to env-shadowed llm_backend fields.
+  - Frontend: `getLLMFormData` omits fields whose `<input>` is absent (defense-in-depth).
+
+### Security
+- **`save()` no longer persists env-provided credentials to disk** (G-ENV-013). Env-shadowed llm_backend fields are written as empty strings in `bulwark-config.yaml`; `_apply_env_vars` refills them from env on next load. Prevents secrets leaking from `.env` into the config file.
+
 ## [1.0.5] - 2026-04-17
 
 ### Fixed
