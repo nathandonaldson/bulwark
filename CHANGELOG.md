@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.2.0] - 2026-04-17
+
+### Added
+- **Two new red-team tiers curated for LLM benchmarking** (ADR-018):
+  - `llm-quick` — 10 probes, 10 distinct attack families, one prompt per class. For fast model comparisons.
+  - `llm-suite` — ~200 probes across 16 attack families with per-class prompt caps for balanced coverage. For meaningful LLM efficacy signals.
+  - Curation is data-driven: probe classes selected from 47k observations in historical reports (one full + three standard runs). Every selected class had ≥5 historical LLM reaches; families chosen for attack-type spread (latent injection, encoding bypass, divergence, credential extraction, adversarial suffix, markdown exfil, data leakage, jailbreak…).
+  - `TIER_CLASS_SELECTORS` introduced alongside `TIER_FAMILIES` so per-class prompt caps are expressible (family-level selection can't prevent one family from dominating the suite).
+  - `/api/redteam/tiers` response now includes the new tiers alongside quick/standard/full.
+  - Guarantees: G-LLM-TIER-001..005, NG-LLM-TIER-001..002. See `spec/contracts/llm_facing_tiers.yaml`.
+- **`bulwark_bench --bypass-detectors`** (G-BENCH-011). Snapshots the integration state, toggles listed detectors (e.g. `protectai,promptguard`) off for the duration of the sweep, restores them on exit — including re-activation so the pipeline actually uses them again. Verified live: pairing `--tier llm-quick --bypass-detectors protectai,promptguard` takes LLM reach from ~40% → 100%.
+
+### Fixed
+- **Integration toggle coherence** (G-INTEGRATIONS-001). `PUT /api/integrations/{name}` with `enabled=false` now removes the detector from `_detection_checks` immediately. Previously the config flag could say "disabled" while the pipeline kept running the detector, breaking `--bypass-detectors` and confusing dashboard users.
+
 ## [1.1.0] - 2026-04-17
 
 ### Added

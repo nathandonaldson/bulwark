@@ -383,7 +383,13 @@ async def active_checks():
 
 @app.put("/api/integrations/{name}")
 async def update_integration(name: str, request: Request):
-    """Enable/disable an integration."""
+    """Enable/disable an integration.
+
+    Setting enabled=False immediately removes the detector from the active check
+    pipeline (in-memory), not just from the persisted config. Setting enabled=True
+    requires the detector to have been loaded previously via POST .../activate —
+    this endpoint does not load models on its own.
+    """
     if name not in AVAILABLE_INTEGRATIONS:
         return {"error": f"Unknown integration: {name}"}, 404
     data = await request.json()
@@ -394,6 +400,11 @@ async def update_integration(name: str, request: Request):
             setattr(config.integrations[name], k, v)
     config.save()
     int_config = config.integrations[name]
+    # G-INTEGRATIONS-001: keep _detection_checks coherent with the flag.
+    # Disable → remove from pipeline immediately. Re-enable of a loaded detector
+    # is not supported here; users must re-POST .../activate to bring it back.
+    if int_config.enabled is False and name in _detection_checks:
+        _detection_checks.pop(name, None)
     return {
         **AVAILABLE_INTEGRATIONS[name],
         "enabled": int_config.enabled,
@@ -471,6 +482,30 @@ def _compute_redteam_tiers() -> dict:
                 quick_count += n
                 quick_families.add(family)
 
+    # LLM-facing tiers (llm-quick / llm-suite) — curated probe classes chosen for
+    # high historical LLM-reach rate. See ADR-018.
+    from bulwark.integrations.redteam import ProductionRedTeam as _PRT
+    llm_tier_defs = []
+    for tier_id, selectors in _PRT.TIER_CLASS_SELECTORS.items():
+        families = sorted({fam for fam, _cls, _n in selectors})
+        probe_count = sum(n for _fam, _cls, n in selectors)
+        if tier_id == "llm-quick":
+            name = "LLM Quick"
+            desc = "10 probes across 10 attack families, curated to reach the analyze LLM. Pair with bulwark_bench --bypass-detectors for a guaranteed LLM benchmark."
+        elif tier_id == "llm-suite":
+            name = "LLM Suite"
+            desc = "~200 probes balanced across 16 attack families for meaningful model comparisons. Pair with bulwark_bench --bypass-detectors."
+        else:
+            name = tier_id.replace("-", " ").title()
+            desc = "LLM-facing curated tier."
+        llm_tier_defs.append({
+            "id": tier_id,
+            "name": name,
+            "description": desc,
+            "probe_count": probe_count,
+            "families": families,
+        })
+
     result = {
         "garak_installed": True,
         "garak_version": version,
@@ -482,6 +517,7 @@ def _compute_redteam_tiers() -> dict:
                 "probe_count": min(quick_count, 10),
                 "families": sorted(quick_families),
             },
+            *llm_tier_defs,
             {
                 "id": "standard",
                 "name": "Standard Scan",

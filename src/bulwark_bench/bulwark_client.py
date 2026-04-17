@@ -13,7 +13,7 @@ import httpx
 
 class BulwarkClient:
     def __init__(self, base_url: str, *, token: Optional[str] = None,
-                 timeout_s: float = 30.0, poll_s: float = 2.0):
+                 timeout_s: float = 300.0, poll_s: float = 3.0):
         self.base_url = base_url.rstrip("/")
         self.token = token
         self.timeout_s = timeout_s
@@ -177,6 +177,61 @@ class BulwarkClient:
             except Exception:
                 return (0, 0)
         return (0, 0)
+
+    def get_integrations(self) -> dict[str, Any]:
+        """Snapshot current integration state, combining config toggles + live-loaded detectors.
+
+        config.integrations may be empty while detectors are actually loaded in memory
+        (dashboard restart edge case). We consider a detector 'enabled' for bypass
+        purposes if it's in active-checks OR config.integrations[name].enabled=True.
+        """
+        try:
+            active = httpx.get(
+                f"{self.base_url}/api/integrations/active-checks",
+                headers=self._headers(),
+                timeout=self.timeout_s,
+            ).json()
+            active_names = set(active.get("active") or [])
+        except Exception:
+            active_names = set()
+
+        cfg_integrations = self.get_config().get("integrations") or {}
+        merged: dict[str, Any] = {}
+        for name in active_names | set(cfg_integrations.keys()):
+            merged[name] = {
+                "enabled": name in active_names or bool(
+                    (cfg_integrations.get(name) or {}).get("enabled", False)
+                )
+            }
+        return merged
+
+    def set_integration_enabled(self, name: str, enabled: bool) -> None:
+        """Toggle a single integration's enabled flag.
+
+        Uses PUT /api/integrations/{name} (not /api/config) so the dashboard
+        removes the detector from _detection_checks immediately on disable —
+        otherwise the pipeline keeps running it.
+        """
+        r = httpx.put(
+            f"{self.base_url}/api/integrations/{name}",
+            json={"enabled": enabled},
+            headers=self._headers(),
+            timeout=self.timeout_s,
+        )
+        r.raise_for_status()
+
+    def activate_integration(self, name: str) -> None:
+        """Re-load a detector into _detection_checks.
+
+        PUT with enabled=true only updates the flag (NG-INTEGRATIONS-001); the
+        model must be re-activated via this endpoint to actually run again.
+        """
+        r = httpx.post(
+            f"{self.base_url}/api/integrations/{name}/activate",
+            headers=self._headers(),
+            timeout=max(self.timeout_s, 60.0),
+        )
+        r.raise_for_status()
 
     def warmup(self) -> None:
         """Force the model to load into memory with a throwaway request.

@@ -3,7 +3,7 @@ version: "0.6.0"
 
 guarantees:
   - id: G-REDTEAM-TIERS-001
-    summary: Returns three tiers (quick, standard, full) with probe counts from garak
+    summary: Returns the canonical tier set (quick, standard, full, plus curated llm-* tiers) with probe counts from garak
   - id: G-REDTEAM-TIERS-002
     summary: Probe counts are dynamic, pulled from installed garak version, not hardcoded
   - id: G-REDTEAM-TIERS-003

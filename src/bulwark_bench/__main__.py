@@ -36,6 +36,10 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="Skip models whose per-model result already exists in --output.")
     p.add_argument("--redteam-timeout", type=int, default=3600,
                    help="Seconds to wait for a single model's red-team run (default: 3600).")
+    p.add_argument("--bypass-detectors",
+                   help="Comma-separated integrations (e.g. 'protectai,promptguard') to disable "
+                        "for the duration of the sweep so probes reach the analyze LLM. Original "
+                        "state is restored on exit. Recommended with --tier llm-quick/llm-suite.")
     p.add_argument("--title", default="Bulwark model benchmark",
                    help="Title on the markdown report.")
     p.add_argument("--version", action="version", version=f"bulwark_bench {__version__}")
@@ -82,6 +86,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  [ERROR] dashboard unreachable: {e}", file=sys.stderr, flush=True)
         return 1
 
+    bypass = tuple(
+        n.strip() for n in (args.bypass_detectors or "").split(",") if n.strip()
+    )
+    if bypass:
+        print(f"  bypass: disabling {', '.join(bypass)} for duration of sweep",
+              file=sys.stderr, flush=True)
+
     runner = BenchRunner(
         client=client,
         run_dir=run_dir,
@@ -89,6 +100,7 @@ def main(argv: list[str] | None = None) -> int:
         warmup=not args.no_warmup,
         resume=args.resume,
         redteam_timeout_s=args.redteam_timeout,
+        bypass_detectors=bypass,
         progress_cb=stderr_progress,
     )
     results = runner.run_all(models)

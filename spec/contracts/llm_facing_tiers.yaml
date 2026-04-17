@@ -1,0 +1,32 @@
+feature: LLM-facing red-team tiers (llm-quick / llm-suite)
+version: "1.0.0"
+
+guarantees:
+  - id: G-LLM-TIER-001
+    summary: llm-quick tier selects 10 probes across 10 distinct attack families, one prompt per class
+    rationale: Smallest tier that meaningfully exercises an LLM's injection resistance — attack-type spread matters more than probe count at this size.
+
+  - id: G-LLM-TIER-002
+    summary: llm-suite tier selects ~200 probes across ≥15 attack families with per-class prompt caps
+    rationale: Balanced-family coverage prevents any single family (e.g. latentinjection with 2400 prompts) from dominating the signal.
+
+  - id: G-LLM-TIER-003
+    summary: Both llm-* tiers use TIER_CLASS_SELECTORS (probe class + max_prompts), not TIER_FAMILIES (family-level)
+    rationale: Per-class prompt caps are essential for family balance. TIER_FAMILIES' take-all-or-none model can't express this.
+
+  - id: G-LLM-TIER-004
+    summary: Unavailable probe classes (garak plugin renamed / removed) are silently skipped, not fatal
+    rationale: Curated lists drift when garak changes probe names. Skipping keeps the tier runnable; users get fewer probes but no crash.
+
+  - id: G-LLM-TIER-005
+    summary: /api/redteam/tiers includes llm-quick and llm-suite in its response alongside quick / standard / full
+    rationale: Dashboard UI and bulwark_bench discover tiers from this endpoint; the llm-* tiers must be visible there to be usable.
+
+non_guarantees:
+  - id: NG-LLM-TIER-001
+    summary: Probe classes in the llm-* tiers may still be filtered by ML detectors if detectors are on
+    reason: Even the highest-reach classes only hit the LLM ~40% of the time with ProtectAI + PromptGuard active. Pair with bulwark_bench --bypass-detectors protectai,promptguard for guaranteed LLM reach. See ADR-018.
+
+  - id: NG-LLM-TIER-002
+    summary: The curated class list is not auto-refreshed when garak adds new probes
+    reason: Selection is checked into code. Re-curate by running a full scan and re-computing reach rates from reports/.

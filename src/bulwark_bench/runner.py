@@ -58,6 +58,7 @@ class BenchRunner:
     def __init__(self, *, client: Any, run_dir: Path, tier: str,
                  warmup: bool = True, resume: bool = False,
                  redteam_timeout_s: int = 3600,
+                 bypass_detectors: tuple[str, ...] = (),
                  progress_cb: Optional[Any] = None):
         self.client = client
         self.run_dir = Path(run_dir)
@@ -65,6 +66,10 @@ class BenchRunner:
         self.warmup = warmup
         self.resume = resume
         self.redteam_timeout_s = redteam_timeout_s
+        # G-BENCH-011: list of integration names (e.g. ("protectai","promptguard"))
+        # to disable for the duration of this sweep. Original state is restored in
+        # run_all's finally clause.
+        self.bypass_detectors = tuple(bypass_detectors)
         self.progress_cb = progress_cb or (lambda _ev: None)
 
     def _event(self, event: dict[str, Any]) -> None:
@@ -164,22 +169,52 @@ class BenchRunner:
         return payload
 
     def run_all(self, models: list[str]) -> list[dict[str, Any]]:
-        """G-BENCH-001: sequential sweep. G-BENCH-002: persist each before the next."""
+        """G-BENCH-001: sequential sweep. G-BENCH-002: persist each before the next.
+
+        If bypass_detectors is set, the listed integrations are toggled off before
+        the first model runs and restored before returning (G-BENCH-011).
+        """
         self.run_dir.mkdir(parents=True, exist_ok=True)
-        results: list[dict[str, Any]] = []
-        for i, model in enumerate(models):
-            if _should_skip(self.run_dir, i, model, resume=self.resume):
-                self._event({"type": "skipped", "index": i, "model": model})
-                results.append(self._load_existing(i, model))
-                continue
+        restore: list[tuple[str, bool]] = []
+        if self.bypass_detectors and hasattr(self.client, "get_integrations"):
             try:
-                payload = self._run_one(i, model)
+                snapshot = self.client.get_integrations()
+                for name in self.bypass_detectors:
+                    was = bool((snapshot.get(name) or {}).get("enabled", False))
+                    if was:
+                        self.client.set_integration_enabled(name, False)
+                        restore.append((name, True))
+                        self._event({"type": "bypass_on", "integration": name})
             except Exception as e:
-                payload = {"model": model, "error": f"{type(e).__name__}: {e}", "tier": self.tier}
-                self._event({"type": "model_error", "model": model, "error": str(e)})
-            _persist_result(self.run_dir, i, model, payload)
-            results.append(payload)
-        return results
+                self._event({"type": "bypass_error", "error": str(e)})
+
+        try:
+            results: list[dict[str, Any]] = []
+            for i, model in enumerate(models):
+                if _should_skip(self.run_dir, i, model, resume=self.resume):
+                    self._event({"type": "skipped", "index": i, "model": model})
+                    results.append(self._load_existing(i, model))
+                    continue
+                try:
+                    payload = self._run_one(i, model)
+                except Exception as e:
+                    payload = {"model": model, "error": f"{type(e).__name__}: {e}", "tier": self.tier}
+                    self._event({"type": "model_error", "model": model, "error": str(e)})
+                _persist_result(self.run_dir, i, model, payload)
+                results.append(payload)
+            return results
+        finally:
+            # G-BENCH-011: restore original integration state even on Ctrl+C / error.
+            # PUT alone only flips the config flag (NG-INTEGRATIONS-001); we must
+            # also re-activate so the detector returns to _detection_checks.
+            for name, prev in restore:
+                try:
+                    self.client.set_integration_enabled(name, prev)
+                    if prev and hasattr(self.client, "activate_integration"):
+                        self.client.activate_integration(name)
+                    self._event({"type": "bypass_off", "integration": name})
+                except Exception as e:
+                    self._event({"type": "bypass_restore_error", "integration": name, "error": str(e)})
 
 
 # ---------------------------------------------------------------------------

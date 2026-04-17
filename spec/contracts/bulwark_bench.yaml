@@ -41,6 +41,9 @@ guarantees:
   - id: G-BENCH-010
     summary: The runner never kills a dashboard process; model swaps go only through PUT /api/config
     rationale: Bench is a read-mostly orchestrator — it changes config but does not own the dashboard lifecycle.
+  - id: G-BENCH-011
+    summary: --bypass-detectors disables listed integrations before the sweep and restores them in a finally block
+    rationale: Lets llm-quick / llm-suite tiers actually reach the analyze LLM by turning off ProtectAI / PromptGuard. Restoration runs on success, error, and KeyboardInterrupt so dashboards aren't left in an insecure state. See ADR-018.
 
 non_guarantees:
   - id: NG-BENCH-001

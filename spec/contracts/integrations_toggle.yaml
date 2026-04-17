@@ -1,0 +1,26 @@
+endpoint: PUT /api/integrations/{name}
+version: "1.1.0"
+
+guarantees:
+  - id: G-INTEGRATIONS-001
+    summary: Disabling an integration (enabled=false) immediately removes its check from _detection_checks
+    rationale: >
+      Without this, the persisted config can say "disabled" while the pipeline still
+      runs the detector, creating a confusing divergence. bulwark_bench
+      --bypass-detectors hit exactly this - config toggled off but probes still blocked.
+      Keep in-memory runtime coherent with the config flag on disable.
+
+  - id: G-INTEGRATIONS-002
+    summary: Re-enabling a previously-loaded integration requires a POST to activate endpoint. PUT does not load models.
+    rationale: >
+      Model load is a heavy operation (30s+ on first download) and should be
+      explicit. PUT with enabled=true updates the flag but does not touch the
+      in-memory detector map.
+
+non_guarantees:
+  - id: NG-INTEGRATIONS-001
+    summary: Setting enabled=True via PUT does NOT automatically re-activate a detector that was popped from _detection_checks
+    reason: >
+      Explicit re-activation (POST activate) is required because model loading
+      is I/O-heavy. Users must re-activate to bring a detector back after a
+      PUT-disable.

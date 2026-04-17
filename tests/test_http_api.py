@@ -1081,7 +1081,7 @@ class TestOpenAPISchema:
 
 class TestRedteamTiers:
     def test_returns_three_tiers(self):
-        """G-REDTEAM-TIERS-001: Returns three tiers with probe counts from garak."""
+        """G-REDTEAM-TIERS-001: Returns canonical tiers (quick, standard, full + curated llm-*)."""
         client = _get_client()
         resp = client.get("/api/redteam/tiers")
         assert resp.status_code == 200
@@ -1089,9 +1089,13 @@ class TestRedteamTiers:
         assert "tiers" in data
         assert "garak_installed" in data
         if data["garak_installed"]:
-            assert len(data["tiers"]) == 3
             tier_ids = [t["id"] for t in data["tiers"]]
-            assert tier_ids == ["quick", "standard", "full"]
+            # Canonical tiers always present
+            for expected in ("quick", "standard", "full"):
+                assert expected in tier_ids, f"missing canonical tier: {expected}"
+            # llm-* curated tiers (see ADR-018) must also be present
+            assert "llm-quick" in tier_ids
+            assert "llm-suite" in tier_ids
 
     def test_counts_are_dynamic(self):
         """G-REDTEAM-TIERS-002: Probe counts come from garak, not hardcoded."""

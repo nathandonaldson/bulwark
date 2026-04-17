@@ -381,6 +381,75 @@ class TestRunner:
             chunk = timeline[idx * ops_per_model:(idx + 1) * ops_per_model]
             assert chunk == [("swap", model), ("start", "quick"), ("wait", "")]
 
+    def test_bypass_detectors_disables_then_restores(self, tmp_path):
+        """G-BENCH-011: listed integrations toggle off before, back on after the sweep."""
+        from bulwark_bench.runner import BenchRunner
+
+        state = {"protectai": True, "promptguard": True}
+        toggle_log: list[tuple[str, bool]] = []
+
+        class FakeClient:
+            def __init__(self): pass
+            def get_integrations(self):
+                return {k: {"enabled": v} for k, v in state.items()}
+            def set_integration_enabled(self, name, enabled):
+                state[name] = enabled
+                toggle_log.append((name, enabled))
+            def swap_model(self, analyze_model, execute_model=None): pass
+            def start_redteam(self, tier): return {"status": "started"}
+            def wait_for_redteam(self, timeout_s=3600):
+                return {"status": "complete", "total": 10, "defended": 10,
+                        "hijacked": 0, "format_failures": 0, "defense_rate": 1.0,
+                        "duration_s": 5.0}
+            def sample_tokens(self, prompt): return (100, 50)
+            def warmup(self): pass
+            def ensure_redteam_idle(self): pass
+
+        runner = BenchRunner(
+            client=FakeClient(), run_dir=tmp_path / "run",
+            tier="llm-quick", warmup=False,
+            bypass_detectors=("protectai", "promptguard"),
+        )
+        runner.run_all(["model-a"])
+        # Protectai/promptguard turned off before run, back on after
+        assert ("protectai", False) in toggle_log
+        assert ("promptguard", False) in toggle_log
+        assert ("protectai", True) in toggle_log
+        assert ("promptguard", True) in toggle_log
+        # Final state restored
+        assert state == {"protectai": True, "promptguard": True}
+
+    def test_bypass_restored_even_if_sweep_errors(self, tmp_path):
+        """G-BENCH-011: restoration runs in a finally so detectors aren't left off."""
+        from bulwark_bench.runner import BenchRunner
+
+        state = {"protectai": True}
+        toggle_log: list[tuple[str, bool]] = []
+
+        class FakeClient:
+            def get_integrations(self):
+                return {"protectai": {"enabled": state["protectai"]}}
+            def set_integration_enabled(self, name, enabled):
+                state[name] = enabled
+                toggle_log.append((name, enabled))
+            def swap_model(self, analyze_model, execute_model=None):
+                raise RuntimeError("boom")
+            def start_redteam(self, tier): return {}
+            def wait_for_redteam(self, timeout_s=3600): return {}
+            def sample_tokens(self, prompt): return (0, 0)
+            def warmup(self): pass
+            def ensure_redteam_idle(self): pass
+
+        runner = BenchRunner(
+            client=FakeClient(), run_dir=tmp_path / "run",
+            tier="llm-quick", warmup=False,
+            bypass_detectors=("protectai",),
+        )
+        runner.run_all(["m"])  # per-model error is caught inside runner
+        assert ("protectai", False) in toggle_log
+        assert ("protectai", True) in toggle_log
+        assert state["protectai"] is True
+
     def test_resume_skips_completed_models(self, monkeypatch, tmp_path):
         """G-BENCH-003: --resume honors existing per-model result files."""
         from bulwark_bench.runner import BenchRunner, _persist_result
