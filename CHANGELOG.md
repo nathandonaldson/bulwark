@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.2] - 2026-04-17
+
+### Changed
+- **Docker images now published as multi-arch manifests** (`linux/amd64` + `linux/arm64`). CI uses `docker/setup-qemu-action` + `docker/setup-buildx-action` + `docker/build-push-action@v5`. Docker Desktop on Apple Silicon no longer shows the "AMD64" emulation warning when pulling `nathandonaldson/bulwark:latest`; the correct architecture is selected per host automatically. Build caches via GitHub Actions cache so amd64 layers come out of cache after the first run.
+
 ## [1.2.1] - 2026-04-17
 
 ### Added

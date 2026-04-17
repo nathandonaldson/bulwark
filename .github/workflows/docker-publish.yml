@@ -18,8 +18,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Docker image
-        run: docker build -t bulwark:test .
+      - name: Set up QEMU (for cross-arch builds)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build amd64-only first and load into the local daemon so the smoke
+      # test below runs at native runner speed. A later step does the real
+      # multi-arch push.
+      - name: Build (amd64 for smoke test)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: bulwark:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Smoke test — container starts and serves API
         run: |
@@ -41,16 +59,28 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - name: Push versioned tags
+      # Multi-arch build + push. Re-uses the GHA cache from the amd64 build,
+      # so the amd64 layers come out of cache and only arm64 builds fresh.
+      - name: Build and push (multi-arch — versioned + latest)
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-        run: |
-          docker tag bulwark:test ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
-          docker tag bulwark:test ${{ env.IMAGE_NAME }}:latest
-          docker push ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
-          docker push ${{ env.IMAGE_NAME }}:latest
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Push latest (manual dispatch)
+      - name: Build and push (multi-arch — latest only, manual dispatch)
         if: github.event_name == 'workflow_dispatch'
-        run: |
-          docker tag bulwark:test ${{ env.IMAGE_NAME }}:latest
-          docker push ${{ env.IMAGE_NAME }}:latest
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
