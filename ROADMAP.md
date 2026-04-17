@@ -33,6 +33,7 @@
 - Security audited, benchmarked (<1ms deterministic layers)
 
 ### Next
+- **Docker image hardening** — CVE scan of `:latest` shows 1 critical + 7 high (litellm, jaraco.context, wheel, openssl). Most come from garak's dep tree (litellm, langchain, openai, boto3, cohere, mistralai, torch, …) which is only used by the optional red-team endpoints. See `spec/decisions/019-docker-image-hardening.md` for options: (A) split into `:latest` (minimal) + `:bench` (with garak), (B) pin/patch in place, (C) Docker Hardened Images / Chainguard base. Leaning A+B for the short term.
 - **LLM Guard integration** — broader scanner coverage (PII, toxicity)
 - **Transparent proxy mode** — Bulwark as a reverse proxy between your app and the LLM provider. Zero-code integration.
 - **LLM-as-judge for edge cases** — cheap model call to classify ambiguous verdicts in red teaming
