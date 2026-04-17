@@ -2,10 +2,39 @@
 
 Usage: python -m bulwark.dashboard [--port PORT] [--host HOST]
 """
+from __future__ import annotations
+
 import argparse
 import os
 import shutil
 from pathlib import Path
+
+
+def _warn_if_outside_project_venv() -> str | None:
+    """Warn if a project .venv exists but this process is running under a different Python.
+
+    Silent when no .venv is present (Docker, fresh checkouts, users who opt out).
+    Returns the warning message for testing, or None if no warning was emitted.
+    """
+    import sys
+    venv_python = Path(".venv/bin/python")
+    if not venv_python.exists():
+        return None
+    try:
+        current = Path(sys.executable).resolve()
+        expected = venv_python.resolve()
+    except OSError:
+        return None
+    if current == expected:
+        return None
+    msg = (
+        f"[WARN] Running under {current}, but .venv/bin/python resolves to {expected}.\n"
+        f"       Third-party tool versions (e.g. garak) will reflect the interpreter you actually ran,\n"
+        f"       not the one your project is set up for. To avoid surprises:\n"
+        f"         .venv/bin/python -m bulwark.dashboard {' '.join(sys.argv[1:]) or '--port PORT'}"
+    )
+    print(msg, flush=True)
+    return msg
 
 
 def _load_dotenv(path: str = ".env") -> list[str]:
@@ -82,6 +111,10 @@ def main():
     parser.add_argument("--port", type=int, default=3000, help="Port to listen on")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Host to bind to (default: localhost only)")
     args = parser.parse_args()
+
+    # Catch the wrong-interpreter footgun (running /usr/bin/python3 when a project
+    # .venv exists). Silent when no .venv is present.
+    _warn_if_outside_project_venv()
 
     # G-ENV-010: Pick up .env from cwd before any config is constructed.
     loaded_keys = _load_dotenv()

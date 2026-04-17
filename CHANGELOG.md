@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.7] - 2026-04-17
+
+### Fixed
+- **Reasoning-model empty-content trap.** `_openai_chat` now raises a clear `RuntimeError` when the remote returns `content: ""`, specifically naming reasoning models (Qwen3, DeepSeek-R1, etc.) and the current `max_tokens` when `reasoning_content` is present. Replaces a silent "0 chars" propagation through the pipeline.
+- **`max_tokens` bumped** so reasoning models have headroom: analyze `256 → 2048`, `_openai_chat` default `4096 → 8192` (used by execute).
+
+### Added
+- **Wrong-interpreter warning at dashboard startup.** `_warn_if_outside_project_venv` prints a one-time warning if a `.venv/bin/python` exists in cwd but the current interpreter resolves elsewhere. Catches the footgun of running `/usr/bin/python3 -m bulwark.dashboard` when a project venv (with different third-party versions — e.g. garak) is set up. Silent in Docker and when no `.venv` is present.
+
 ## [1.0.6] - 2026-04-17
 
 ### Fixed

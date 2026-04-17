@@ -417,6 +417,65 @@ class TestLLMTestEndpoint:
         data = resp.json()
         assert data["ok"] is True  # mode defaults to "none"
 
+    def test_openai_chat_raises_on_empty_content_with_reasoning(self, monkeypatch):
+        """Empty content + reasoning_content → actionable RuntimeError naming reasoning models."""
+        import httpx
+        from bulwark.dashboard import llm_factory
+
+        class _Resp:
+            status_code = 200
+            def raise_for_status(self): pass
+            def json(self):
+                return {"choices": [{
+                    "message": {"content": "", "reasoning_content": "thinking thinking" * 100},
+                    "finish_reason": "length",
+                }]}
+
+        monkeypatch.setattr(httpx, "post", lambda *a, **kw: _Resp())
+        with pytest.raises(RuntimeError) as exc:
+            llm_factory._openai_chat(
+                base_url="http://localhost:1234/v1", api_key="", model="qwen3",
+                system="s", prompt="p", max_tokens=256,
+            )
+        assert "reasoning model" in str(exc.value)
+        assert "max_tokens=256" in str(exc.value)
+
+    def test_openai_chat_raises_on_empty_content_without_reasoning(self, monkeypatch):
+        """Empty content with no reasoning_content → generic but clear RuntimeError."""
+        import httpx
+        from bulwark.dashboard import llm_factory
+
+        class _Resp:
+            status_code = 200
+            def raise_for_status(self): pass
+            def json(self):
+                return {"choices": [{"message": {"content": ""}, "finish_reason": "stop"}]}
+
+        monkeypatch.setattr(httpx, "post", lambda *a, **kw: _Resp())
+        with pytest.raises(RuntimeError) as exc:
+            llm_factory._openai_chat(
+                base_url="http://localhost:1234/v1", api_key="", model="m",
+                system="s", prompt="p",
+            )
+        assert "empty content" in str(exc.value).lower()
+
+    def test_openai_chat_returns_normal_content(self, monkeypatch):
+        """Happy path — non-empty content is returned verbatim."""
+        import httpx
+        from bulwark.dashboard import llm_factory
+
+        class _Resp:
+            status_code = 200
+            def raise_for_status(self): pass
+            def json(self):
+                return {"choices": [{"message": {"content": "hello"}, "finish_reason": "stop"}]}
+
+        monkeypatch.setattr(httpx, "post", lambda *a, **kw: _Resp())
+        assert llm_factory._openai_chat(
+            base_url="http://localhost:1234/v1", api_key="", model="m",
+            system="s", prompt="p",
+        ) == "hello"
+
     def test_success_does_not_guarantee_pipeline_behavior(self):
         """NG-HTTP-LLM-TEST-001: Successful test does not guarantee pipeline works.
 
@@ -714,6 +773,35 @@ class TestEnvConfig:
         monkeypatch.chdir(tmp_path)
         from bulwark.dashboard.__main__ import _load_dotenv
         assert _load_dotenv() == []
+
+    def test_venv_check_silent_without_venv(self, monkeypatch, tmp_path):
+        """No .venv in cwd → helper returns None without printing (Docker path)."""
+        monkeypatch.chdir(tmp_path)
+        from bulwark.dashboard.__main__ import _warn_if_outside_project_venv
+        assert _warn_if_outside_project_venv() is None
+
+    def test_venv_check_silent_when_interpreter_matches(self, monkeypatch, tmp_path):
+        """If .venv/bin/python resolves to sys.executable → no warning."""
+        import sys
+        monkeypatch.chdir(tmp_path)
+        venv_bin = tmp_path / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        # Symlink .venv/bin/python at sys.executable so resolve() matches.
+        (venv_bin / "python").symlink_to(sys.executable)
+        from bulwark.dashboard.__main__ import _warn_if_outside_project_venv
+        assert _warn_if_outside_project_venv() is None
+
+    def test_venv_check_warns_when_interpreter_differs(self, monkeypatch, tmp_path, capsys):
+        """If .venv/bin/python points elsewhere → warning printed and returned."""
+        monkeypatch.chdir(tmp_path)
+        venv_bin = tmp_path / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        # Symlink to /bin/ls so resolve() definitely won't match sys.executable.
+        (venv_bin / "python").symlink_to("/bin/ls")
+        from bulwark.dashboard.__main__ import _warn_if_outside_project_venv
+        msg = _warn_if_outside_project_venv()
+        assert msg is not None
+        assert ".venv/bin/python" in capsys.readouterr().out
 
     def test_update_from_dict_ignores_empty_on_env_shadowed_field(self, monkeypatch, tmp_path):
         """G-ENV-012: empty-string UI update must not clobber an env-provided api_key/base_url."""
