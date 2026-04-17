@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.4] - 2026-04-17
+
+### Added
+- **`BULWARK_ALLOWED_HOSTS` env var** — comma-separated opt-in allowlist for the SSRF block, so LAN inference servers (LM Studio, Ollama, vLLM on a workstation) can be targeted without SSH tunnels. Exact-match hostnames/IP literals only (no CIDR, no wildcards). See ADR-015. Guarantees: G-HTTP-LLM-TEST-005, G-ENV-009.
+
+### Security
+- **Metadata hosts remain unconditionally blocked** even if listed in `BULWARK_ALLOWED_HOSTS` (defense-in-depth against typos / env-var tampering). G-HTTP-LLM-TEST-006.
+
 ## [1.0.3] - 2026-04-17
 
 ### Fixed

@@ -18,6 +18,9 @@ guarantees:
     summary: Dashboard UI reflects env var values on load
   - id: G-ENV-008
     summary: Dashboard UI changes override env vars for the current session
+  - id: G-ENV-009
+    summary: BULWARK_ALLOWED_HOSTS env var (comma-separated) adds hostnames to the SSRF allowlist
+    rationale: Opt-in widening of the SSRF block for LAN inference servers. See ADR-015.
 
 non_guarantees:
   - id: NG-ENV-001

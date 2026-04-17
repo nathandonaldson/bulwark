@@ -8,10 +8,25 @@ Supports three modes:
 from __future__ import annotations
 
 import ipaddress
+import os
 from typing import Callable, Optional
 from urllib.parse import urlparse
 
 from bulwark.dashboard.config import LLMBackendConfig
+
+
+# G-HTTP-LLM-TEST-006: metadata hosts are never overridable by the allowlist.
+_METADATA_HOSTS = frozenset({
+    "169.254.169.254",
+    "metadata.google.internal",
+    "100.100.100.200",
+})
+
+
+def _allowed_hosts() -> frozenset[str]:
+    """Parse BULWARK_ALLOWED_HOSTS (G-ENV-009) into a frozen set of exact-match entries."""
+    raw = os.environ.get("BULWARK_ALLOWED_HOSTS", "")
+    return frozenset(h.strip() for h in raw.split(",") if h.strip())
 
 
 def _validate_base_url(url: str) -> str | None:
@@ -29,26 +44,26 @@ def _validate_base_url(url: str) -> str | None:
 
     hostname = parsed.hostname or ""
 
-    # Block cloud metadata endpoints
-    metadata_hosts = {"169.254.169.254", "metadata.google.internal", "100.100.100.200"}
-    if hostname in metadata_hosts:
+    if hostname in _METADATA_HOSTS:
         return "Cloud metadata endpoints are blocked"
 
-    # Allow explicit localhost (common for local inference)
     if hostname in ("localhost", "127.0.0.1", "::1"):
         return None
 
-    # Allow Docker host.docker.internal
     if hostname == "host.docker.internal":
         return None
 
-    # Block private/link-local IP ranges (except localhost already allowed above)
+    # G-HTTP-LLM-TEST-005: user-controlled opt-in for LAN hosts. Checked after the
+    # metadata block above so allowlisting a metadata host cannot widen the boundary.
+    if hostname in _allowed_hosts():
+        return None
+
     try:
         addr = ipaddress.ip_address(hostname)
         if addr.is_private or addr.is_link_local or addr.is_loopback:
             return f"Private/internal IP addresses are blocked: {hostname}"
     except ValueError:
-        pass  # Not an IP literal, it's a hostname — allow it
+        pass
 
     return None
 

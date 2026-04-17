@@ -10,8 +10,17 @@ guarantees:
     summary: Rejects invalid mode values with 422
   - id: G-HTTP-LLM-TEST-004
     summary: base_url is validated to block internal/private network addresses
+  - id: G-HTTP-LLM-TEST-005
+    summary: Hostnames in BULWARK_ALLOWED_HOSTS bypass the private-IP block
+    rationale: Users running LAN inference servers need an opt-in way to reach them without tunneling. Env-var allowlist keeps the widened boundary auditable. See ADR-015.
+  - id: G-HTTP-LLM-TEST-006
+    summary: Cloud metadata endpoints remain blocked even when listed in BULWARK_ALLOWED_HOSTS
+    rationale: Defense-in-depth against typos or env-var tampering. The metadata block is not user-overridable.
 
 non_guarantees:
   - id: NG-HTTP-LLM-TEST-001
     summary: Does NOT guarantee that a successful test means the model will work for pipeline
     reason: Test sends a minimal prompt. Model behavior with real content may differ.
+  - id: NG-HTTP-LLM-TEST-002
+    summary: BULWARK_ALLOWED_HOSTS does NOT support wildcards or CIDR notation
+    reason: Exact-match hostnames/IP literals only. Keeps semantics simple and auditable — no accidental over-scoping.

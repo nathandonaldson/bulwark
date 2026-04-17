@@ -366,6 +366,49 @@ class TestLLMTestEndpoint:
         assert _validate_base_url("http://localhost:11434/v1") is None
         assert _validate_base_url("http://127.0.0.1:8080/v1") is None
 
+    def test_allowlist_permits_lan_ip(self, monkeypatch):
+        """G-HTTP-LLM-TEST-005: BULWARK_ALLOWED_HOSTS entries bypass the private-IP block."""
+        from bulwark.dashboard.llm_factory import _validate_base_url
+        monkeypatch.setenv("BULWARK_ALLOWED_HOSTS", "192.168.1.78")
+        assert _validate_base_url("http://192.168.1.78:1234/v1") is None
+
+    def test_allowlist_permits_multiple_entries(self, monkeypatch):
+        """G-HTTP-LLM-TEST-005: Comma-separated allowlist entries are all honored."""
+        from bulwark.dashboard.llm_factory import _validate_base_url
+        monkeypatch.setenv("BULWARK_ALLOWED_HOSTS", "10.0.0.5, 192.168.1.78 ,lan-gpu.local")
+        assert _validate_base_url("http://10.0.0.5:8080/v1") is None
+        assert _validate_base_url("http://192.168.1.78/v1") is None
+        assert _validate_base_url("http://lan-gpu.local/v1") is None
+
+    def test_allowlist_exact_match_only(self, monkeypatch):
+        """NG-HTTP-LLM-TEST-002: Allowlist does not support CIDR or wildcards."""
+        from bulwark.dashboard.llm_factory import _validate_base_url
+        monkeypatch.setenv("BULWARK_ALLOWED_HOSTS", "192.168.1.78")
+        err = _validate_base_url("http://192.168.1.79:1234/v1")
+        assert err is not None and "blocked" in err.lower()
+
+    def test_allowlist_cannot_unblock_metadata(self, monkeypatch):
+        """G-HTTP-LLM-TEST-006: Metadata hosts remain blocked even if allowlisted."""
+        from bulwark.dashboard.llm_factory import _validate_base_url
+        monkeypatch.setenv("BULWARK_ALLOWED_HOSTS", "169.254.169.254,metadata.google.internal")
+        err = _validate_base_url("http://169.254.169.254/latest/meta-data/")
+        assert err is not None and "metadata" in err.lower()
+        err = _validate_base_url("http://metadata.google.internal/computeMetadata/v1/")
+        assert err is not None and "metadata" in err.lower()
+
+    def test_allowlist_empty_preserves_default_block(self, monkeypatch):
+        """G-HTTP-LLM-TEST-005: Unset allowlist is identical to v1.0.2 behavior."""
+        from bulwark.dashboard.llm_factory import _validate_base_url
+        monkeypatch.delenv("BULWARK_ALLOWED_HOSTS", raising=False)
+        err = _validate_base_url("http://192.168.1.78:1234/v1")
+        assert err is not None and "blocked" in err.lower()
+
+    def test_allowlist_env_var_documented(self, monkeypatch):
+        """G-ENV-009: BULWARK_ALLOWED_HOSTS is the documented env var for this feature."""
+        from bulwark.dashboard.llm_factory import _validate_base_url
+        monkeypatch.setenv("BULWARK_ALLOWED_HOSTS", "192.168.1.78")
+        assert _validate_base_url("http://192.168.1.78/v1") is None
+
     def test_default_request_body(self):
         """POST /v1/llm/test with empty body uses defaults."""
         client = _get_client()
