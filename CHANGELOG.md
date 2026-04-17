@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.1] - 2026-04-17
+
+### Added
+- **Project-level `bulwark-bench` skill** (`.claude/skills/bulwark-bench/SKILL.md`). Guides a Claude Code session through a full bench run: discovers models from the configured LM Studio endpoint, asks the user via `AskUserQuestion` to pick up to 5 models + tier + whether to bypass detectors, spawns a subagent to run the sweep (so long standard-tier runs don't block the main conversation), and reports the markdown comparison table verbatim. Handles safety checks (repo detection, dashboard health, venv presence) and common error modes (detector state left disabled on crash, unknown model pricing).
+
 ## [1.2.0] - 2026-04-17
 
 ### Added
