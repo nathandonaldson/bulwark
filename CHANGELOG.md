@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.3.0] - 2026-04-18
+
+### Added
+- **Dashboard redesign — React+Babel-in-browser architecture** (ADR-020). Eight-stage redesign of the entire dashboard UI, shipped as JSX components loaded by `@babel/standalone` at runtime. The approved reference from `bulwark-sentry-design-handoff/` is now the implementation; the mock `BulwarkStore` in `data.jsx` was replaced with real fetches against existing endpoints. SRI-pinned React 18.3.1 + Babel 7.29.0 from unpkg. Tweaks panel and alternate layouts pruned; single opinionated views ship.
+  - **Shell** — `computeStatusPill` pure function drives the 4-state top-nav pill (`ok` / `warn` / `bad` / `loading`). Brand version comes from `/healthz`, not hardcoded. `role="status"` + `aria-live="polite"` so screen readers announce state changes. `mode=none` carve-out (G-UI-STATUS-006) so a deliberate sanitize-only choice reads "All layers active" instead of "5 of 7".
+  - **Shield page** — RadialShield ring colors switched to `--stage-*` CSS custom properties (no hex literals). `hasRecentIncident(events, now)` predicate drives the amber incident banner with `role="alert"`. Stats tiles + layer rows wired to real `stats24h` / `events` / `sparks`.
+  - **Events page** — split empty state (`data-empty-state="no-events"` with "Run a test" CTA vs `data-empty-state="filter-miss"` with "Clear filters"), pure `filterEvents(events, {filter, layerFilter, search})` + `isAnyFilterActive` helpers, row expansion reads real `before`/`after` diffs from `event.metadata` with graceful fallback.
+  - **Configure page** — pipeline flow with per-stage token colors, `color-mix()` replacing `${stage.color}22` hex-opacity suffixes. LLM backend pane rearranged into two sections: "Shared by both phases" (Backend + Base URL + API Key) and "Per phase" (PhaseCard blocks with inline MODEL dropdowns). Detection + Canary + Bridge panes wired to real `/api/integrations` / `config.canary_tokens` / `config.guard_patterns` — no random hit counts, no fabricated tokens.
+  - **Test page** — `runPipeline()` calls real `POST /v1/clean` and renders the returned trace verbatim; red-team tiers + past reports fetched from `/api/redteam/tiers` + `/api/redteam/reports`; Retest + JSON download buttons wired to real endpoints; `G-REDTEAM-SCORE-007` hijack-cap guard preserved in `ReportRow`.
+- **ADR-022 — env vars are editable defaults, not hard locks.** The LLM backend pane renders `ENV` badges + helper lines naming the source env var when `env_overrides` is set, but all fields stay editable. Non-empty UI edits override for the session (backend's G-ENV-012 guard already allowed this — only empty-string updates were skipped). Env restores on dashboard restart. Fixes the earlier UX where users couldn't type into env-shadowed inputs at all.
+- **Attack presets source of truth** (ADR-021). New `spec/presets.yaml` + `src/bulwark/presets.py` loader + `GET /api/presets` endpoint. Replaces the inline `const PRESETS` literals that previously lived in two places. Contract: `spec/contracts/presets.yaml` with `G-PRESETS-001..006`.
+- **Per-stage CSS color tokens.** `--stage-sanitizer`, `--stage-boundary`, `--stage-detection`, `--stage-analyze`, `--stage-bridge`, `--stage-canary`, `--stage-execute` in `:root`, aliasing semantic palette tokens. Plus `--accent-ink`, `--accent-ink-soft`, `--ink-dim` so the toggle knob + spinner colors no longer inline hex. Global grep confirms zero hex literals remain in any JSX.
+- **Shared `activeLayerCount(layerConfig, llmMode)`** helper in `data.jsx`. Replaces duplicate inline counting logic in `shell.jsx` and `page-shield.jsx` so the Shield hero and top pill always agree about "N of 7 layers active", including the mode=none carve-out.
+- **Dashboard UI contract** `spec/contracts/dashboard_ui.yaml` (v0.7.0) covering every stage's guarantees: `G-UI-STATUS-*`, `G-UI-INCIDENT-*`, `G-UI-EMPTY-*`, `G-UI-FILTER-*`, `G-UI-EXPAND-*`, `G-UI-TOKENS-*`, `G-UI-SHIELD-*`, `G-UI-NEEDS-*`, `G-UI-CONFIG-*`, `G-UI-TEST-*`, `G-UI-A11Y-*`, plus 13 non-guarantees.
+
+### Fixed
+- **Reports list ordering** (G-REDTEAM-REPORTS-002). `/api/redteam/reports` now sorts by `completed_at` descending (with filename + mtime as tie-breakers). Previously used `sorted(..., reverse=True)` on filenames which ranked `redteam-standard-*` ahead of `redteam-full-*` lexically regardless of date — newer full-tier reports sank below older standard-tier ones.
+- **Dashboard version string** no longer hardcoded in `shell.jsx`. Sourced from `/healthz` via `store.version`.
+- **LLM backend env-lock UX.** Replaced the read-only ghost input with either a proper editable control (new policy from ADR-022) or a read-only `<div>` — the prior state where an `<input>` silently ignored keystrokes is gone.
+
+### Changed
+- **Red-team tier cache gets a TTL** (G-REDTEAM-TIERS-007). `_compute_redteam_tiers()` was session-cached forever; now refreshes after `_REDTEAM_TIERS_TTL_S` (600s default). Long-running dashboards pick up upstream garak probe-library growth (34K → 80K probes between 15 Apr and 18 Apr for the Full Sweep) without a restart.
+- **`shell.jsx` simplified.** Dropped the `SideNav` + `TabIcon` + `PipelineDiagram` components (only the tweak-panel sidebar variant used them). `page-shield.jsx` drops `ShieldData` + `ShieldHybrid` + `BigSparkline`.
+
 ## [1.2.2] - 2026-04-17
 
 ### Changed

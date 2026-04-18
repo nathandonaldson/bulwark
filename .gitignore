@@ -28,3 +28,7 @@ bulwark-config.yaml
 reports/
 .venv/
 benchmarks/
+
+# Design handoff artefacts — kept locally, not checked in.
+bulwark-sentry-design-handoff/
+Bulwark-sentry-handoff.zip

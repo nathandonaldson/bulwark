@@ -1,0 +1,41 @@
+feature: Attack presets source of truth
+version: "1.0.0"
+module: bulwark.presets
+
+guarantees:
+  - id: G-PRESETS-001
+    summary: >
+      spec/presets.yaml loads via bulwark.presets.load_presets() and returns a
+      non-empty list of Preset dataclass instances.
+  - id: G-PRESETS-002
+    summary: >
+      Every preset has required fields: id (str), name (str), family (str),
+      payload (str).
+  - id: G-PRESETS-003
+    summary: >
+      Preset IDs are unique across the file; duplicate id raises ValueError
+      at load time.
+  - id: G-PRESETS-004
+    summary: >
+      Preset family is one of {sanitizer, boundary, bridge, detection, canary};
+      any other value raises ValueError at load time.
+  - id: G-PRESETS-005
+    summary: >
+      GET /api/presets returns 200 with JSON body {presets: [...]} where each
+      preset mirrors the YAML fields plus id/name/family/payload/description.
+  - id: G-PRESETS-006
+    summary: >
+      Malformed spec/presets.yaml (syntax error, missing required field) causes
+      load_presets() to raise; dashboard fails to start rather than ship a
+      silently empty payload library.
+
+non_guarantees:
+  - id: NG-PRESETS-001
+    summary: Presets are not translated
+    reason: Payloads may contain non-English characters by design (e.g. multilingual override attack). No localization layer.
+  - id: NG-PRESETS-002
+    summary: Preset list is not user-editable at runtime
+    reason: Changes require editing spec/presets.yaml and redeploying. Matches ADR-021 intent.
+  - id: NG-PRESETS-003
+    summary: Preset payloads are not guaranteed to trigger a block
+    reason: Whether a preset is blocked depends on live pipeline config and LLM behavior. The family field expresses intent, not a guarantee.

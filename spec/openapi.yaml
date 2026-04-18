@@ -189,6 +189,51 @@ paths:
                             type: string
                             enum: ["analyze", "execute"]
 
+  /api/presets:
+    get:
+      operationId: listPresets
+      summary: List attack presets for the dashboard payload library
+      description: |
+        Returns the attack-preset library. Source of truth is spec/presets.yaml
+        (ADR-021). Consumed by the dashboard Test page. Public (no auth) because
+        presets are documented threat-model examples, not sensitive data.
+      responses:
+        "200":
+          description: Preset list
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - presets
+                properties:
+                  presets:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - id
+                        - name
+                        - family
+                        - payload
+                      properties:
+                        id:
+                          type: string
+                          description: Stable identifier (slug).
+                        name:
+                          type: string
+                          description: Display name.
+                        family:
+                          type: string
+                          enum: ["sanitizer", "boundary", "bridge", "detection", "canary"]
+                          description: Pipeline stage expected to block this preset.
+                        payload:
+                          type: string
+                          description: Literal string sent to /v1/clean.
+                        description:
+                          type: string
+                          description: Optional explanation surfaced as a tooltip.
+
   /api/redteam/tiers:
     get:
       operationId: redteamTiers

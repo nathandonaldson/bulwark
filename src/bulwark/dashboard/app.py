@@ -16,6 +16,11 @@ from starlette.responses import JSONResponse as StarletteJSONResponse
 from bulwark.dashboard.db import EventDB
 from bulwark.dashboard.config import BulwarkConfig, AVAILABLE_INTEGRATIONS, IntegrationConfig, get_api_token
 from bulwark.dashboard.models import RetestRequest
+from bulwark.presets import load_presets
+
+
+# Load presets once at import time so malformed YAML fails startup (G-PRESETS-006).
+_PRESETS = [p.to_dict() for p in load_presets()]
 
 
 # Endpoints that never require authentication
@@ -25,6 +30,7 @@ _PUBLIC_PATHS = frozenset({
     "/v1/clean",
     "/v1/guard",
     "/api/auth/login",
+    "/api/presets",
 })
 
 
@@ -249,6 +255,12 @@ async def pipeline_status():
         return {"error": "Failed to load pipeline configuration", "using_defaults": True}
 
 
+@app.get("/api/presets")
+async def get_presets():
+    """Attack-preset library — source of truth is spec/presets.yaml (ADR-021, G-PRESETS-005)."""
+    return {"presets": _PRESETS}
+
+
 @app.get("/api/config")
 async def get_config():
     """Get current Bulwark configuration."""
@@ -427,18 +439,26 @@ async def prune_events(days: int = Query(default=30)):
 # Families included in each tier
 _QUICK_FAMILIES = frozenset({"promptinject", "latentinjection", "dan"})
 
-_redteam_tiers_cache: Optional[dict] = None
+# Probe counts are dynamic per G-REDTEAM-TIERS-002 but the full enumeration is
+# ~3s (instantiates every probe class to count payloads). A short TTL lets
+# long-running dashboards pick up upstream garak changes without requiring a
+# restart, while avoiding that cost on every page load.
+_REDTEAM_TIERS_TTL_S = 600  # 10 minutes
+_redteam_tiers_cache: Optional[tuple[float, dict]] = None  # (cached_at, result)
 
 
-def _compute_redteam_tiers() -> dict:
-    """Compute red team tier definitions from installed garak version. Cached.
+def _compute_redteam_tiers(_force: bool = False) -> dict:
+    """Compute red team tier definitions from installed garak version.
 
     Counts actual payloads (not just probe classes) by instantiating each probe.
-    Takes ~3s on first call, then cached for the session.
+    Takes ~3s on first call; subsequent calls within the TTL window return
+    the cached result. Pass _force=True to bypass the cache (tests).
     """
     global _redteam_tiers_cache
-    if _redteam_tiers_cache is not None:
-        return _redteam_tiers_cache
+    if not _force and _redteam_tiers_cache is not None:
+        cached_at, cached = _redteam_tiers_cache
+        if time.time() - cached_at < _REDTEAM_TIERS_TTL_S:
+            return cached
 
     try:
         import garak
@@ -446,7 +466,7 @@ def _compute_redteam_tiers() -> dict:
         version = getattr(garak, "__version__", "unknown")
     except ImportError:
         result = {"garak_installed": False, "garak_version": None, "tiers": []}
-        _redteam_tiers_cache = result
+        _redteam_tiers_cache = (time.time(), result)
         return result
 
     import importlib
@@ -534,7 +554,7 @@ def _compute_redteam_tiers() -> dict:
             },
         ],
     }
-    _redteam_tiers_cache = result
+    _redteam_tiers_cache = (time.time(), result)
     return result
 
 
@@ -850,10 +870,17 @@ def _save_redteam_report(result: dict) -> str:
 
 @app.get("/api/redteam/reports")
 async def list_redteam_reports():
-    """List saved red team reports."""
+    """List saved red team reports, newest first (G-REDTEAM-REPORTS-002).
+
+    Sort key: each report's `completed_at` ISO timestamp from inside the JSON.
+    Falls back to filename when a report predates the completed_at field, and
+    finally to mtime as a last-ditch ordering. This is why newer full-tier
+    reports used to sink below older standard-tier ones — alphabetic reverse
+    on the filename put `standard-*` ahead of `full-*` regardless of date.
+    """
     d = _reports_dir()
     reports = []
-    for f in sorted(d.glob("redteam-*.json"), reverse=True):
+    for f in d.glob("redteam-*.json"):
         try:
             data = json.loads(f.read_text())
             reports.append({
@@ -866,9 +893,14 @@ async def list_redteam_reports():
                 "hijacked": data.get("hijacked", 0),
                 "defense_rate": data.get("defense_rate", 0),
                 "duration_s": data.get("duration_s", 0),
+                # Not returned to clients — used only for sort stability below.
+                "_mtime": f.stat().st_mtime,
             })
         except Exception:
             continue
+    reports.sort(key=lambda r: (r["completed_at"] or "", r["filename"], r["_mtime"]), reverse=True)
+    for r in reports:
+        r.pop("_mtime", None)
     return {"reports": reports}
 
 

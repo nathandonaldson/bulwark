@@ -1,0 +1,286 @@
+feature: Dashboard UI — shell + Shield + Events + Configure + Test
+version: "0.7.0"
+module: bulwark.dashboard.static.src
+
+# This contract covers only what Stage 4 of the dashboard redesign delivers
+# (ADR-020): the top-nav brand + status pill. Subsequent stages add their
+# own G-UI-* guarantees for Shield, Events, Configure, Test.
+
+guarantees:
+  # --- Status pill (top nav), STATES.md §1 ---
+  - id: G-UI-STATUS-001
+    summary: >
+      computeStatusPill returns {kind:'ok', label:'All layers active'} when every
+      layer in layerConfig is true AND llm.status === 'connected'.
+  - id: G-UI-STATUS-002
+    summary: >
+      computeStatusPill returns {kind:'warn', label:'{active} of {total} layers active'}
+      when one or more user-controllable defense layers are off AND llm.status !== 'error'.
+  - id: G-UI-STATUS-003
+    summary: >
+      computeStatusPill returns {kind:'bad', label:'Pipeline unreachable'} when
+      llm.status === 'error' AND llm.mode !== 'none'.
+  - id: G-UI-STATUS-004
+    summary: >
+      computeStatusPill returns {kind:'warn', label:'Connecting…'} when
+      llm.status === 'loading'.
+  - id: G-UI-STATUS-005
+    summary: >
+      The Brand component renders "v{version}" from store.version (sourced from
+      GET /healthz .version). No hardcoded version string remains in shell.jsx.
+  - id: G-UI-STATUS-006
+    summary: >
+      When llm.mode === 'none', analyze + execute are treated as virtually "on"
+      for the pill's active-layer count. Example: deterministic layers all on +
+      mode='none' → {kind:'ok', label:'All layers active'} not warn.
+  - id: G-UI-STATUS-007
+    summary: >
+      The rendered StatusPill element carries role="status" and aria-live="polite"
+      so state changes are announced by assistive tech (STATES.md §9).
+
+  # --- Reduced motion, STATES.md §9 ---
+  - id: G-UI-A11Y-001
+    summary: >
+      index.html includes a @media (prefers-reduced-motion: reduce) block that
+      caps animation-duration and transition-duration to 0.01ms.
+  - id: G-UI-A11Y-002
+    summary: >
+      Buttons use button:focus-visible { outline: 2px solid var(--accent);
+      outline-offset: 2px } for keyboard focus.
+
+  # --- Shield page, STATES.md §2 ---
+  - id: G-UI-INCIDENT-001
+    summary: >
+      hasRecentIncident(events, nowMs) returns true iff any event has
+      verdict === 'blocked' AND ts > nowMs - 30 * 60 * 1000.
+  - id: G-UI-INCIDENT-002
+    summary: >
+      hasRecentIncident returns false when every blocked event is older than
+      30 minutes (banner auto-dismisses).
+  - id: G-UI-INCIDENT-003
+    summary: >
+      The incident banner element carries role="alert" so assistive tech
+      announces new attacks (STATES.md §9).
+  - id: G-UI-TOKENS-001
+    summary: >
+      RadialShield ring strokes use CSS custom properties only
+      (var(--stage-*)) — no inline hex colors remain in page-shield.jsx.
+  - id: G-UI-TOKENS-STAGES-001
+    summary: >
+      index.html :root defines --stage-sanitizer, --stage-boundary,
+      --stage-detection, --stage-analyze, --stage-bridge, --stage-canary,
+      --stage-execute custom properties.
+  - id: G-UI-SHIELD-001
+    summary: >
+      PageShield renders exactly one Shield variant (ShieldRadial). No branching
+      on a layout prop; no ShieldData or ShieldHybrid functions remain.
+  - id: G-UI-SHIELD-002
+    summary: >
+      The four stat tiles on the Shield page read processed / blocked / canary /
+      bridge from store.stats24h (fed by /api/metrics via data.jsx).
+  - id: G-UI-SHIELD-003
+    summary: >
+      Layer rows render every entry in LAYERS unconditionally; disabled layers
+      remain visible with reduced opacity (see G-DASH-LAYERS-002 / NG-DASH-LAYERS-001).
+
+  # --- Events page, STATES.md §4 ---
+  - id: G-UI-EMPTY-001
+    summary: >
+      When store.events is empty AND no filter is active, EventsEmptyState
+      renders data-empty-state="no-events" with a "Run a test" primary action
+      that dispatches bulwark:goto to the Test page.
+  - id: G-UI-EMPTY-002
+    summary: >
+      When filtered results are empty AND at least one filter/layer/search is
+      active, EventsEmptyState renders data-empty-state="filter-miss" with a
+      "Clear filters" secondary action.
+  - id: G-UI-EMPTY-003
+    summary: >
+      Clicking "Clear filters" resets filter to 'all', layerFilter to 'all',
+      and search to '' (verified via PageEvents state handlers).
+  - id: G-UI-EMPTY-004
+    summary: >
+      isAnyFilterActive(filter, layerFilter, search) returns true iff any of
+      those values deviate from its default ('all', 'all', '' respectively).
+  - id: G-UI-FILTER-001
+    summary: >
+      filterEvents(events, {filter, layerFilter, search}) narrows by verdict
+      exactly, by layer exactly, and by case-insensitive substring match on
+      detail || source.
+  - id: G-UI-EXPAND-001
+    summary: >
+      When event.verdict === 'modified' and event.metadata carries both `before`
+      and `after` fields, EventExpansion renders two <pre> diff panes (red/soft +
+      green/soft).
+  - id: G-UI-EXPAND-002
+    summary: >
+      When event.verdict === 'blocked', EventExpansion renders a "Replay in Test"
+      button that dispatches a bulwark:goto CustomEvent targeting the Test page.
+  - id: G-UI-EXPAND-003
+    summary: >
+      When event.metadata has no trace, _defaultTrace falls back to the first 5
+      LAYERS so the trace pane is never empty.
+
+  # --- Configure page, STATES.md §3 + §6 ---
+  - id: G-UI-TOKENS-002
+    summary: >
+      STAGES in page-configure.jsx reference CSS custom properties
+      (var(--stage-*)) — no inline hex colors remain.
+  - id: G-UI-NEEDS-001
+    summary: >
+      Analyze and Execute pipeline nodes show a "Needs setup" amber pill when
+      llm.status !== 'connected'. Driven by needsSetup(stage.id) in PipelineFlow.
+  - id: G-UI-NEEDS-002
+    summary: >
+      Detection pipeline node shows a "Needs setup" amber pill when no entry in
+      store.integrations equals 'active'.
+  # Env-shadowed LLM fields — see ADR-022. Supersedes the earlier
+  # G-UI-CONFIG-API-KEY-LOCKED / G-UI-CONFIG-LOCKED-FIELDS-001 guarantees.
+  - id: G-UI-CONFIG-ENV-BADGE
+    summary: >
+      When an LLM-backend field is covered by a BULWARK_* env var
+      (store.llm.envOverrides.<field> is truthy), the corresponding label
+      renders an "ENV" badge and a dim helper line naming the env var.
+  - id: G-UI-CONFIG-ENV-EDITABLE
+    summary: >
+      Env-shadowed LLM-backend fields remain editable. API key renders as a
+      password <input> (empty, placeholder showing the masked preview); base
+      URL as a text <input>; mode cards are clickable; model dropdowns accept
+      selections — no read-only <div> swap and no disabled attribute.
+  - id: G-UI-CONFIG-ENV-OVERRIDE
+    summary: >
+      LLMBackendPane.save() sends every edited field via BulwarkStore.setLlm
+      regardless of envOverrides. The backend's G-ENV-012 guard ignores only
+      empty-string updates to env-shadowed fields, so non-empty UI edits
+      override env defaults for the running session.
+  - id: G-UI-CONFIG-LLM-SECTIONS-001
+    summary: >
+      LLMBackendPane is split into two eyebrow-labelled sections:
+      data-section="shared" ("SHARED BY BOTH PHASES" in var(--accent)) covers
+      Backend + Base URL + API Key; data-section="per-phase" ("PER PHASE" in
+      var(--stage-analyze)) contains two PhaseCard blocks.
+  - id: G-UI-CONFIG-LLM-SECTIONS-002
+    summary: >
+      Each PhaseCard bundles the phase header (Phase 1 · Analyze / Phase 2 ·
+      Execute), description, and MODEL dropdown in one visual block. The card
+      gets accent-soft background + accent-line border when the pipeline flow
+      has selected that phase (prop `selected === true`).
+  - id: G-UI-CONFIG-LLM-SECTIONS-003
+    summary: >
+      When analyze_model / execute_model is env-shadowed, the PhaseCard header
+      renders a small EnvBadgeStatic pill and a dim "Env default: BULWARK_*"
+      line under the dropdown — the dropdown itself remains editable.
+  - id: G-UI-CONFIG-MODELS-001
+    summary: >
+      LLMBackendPane fetches the model list via BulwarkStore.fetchModels() on
+      mount and whenever llm.mode or llm.baseUrl changes. The dropdowns
+      (ModelSelect) render options from store.models — no hardcoded model list.
+  - id: G-UI-CONFIG-MODELS-002
+    summary: >
+      BulwarkStore.fetchModels() POSTs /v1/llm/models with {mode, base_url} and
+      populates state.models from response.models. state.modelsLoading is true
+      for the duration of the request.
+  - id: G-UI-CONFIG-TEST-CONNECTION
+    summary: >
+      BulwarkStore.testConnection() POSTs /v1/llm/test and updates
+      state.llm.status to 'connected' on success or 'error' on failure. Sets
+      status to 'loading' while in flight.
+  - id: G-UI-CONFIG-CANARIES-001
+    summary: >
+      CanaryPane renders one card per entry in store.canaryTokens. With zero
+      entries it renders an empty-state message directing users to
+      bulwark-config.yaml — no random/fabricated tokens are rendered.
+  - id: G-UI-CONFIG-PATTERNS-001
+    summary: >
+      BridgePane renders the list of regex patterns from store.guardPatterns.
+      Empty-state message directs users to bulwark-config.yaml — no random or
+      hardcoded patterns are rendered in the panel.
+  # --- Test page, STATES.md §5 ---
+  - id: G-UI-PRESETS-001
+    summary: >
+      The Test page payload library renders presets from store.presets (fetched
+      from GET /api/presets on load). No inline PRESETS constant remains in
+      page-test.jsx or data.jsx.
+  - id: G-UI-TEST-RUN-001
+    summary: >
+      runPipeline calls BulwarkStore.runClean(payload) which POSTs /v1/clean
+      with {content, source}. The returned trace is rendered as-is — no random
+      or simulated steps.
+  - id: G-UI-TEST-RUN-002
+    summary: >
+      The trace pane's status is 'blocked' iff the backend returns
+      blocked === true or HTTP 422, 'error' iff the fetch raised, and 'passed'
+      otherwise. Status colors never lie about the real result.
+  - id: G-UI-TEST-REPLAY-001
+    summary: >
+      When the Events page dispatches a bulwark:goto CustomEvent whose detail
+      carries a non-empty string payload, PageTest preloads that payload into
+      the editor textarea.
+  - id: G-UI-TEST-TIERS-001
+    summary: >
+      RedTeam renders tiers from store.redteamTiers.tiers (fetched via
+      BulwarkStore.fetchRedteamTiers() → GET /api/redteam/tiers) — no hardcoded
+      tier list or probe counts.
+  - id: G-UI-TEST-TIERS-002
+    summary: >
+      When garak is not installed (redteamTiers.garak_installed === false),
+      the RedTeam card shows a disabled state and the Run button is disabled.
+  - id: G-UI-TEST-REPORTS-001
+    summary: >
+      ReportsList reads from store.redteamReports (GET /api/redteam/reports)
+      and shows an empty-state when none exist — no hardcoded past reports.
+  - id: G-UI-TEST-REPORTS-002
+    summary: >
+      ReportRow Retest button calls BulwarkStore.retestReport(filename) which
+      POSTs /api/redteam/retest with {filename}. JSON button opens
+      /api/redteam/reports/{filename} in a new tab.
+  - id: G-UI-TEST-REPORTS-003
+    summary: >
+      ReportRow caps the displayed defense-rate score at 99.99 % when the
+      report has any hijacked probes (hijacked > 0) — matches
+      G-REDTEAM-SCORE-007.
+  - id: G-UI-TEST-REPORTS-004
+    summary: >
+      After a red-team run completes (store.running transitions truthy → null),
+      RedTeam auto-refetches /api/redteam/reports so the new entry appears.
+  - id: G-UI-TOKENS-003
+    summary: >
+      All JSX files under static/src reference CSS custom properties only —
+      no inline hex color literals remain.
+
+non_guarantees:
+  - id: NG-UI-SHELL-001
+    summary: Does NOT implement the ⌘K command palette
+    reason: The search icon in the header is a stub per STATES.md §10. Full search modal deferred.
+  - id: NG-UI-SHELL-002
+    summary: Does NOT render a sidebar navigation
+    reason: Removed before production per ADR-020 (tweaks panel removal).
+  - id: NG-UI-SHIELD-001
+    summary: Does NOT offer alternate Shield layouts (data-heavy, hybrid)
+    reason: Variants pruned per ADR-020. Users get one opinionated shield view.
+  - id: NG-UI-EVENTS-001
+    summary: Does NOT persist filter state across reloads
+    reason: Filters are React state only. Per-user saved filters deferred (STATES.md §10).
+  - id: NG-UI-EVENTS-002
+    summary: Does NOT show more than 120 rows at once
+    reason: Table slices filtered events to the first 120 for rendering cost.
+      Users filter to narrow; exporting full history uses "Export JSON".
+  - id: NG-UI-CONFIG-001
+    summary: Does NOT let users edit guard patterns or canary tokens inline
+    reason: Both read from bulwark-config.yaml. Inline editing of regex patterns
+      has obvious footguns (broken regexes in prod). Deferred until a validated
+      edit flow exists; config file edits + restart are the supported path.
+  - id: NG-UI-CONFIG-002
+    summary: Does NOT display live hit counts on guard patterns
+    reason: The old UI showed randomly-generated "N hits" values per pattern;
+      real per-pattern metrics aren't aggregated yet. Better to show nothing
+      than to fake it.
+  - id: NG-UI-TEST-001
+    summary: Does NOT animate or fake per-step reveal timing on the trace pane
+    reason: The reference prototype revealed trace steps via setTimeout to look
+      dramatic. That can't be faithful to real latencies — the backend returns
+      the complete trace in one response, so we render it directly.
+  - id: NG-UI-TEST-002
+    summary: Does NOT show a cURL snippet for the current payload
+    reason: The "cURL" button is a stub for a future affordance; it does not
+      generate anything today. Deferred to avoid half-built UX.

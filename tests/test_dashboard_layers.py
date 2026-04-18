@@ -78,25 +78,51 @@ class TestLayerStatus:
             app_mod.config = old
 
     def test_disabled_layer_shows_off_indicator(self):
-        """G-DASH-LAYERS-002: Disabled layers show grey dot / off indicator."""
-        # Verified by renderLayerCards using 'off' CSS class and '(off)' text
-        # when config toggle is false. The JS code checks configData[toggleKey].
+        """G-DASH-LAYERS-002: Disabled layers show grey dot / off indicator.
+
+        Post-ADR-020: Shield's LayerRow renders a Dot with kind=on?'ok':'off' and
+        reduces opacity to 0.5 when the layer is off. Primitives.Dot uses
+        var(--text-faint) for kind='off'.
+        """
         from pathlib import Path
-        html = (Path(__file__).parent.parent / "src" / "bulwark" / "dashboard" / "static" / "index.html").read_text()
-        assert "layer-dot off" in html or "'off'" in html
+        src = Path(__file__).parent.parent / "src" / "bulwark" / "dashboard" / "static" / "src"
+        page_shield = (src / "page-shield.jsx").read_text()
+        primitives = (src / "primitives.jsx").read_text()
+        # LayerRow dims and off-dots disabled layers:
+        assert "kind={on ? 'ok' : 'off'}" in page_shield
+        assert "opacity: on ? 1 : 0.5" in page_shield
+        # Dot primitive maps 'off' to var(--text-faint) (grey):
+        assert "off: 'var(--text-faint)'" in primitives
 
     def test_layer_status_updates_on_toggle(self):
-        """G-DASH-LAYERS-003: Layer status updates when config toggles change."""
-        # Verified by handleToggle calling fetchMetrics() which calls renderLayerCards()
+        """G-DASH-LAYERS-003: Layer status updates when config toggles change.
+
+        Post-ADR-020: the React store (BulwarkStore.toggleLayer) mutates layerConfig
+        and emits, which re-renders every subscriber via useStore(). Configure
+        page's FlowNode onToggle calls BulwarkStore.toggleLayer(stage.id).
+        """
         from pathlib import Path
-        html = (Path(__file__).parent.parent / "src" / "bulwark" / "dashboard" / "static" / "index.html").read_text()
-        assert "fetchMetrics" in html and "handleToggle" in html
+        src = Path(__file__).parent.parent / "src" / "bulwark" / "dashboard" / "static" / "src"
+        data = (src / "data.jsx").read_text()
+        configure = (src / "page-configure.jsx").read_text()
+        # Store exposes toggleLayer and emits on change:
+        assert "toggleLayer(id)" in data and "emit()" in data
+        # Configure wires the toggle to the store:
+        assert "BulwarkStore.toggleLayer(stage.id)" in configure
 
     def test_disabled_layer_not_hidden(self):
-        """NG-DASH-LAYERS-001: Disabled layers still visible, not hidden."""
-        client = _get_client()
-        resp = client.get("/")
-        html = resp.text
-        assert "Sanitizer" in html
-        assert "Trust Boundary" in html
-        assert "Canary Tokens" in html
+        """NG-DASH-LAYERS-001: Disabled layers still visible, not hidden.
+
+        Post-ADR-020: all LAYERS render unconditionally; the opacity/dot state
+        changes but the row is still in the DOM. Source: page-shield.jsx maps
+        over LAYERS without filtering by on/off.
+        """
+        from pathlib import Path
+        src = Path(__file__).parent.parent / "src" / "bulwark" / "dashboard" / "static" / "src"
+        data = (src / "data.jsx").read_text()
+        page_shield = (src / "page-shield.jsx").read_text()
+        # LAYERS list contains every layer with a display name:
+        for name in ("Sanitizer", "Trust Boundary", "Canary Tokens"):
+            assert name in data, f"{name!r} missing from LAYERS in data.jsx"
+        # Shield maps over LAYERS with no filter:
+        assert "LAYERS.map(layer =>" in page_shield

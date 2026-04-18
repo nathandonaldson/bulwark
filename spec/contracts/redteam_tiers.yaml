@@ -1,5 +1,5 @@
 endpoint: GET /api/redteam/tiers
-version: "0.6.0"
+version: "0.7.0"
 
 guarantees:
   - id: G-REDTEAM-TIERS-001
@@ -14,6 +14,11 @@ guarantees:
     summary: Standard tier includes all active garak probes
   - id: G-REDTEAM-TIERS-006
     summary: Full tier includes all garak probes (active and inactive)
+  - id: G-REDTEAM-TIERS-007
+    summary: >
+      Tier counts are cached for at most _REDTEAM_TIERS_TTL_S seconds (default
+      600s). After the TTL expires, the next call re-enumerates garak so upstream
+      probe-library changes are reflected without a dashboard restart.
 
 non_guarantees:
   - id: NG-REDTEAM-TIERS-001
