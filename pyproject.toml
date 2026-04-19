@@ -9,6 +9,13 @@ pattern = "(?P<version>.+)"
 [tool.hatch.build.targets.wheel]
 packages = ["src/bulwark", "src/bulwark_bench"]
 
+# Bundle spec/presets.yaml into the wheel under bulwark/_data/ so
+# importlib.resources can find it in installed environments. The source
+# of truth stays in spec/ — this is a build-time copy, not a tracked
+# duplicate. See ADR-023.
+[tool.hatch.build.targets.wheel.force-include]
+"spec/presets.yaml" = "bulwark/_data/presets.yaml"
+
 [project]
 name = "bulwark-shield"
 dynamic = ["version"]

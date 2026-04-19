@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.3.1] - 2026-04-19
+
+### Fixed
+- **Docker image startup crash** (G-PRESETS-007, ADR-023). v1.3.0's new `bulwark.presets` loader walked up from the installed module location to find `spec/presets.yaml`, which works for editable installs but failed in any wheel-installed environment — including the Docker image, where the package lives in `site-packages/` and `spec/` lives at `/app/spec/`. Containers crashed at startup with `FileNotFoundError: spec/presets.yaml not found`. `pip install bulwark-shield` users hit the same crash on any `load_presets()` call. `spec/presets.yaml` is now bundled into the wheel at `bulwark/_data/presets.yaml` via Hatch `force-include`; the loader tries `importlib.resources` first and falls back to the walk-up for editable installs. The source of truth stays in `spec/` per ADR-021 — the wheel copy is a build artifact, not a tracked duplicate. Dockerfile also copies `spec/` during the build so the wheel-build step can see the file.
+- **Docker CI smoke test** — replaced the blind `sleep 5` + single curl with a 60s readiness loop that polls `/healthz`, exits early if the container crashes, and dumps container logs on failure. The smoke test now also checks `GET /api/presets` to guard against future packaging regressions. Previously, a container startup crash (the v1.3.0 bug) manifested as a cryptic `JSONDecodeError` on the empty curl output.
+
+### Added
+- **ADR-023** — bundle `spec/presets.yaml` into the distribution wheel. Extends ADR-021's source-of-truth stance with a distribution decision.
+- **`G-PRESETS-007`** — `load_presets()` resolves the default spec path in both editable and wheel installs; `presets.yaml` contract bumped to v1.1.0.
+
 ## [1.3.0] - 2026-04-18
 
 ### Added

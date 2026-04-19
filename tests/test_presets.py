@@ -1,12 +1,22 @@
 """Spec-driven tests for presets — spec/contracts/presets.yaml + ADR-021."""
 import os
+import subprocess
+import sys
 import textwrap
+import zipfile
 from pathlib import Path
 
 import pytest
 import yaml
 
-from bulwark.presets import Preset, load_presets, _ALLOWED_FAMILIES
+from bulwark.presets import (
+    Preset,
+    load_presets,
+    _ALLOWED_FAMILIES,
+    _default_spec_path,
+    _packaged_spec_path,
+    _walkup_spec_path,
+)
 
 
 try:
@@ -101,6 +111,62 @@ class TestLoader:
         bad.write_text("other: key\n")
         with pytest.raises(ValueError, match="'presets' key missing"):
             load_presets(bad)
+
+
+class TestDiscovery:
+    """G-PRESETS-007 — loader resolves spec path in editable AND wheel installs."""
+
+    def test_walkup_finds_spec_in_editable_install(self):
+        """Walk-up from the module location finds spec/presets.yaml in this repo."""
+        path = _walkup_spec_path()
+        assert path is not None, "walk-up returned None from an editable install"
+        assert path.name == "presets.yaml"
+        assert path.is_file()
+
+    def test_default_path_succeeds_in_current_env(self):
+        """G-PRESETS-007: _default_spec_path() does not raise in the test env."""
+        # One of the two strategies must resolve — this test documents that
+        # contract, complementing the Docker smoke test that verifies the wheel
+        # path works in installed environments.
+        assert _default_spec_path().is_file()
+
+    def test_raises_when_every_strategy_fails(self, monkeypatch):
+        """G-PRESETS-007: FileNotFoundError mentions both strategies if neither resolves."""
+        monkeypatch.setattr("bulwark.presets._packaged_spec_path", lambda: None)
+        monkeypatch.setattr("bulwark.presets._walkup_spec_path", lambda: None)
+        with pytest.raises(FileNotFoundError, match="bulwark/_data/presets.yaml"):
+            _default_spec_path()
+
+    def test_prefers_packaged_over_walkup(self, monkeypatch, tmp_path):
+        """G-PRESETS-007: packaged resolver wins when both succeed."""
+        packaged = tmp_path / "packaged.yaml"
+        packaged.write_text("presets: []")
+        walkup = tmp_path / "walkup.yaml"
+        walkup.write_text("presets: []")
+        monkeypatch.setattr("bulwark.presets._packaged_spec_path", lambda: packaged)
+        monkeypatch.setattr("bulwark.presets._walkup_spec_path", lambda: walkup)
+        assert _default_spec_path() == packaged
+
+    def test_built_wheel_bundles_presets_yaml(self, tmp_path):
+        """G-PRESETS-007 + ADR-023: `hatch build` emits a wheel containing bulwark/_data/presets.yaml."""
+        repo = Path(__file__).resolve().parent.parent
+        result = subprocess.run(
+            [sys.executable, "-m", "hatchling", "build", "-t", "wheel"],
+            cwd=repo,
+            env={**os.environ, "HATCH_BUILD_LOCATION": str(tmp_path)},
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            pytest.skip(f"hatch build unavailable in test env: {result.stderr.strip()}")
+
+        wheels = list(tmp_path.glob("*.whl"))
+        assert wheels, f"no wheel produced in {tmp_path}; stdout={result.stdout}"
+        with zipfile.ZipFile(wheels[0]) as zf:
+            names = zf.namelist()
+        assert "bulwark/_data/presets.yaml" in names, (
+            f"wheel missing bundled presets.yaml; contents: {names}"
+        )
 
 
 @pytest.mark.skipif(not HAS_FASTAPI, reason="FastAPI not installed")

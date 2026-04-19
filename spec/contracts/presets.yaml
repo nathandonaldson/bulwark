@@ -1,5 +1,5 @@
 feature: Attack presets source of truth
-version: "1.0.0"
+version: "1.1.0"
 module: bulwark.presets
 
 guarantees:
@@ -28,6 +28,12 @@ guarantees:
       Malformed spec/presets.yaml (syntax error, missing required field) causes
       load_presets() to raise; dashboard fails to start rather than ship a
       silently empty payload library.
+  - id: G-PRESETS-007
+    summary: >
+      load_presets() resolves the default spec path in both editable installs
+      (via walk-up from the module location) and wheel installs (via
+      importlib.resources on bulwark._data). Neither layout raises
+      FileNotFoundError on a correctly built distribution. See ADR-023.
 
 non_guarantees:
   - id: NG-PRESETS-001

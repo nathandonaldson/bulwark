@@ -9,6 +9,9 @@ WORKDIR /build
 
 COPY pyproject.toml VERSION README.md ./
 COPY src/ src/
+# spec/ is needed at wheel-build time because pyproject.toml force-includes
+# spec/presets.yaml into the bulwark package (ADR-023 / G-PRESETS-007).
+COPY spec/ spec/
 RUN pip install --no-cache-dir --prefix=/install ".[dashboard,testing]"
 
 # Reinstall the package itself into /install
