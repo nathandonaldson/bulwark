@@ -25,7 +25,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pytest click pyyaml
-          pip install -e ".[cli]"
+          # bench extra provides httpx for bulwark_bench.bulwark_client;
+          # dashboard extra provides FastAPI/httpx so test_http_api.py and
+          # test_spec_compliance.py run their FastAPI-gated suites instead
+          # of skipping.
+          pip install -e ".[cli,bench,dashboard]"
 
       - name: Run tests
         run: |
