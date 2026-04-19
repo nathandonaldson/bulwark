@@ -1,0 +1,95 @@
+feature: Per-item isolation for untrusted content processing
+version: "1.0.0"
+module: bulwark.isolator
+
+guarantees:
+  - id: G-ISOLATOR-001
+    summary: >
+      MapReduceIsolator.process() invokes map_fn exactly once per input
+      item, with each call receiving only that item's content — no
+      other item's text appears in any single map_fn prompt. Isolation
+      is the core guarantee: each item is its own self-contained LLM
+      context.
+  - id: G-ISOLATOR-002
+    summary: >
+      MapReduceIsolator.process() runs items in parallel up to the
+      max_workers limit (default 5) using a ThreadPoolExecutor, and
+      returns ItemResults in the original input order regardless of
+      completion order.
+  - id: G-ISOLATOR-003
+    summary: >
+      If a Sanitizer is provided, each item is passed through
+      sanitizer.clean() before being handed to map_fn; sanitization
+      runs per item, before template assembly.
+  - id: G-ISOLATOR-004
+    summary: >
+      If a TrustBoundary is provided, each sanitized item is wrapped
+      via trust_boundary.wrap() with the supplied source and label
+      before being templated into the map_fn prompt.
+  - id: G-ISOLATOR-005
+    summary: >
+      The prompt_template's {tagged_item} placeholder is replaced with
+      the sanitized+wrapped item. A caller-supplied template may
+      include additional static context; the template is applied
+      per item.
+  - id: G-ISOLATOR-006
+    summary: >
+      If an output_parser is provided, it is invoked on each raw
+      map_fn output. On success the parsed value lands in
+      ItemResult.parsed; on exception the ItemResult.error captures
+      the failure and the item moves to the failed list, without
+      aborting the batch.
+  - id: G-ISOLATOR-007
+    summary: >
+      If the parsed per-item output is a dict containing a truthy
+      "suspicious" key, the ItemResult.suspicious flag is set to True.
+      IsolatorResult.suspicious_items returns only items with the flag
+      set.
+  - id: G-ISOLATOR-008
+    summary: >
+      If map_fn raises or (when a timeout is supplied) exceeds the
+      per-item deadline, the resulting error is stored on that item's
+      ItemResult and the remaining items continue processing.
+  - id: G-ISOLATOR-009
+    summary: >
+      IsolatorResult.successful returns only ItemResults with error=None;
+      IsolatorResult.failed returns only ItemResults with error set.
+      The two partitions are disjoint and together cover every item.
+  - id: G-ISOLATOR-010
+    summary: >
+      MapReduceIsolator.process([]) returns an IsolatorResult with an
+      empty items list, empty successful/failed/suspicious_items, and
+      does not invoke map_fn.
+  - id: G-ISOLATOR-011
+    summary: >
+      Exceptions raised during pre-processing (sanitizer.clean or
+      trust_boundary.wrap) are captured on the item's ItemResult
+      rather than propagating up out of process(), so one
+      pre-processing failure never stops the batch.
+  - id: G-ISOLATOR-012
+    summary: >
+      End-to-end pipeline (sanitize → wrap → template → map → parse)
+      preserves per-item isolation and produces a per-item ItemResult
+      whose parsed/output/error reflect only that item's processing.
+
+non_guarantees:
+  - id: NG-ISOLATOR-001
+    summary: Does not guarantee LLM-level isolation inside map_fn
+    reason: >
+      Isolation is achieved at the prompt boundary — one item per
+      map_fn call. If map_fn shares session/cache state across calls
+      in the underlying LLM client, the isolator cannot prevent that.
+      That is the caller's responsibility.
+  - id: NG-ISOLATOR-002
+    summary: Does not guarantee any ordering of map_fn execution
+    reason: >
+      ThreadPoolExecutor may execute items in any order; only return
+      ordering (results list) is preserved. Callers must not rely on
+      side-effect ordering between map_fn invocations.
+  - id: NG-ISOLATOR-003
+    summary: Does not enforce per-item timeouts unless supplied
+    reason: >
+      Timeout defense is opt-in — the module provides the mechanism
+      but does not impose a default deadline. If map_fn hangs and no
+      timeout is set, the corresponding item's future waits
+      indefinitely.

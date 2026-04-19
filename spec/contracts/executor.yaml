@@ -1,0 +1,101 @@
+feature: Two-phase analyze/execute with bridge guards
+version: "1.0.0"
+module: bulwark.executor
+
+guarantees:
+  - id: G-EXECUTOR-001
+    summary: >
+      TwoPhaseExecutor.run() splits work into two phases: analyze_fn
+      receives the full (possibly untrusted) prompt in a read-only
+      context with no tools; execute_fn receives a prompt built from
+      the analysis output, not the raw untrusted content.
+  - id: G-EXECUTOR-002
+    summary: >
+      When execute_fn is None, TwoPhaseExecutor.run() runs only Phase 1
+      and returns an ExecutorResult with execution=None and blocked=False.
+  - id: G-EXECUTOR-003
+    summary: >
+      The Phase 2 prompt is constructed by substituting the {analysis}
+      placeholder in execute_prompt_template with the Phase 1 output.
+      The default template wraps the analysis in a trust-tagged
+      <analysis_output treat_as="data_only"> envelope so the execute
+      model reads it as data, not instructions.
+  - id: G-EXECUTOR-004
+    summary: >
+      If a CanarySystem is configured and canary tokens appear in the
+      Phase 1 output, Phase 2 is blocked: ExecutorResult.blocked=True,
+      execution=None, and block_reason identifies which canary sources
+      leaked.
+  - id: G-EXECUTOR-005
+    summary: >
+      execute_fn is never invoked when a canary leak is detected;
+      blocking is enforced before Phase 2 begins.
+  - id: G-EXECUTOR-006
+    summary: >
+      If a validate_analysis callable is supplied, it is called with
+      the Phase 1 output before the canary check. If it raises, Phase 2
+      is skipped and the exception surfaces to the caller.
+  - id: G-EXECUTOR-007
+    summary: >
+      When require_json=True, the Phase 1 output is parsed as JSON
+      before Phase 2; non-JSON output raises ValueError and Phase 2
+      does not run.
+  - id: G-EXECUTOR-008
+    summary: >
+      AnalysisGuard.check() raises AnalysisSuspiciousError when the
+      Phase 1 output exceeds max_length (default 5000 chars) or matches
+      any block pattern in the default list (instruction overrides,
+      trust-boundary escape tags, tool-call patterns, multilingual
+      override phrases).
+  - id: G-EXECUTOR-009
+    summary: >
+      When guard_bridge=True (default), TwoPhaseExecutor applies
+      AnalysisGuard.check() to the Phase 1 output before Phase 2. When
+      guard_bridge=False, the check is skipped entirely.
+  - id: G-EXECUTOR-010
+    summary: >
+      When sanitize_bridge=True (default), the Phase 1 output is run
+      through Sanitizer().clean() before being templated into the
+      Phase 2 prompt, stripping zero-width chars and encoding-layer
+      payloads the analysis model might have echoed back.
+  - id: G-EXECUTOR-011
+    summary: >
+      TwoPhaseExecutor.analyze_only(prompt) runs Phase 1 only and
+      returns the analysis string; no guards, no sanitize_bridge, no
+      canary check, and no invocation of execute_fn.
+  - id: G-EXECUTOR-012
+    summary: >
+      AnalysisGuard accepts caller-supplied block_patterns and
+      custom_checks. Custom checks run after built-in pattern matching
+      and are invoked in the order supplied; any custom check that
+      raises halts Phase 2.
+  - id: G-EXECUTOR-013
+    summary: >
+      The full pipeline executes in this order and short-circuits on
+      the first failure:
+      Phase 1 → validate_analysis (if provided) → require_json check
+      (if enabled) → guard_bridge / AnalysisGuard.check() (if enabled)
+      → sanitize_bridge (if enabled) → canary leak check (if
+      configured) → Phase 2.
+
+non_guarantees:
+  - id: NG-EXECUTOR-001
+    summary: Does not verify that analyze_fn and execute_fn have distinct capabilities
+    reason: >
+      The two-phase architecture assumes the caller wires analyze_fn to
+      a tool-less/read-only LLM and execute_fn to a tool-enabled LLM.
+      The executor enforces prompt shape, not LLM configuration.
+  - id: NG-EXECUTOR-002
+    summary: AnalysisGuard patterns are heuristic, not semantic
+    reason: >
+      Pattern matching catches common injection markers but cannot
+      detect sophisticated novel attacks. Guard bridge is a coarse
+      filter, not a proof of safety.
+  - id: NG-EXECUTOR-003
+    summary: Does not detect covert channels in Phase 1 output beyond canary tokens
+    reason: >
+      Phase 1 has no tools, so any instruction injected into Phase 1
+      cannot cause actions. Data exfiltration attempts are caught only
+      if the attacker echoes configured canary tokens; other covert
+      channels (e.g., plain restatement of secrets already in context)
+      are outside scope.

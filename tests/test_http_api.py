@@ -1084,6 +1084,39 @@ class TestOpenAPISchema:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/presets — spec/contracts/presets.yaml (G-PRESETS-005, G-PRESETS-007)
+#
+# Smoke-level HTTP coverage so G-PRESETS-007 (loader resolves in both editable
+# and wheel installs) is still tested when tests/test_presets.py is skipped —
+# e.g., when hatchling is unavailable for the wheel-build integration test.
+# ---------------------------------------------------------------------------
+
+class TestPresetsEndpoint:
+    def test_returns_non_empty_list(self):
+        """G-PRESETS-005: /api/presets returns {presets: [...]} with at least one preset."""
+        resp = _get_client().get("/api/presets")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert isinstance(body.get("presets"), list) and body["presets"]
+
+    def test_served_from_loader_regardless_of_install_layout(self):
+        """G-PRESETS-007: the endpoint serves content from load_presets(), which
+        must resolve via either the packaged data (wheel install) or walk-up
+        (editable install). If this test runs at all, load_presets() worked —
+        the HTTP-level check guards against a regression where the endpoint
+        is wired to a stale in-memory literal rather than the loader.
+        """
+        from bulwark.presets import load_presets
+
+        loader_ids = {p.id for p in load_presets()}
+        served_ids = {p["id"] for p in _get_client().get("/api/presets").json()["presets"]}
+        assert served_ids == loader_ids, (
+            f"Endpoint and loader disagree. Only in loader: {loader_ids - served_ids}; "
+            f"only in endpoint: {served_ids - loader_ids}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # GET /api/redteam/tiers — spec/contracts/redteam_tiers.yaml
 # ---------------------------------------------------------------------------
 

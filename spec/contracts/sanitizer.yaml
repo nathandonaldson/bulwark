@@ -1,0 +1,120 @@
+feature: Content sanitization pipeline
+version: "1.0.0"
+module: bulwark.sanitizer
+
+guarantees:
+  - id: G-SANITIZER-001
+    summary: >
+      Sanitizer.clean() removes zero-width characters (U+200B, U+200C,
+      U+200D, U+200E, U+200F, U+FEFF, U+2060–U+2064) when
+      strip_zero_width=True (default).
+  - id: G-SANITIZER-002
+    summary: >
+      Sanitizer.clean() removes <script> and <style> tags and their full
+      content when strip_scripts=True (default); matching is
+      case-insensitive and tolerates attributes, multiline bodies, and
+      nested tags inside the script body.
+  - id: G-SANITIZER-003
+    summary: >
+      Sanitizer.clean() removes all HTML tags (both paired and
+      self-closing, with or without attributes) while preserving the
+      text content between them when strip_html=True (default).
+  - id: G-SANITIZER-004
+    summary: >
+      Sanitizer.clean() removes CSS patterns commonly used to hide text
+      (display:none, font-size:0, color:white, color:#fff, color:#ffffff,
+      color:rgb(255,255,255)) when strip_css_hidden=True (default);
+      matching is case-insensitive and tolerates whitespace variations.
+  - id: G-SANITIZER-005
+    summary: >
+      Sanitizer.clean() removes Unicode control characters in categories
+      Cc and Cf while preserving newline, carriage return, tab, and
+      ordinary space when strip_control_chars=True (default).
+  - id: G-SANITIZER-006
+    summary: >
+      Sanitizer.clean() removes bidirectional override/embedding
+      characters (U+202A–U+202E, U+2066–U+2069) when strip_bidi=True
+      (default).
+  - id: G-SANITIZER-007
+    summary: >
+      Sanitizer.clean() removes emoji variation selectors (U+FE00–U+FE0F),
+      the variation-selector supplement (U+E0100–U+E01EF), and Unicode
+      tag characters (U+E0001–U+E007F) when strip_emoji_smuggling=True
+      (default).
+  - id: G-SANITIZER-008
+    summary: >
+      Sanitizer.clean() collapses runs of multiple spaces to a single
+      space and runs of three or more newlines to exactly two newlines,
+      preserving single and double newlines as-is, when
+      collapse_whitespace=True (default).
+  - id: G-SANITIZER-009
+    summary: >
+      Sanitizer.clean() truncates output to max_length after all other
+      cleaning steps; default max_length is 3000 characters.
+  - id: G-SANITIZER-010
+    summary: >
+      Sanitizer.clean() applies custom regex patterns (custom_patterns
+      list) in order, removing every match from the output.
+  - id: G-SANITIZER-011
+    summary: >
+      Sanitizer.clean() applies NFKC Unicode normalization (mapping
+      homoglyphs, fullwidth forms, and other compatibility
+      decompositions to canonical forms) when normalize_unicode=True.
+      Normalization is opt-in; default is False.
+  - id: G-SANITIZER-012
+    summary: >
+      Sanitizer.clean() preserves legitimate emoji and mixed-script text
+      (e.g. Devanagari + Latin + emoji) when only attack vectors are
+      being stripped.
+  - id: G-SANITIZER-013
+    summary: >
+      Sanitizer.clean() executes cleaning steps in a fixed deterministic
+      order: zero-width → scripts → HTML → CSS-hidden → control chars →
+      bidi → emoji smuggling → normalization → custom patterns →
+      whitespace collapse → max_length truncation → .strip().
+  - id: G-SANITIZER-014
+    summary: >
+      Sanitizer.clean() returns an empty string for empty input and for
+      input that contains only whitespace or only zero-width characters.
+  - id: G-SANITIZER-015
+    summary: >
+      Sanitizer.clean() raises TypeError when called with non-string
+      input (e.g. bytes, None, int) rather than silently coercing.
+  - id: G-SANITIZER-016
+    summary: >
+      Individual cleaning steps (strip_zero_width, strip_scripts,
+      strip_html, strip_css_hidden, strip_control_chars, strip_bidi,
+      strip_emoji_smuggling, collapse_whitespace, normalize_unicode)
+      can be disabled independently via boolean fields on the Sanitizer
+      dataclass; disabling a step causes its removal behaviour to be
+      skipped entirely.
+  - id: G-SANITIZER-017
+    summary: >
+      Sanitizer.clean_batch(texts) applies clean() to each item in the
+      input list and returns a list of the same length, preserving
+      order. Empty input list returns an empty list.
+
+non_guarantees:
+  - id: NG-SANITIZER-001
+    summary: Does not parse or validate HTML/XML structure
+    reason: >
+      Regex-based stripping is intentional — format-agnostic and harder
+      to bypass via malformed markup than a real parser's leniency.
+  - id: NG-SANITIZER-002
+    summary: Does not normalize Unicode by default
+    reason: >
+      Normalization is opt-in (normalize_unicode=False default) to
+      preserve original bytes for audit logs and forensic comparison.
+      Homoglyph defense requires explicit opt-in.
+  - id: NG-SANITIZER-003
+    summary: Does not decode or unescape HTML entities
+    reason: >
+      Entity handling (&amp;, &#x20;, etc.) is application-layer; the
+      sanitizer's scope is steganography and control-character stripping,
+      not markup interpretation.
+  - id: NG-SANITIZER-004
+    summary: Does not exhaustively match every possible text-hiding CSS
+    reason: >
+      CSS attack surface is effectively infinite. The sanitizer covers
+      the commonly-used hiding patterns; callers who care about
+      comprehensive CSS scrubbing should strip CSS at a higher layer.

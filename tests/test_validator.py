@@ -1,4 +1,17 @@
-"""Tests for the pipeline validator."""
+"""Tests for the pipeline validator.
+
+Contract: spec/contracts/validator.yaml (G-VALIDATOR-001..012).
+
+Non-guarantees:
+  NG-VALIDATOR-001 — no live LLM behaviour tested; payload transformation only.
+  NG-VALIDATOR-002 — built-in AttackSuite is not exhaustive.
+  NG-VALIDATOR-003 — layers are evaluated independently, not composed (that is
+                     bulwark.clean()'s job; see TestTrustBoundaryDetection /
+                     TestCanaryDetection — each tests one layer in isolation).
+
+TestCLI below tests the `bulwark test` CLI command rather than validator
+guarantees directly; it is left unlinked because the CLI has no contract yet.
+"""
 import pytest
 
 from bulwark.sanitizer import Sanitizer
@@ -57,6 +70,8 @@ def _custom_suite(attacks):
 # ---------------------------------------------------------------------------
 
 class TestPipelineValidatorBasic:
+    """G-VALIDATOR-001 + G-VALIDATOR-006 — per-layer verdicts plus optional category filter."""
+
     """Core validate() behaviour."""
 
     def test_validate_runs_all_attacks_when_no_filter(self):
@@ -84,6 +99,8 @@ class TestPipelineValidatorBasic:
 
 
 class TestSanitizerDetection:
+    """G-VALIDATOR-002 — sanitizer verdict by payload-reduction percentage."""
+
     """Sanitizer verdict logic."""
 
     def test_sanitizer_detects_steganography(self):
@@ -117,6 +134,8 @@ class TestSanitizerDetection:
 
 
 class TestTrustBoundaryDetection:
+    """G-VALIDATOR-003 — boundary verdict by presence of escape markers in the payload."""
+
     """Trust boundary verdict logic."""
 
     def test_boundary_marks_escape_attempts_as_reduced(self):
@@ -148,6 +167,8 @@ class TestTrustBoundaryDetection:
 
 
 class TestCanaryDetection:
+    """G-VALIDATOR-004 — canary verdict for leaked-token and DATA_EXFILTRATION cases."""
+
     """Canary verdict logic."""
 
     def test_canary_marks_exfiltration_attacks_as_reduced(self):
@@ -182,6 +203,8 @@ class TestCanaryDetection:
 
 
 class TestOverallVerdict:
+    """G-VALIDATOR-005 + G-VALIDATOR-012 — stronger verdicts dominate; missing layers are SKIPPED."""
+
     """Overall verdict determination."""
 
     def test_blocked_when_any_layer_blocks(self):
@@ -245,6 +268,8 @@ class TestOverallVerdict:
 # ---------------------------------------------------------------------------
 
 class TestValidationReport:
+    """G-VALIDATOR-007 + G-VALIDATOR-008 + G-VALIDATOR-009 + G-VALIDATOR-010 — totals, score, by_category, summary()."""
+
     """Report aggregation and formatting."""
 
     def test_total_counts_correctly(self):
@@ -372,6 +397,8 @@ class TestCLI:
 # ---------------------------------------------------------------------------
 
 class TestIntegration:
+    """G-VALIDATOR-011 — full stack blocks all steganography attacks and scores >70%."""
+
     """Full pipeline integration."""
 
     def test_full_pipeline_blocks_steganography(self):

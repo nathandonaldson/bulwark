@@ -1,4 +1,14 @@
-"""Comprehensive tests for the MapReduceIsolator module."""
+"""Comprehensive tests for the MapReduceIsolator module.
+
+Contract: spec/contracts/isolator.yaml (G-ISOLATOR-001..012).
+
+Non-guarantees:
+  NG-ISOLATOR-001 — LLM-internal isolation inside map_fn is caller's responsibility
+                    (session/cache leaks not preventable from here).
+  NG-ISOLATOR-002 — map_fn execution order is not guaranteed; only return order is
+                    (see TestConcurrency — parallel execution, ordered results).
+  NG-ISOLATOR-003 — timeouts are opt-in; see TestTimeout for the only timeout path.
+"""
 from __future__ import annotations
 
 import json
@@ -62,6 +72,8 @@ def trust_boundary() -> TrustBoundary:
 # ===========================================================================
 
 class TestBasicProcessing:
+    """G-ISOLATOR-001 + G-ISOLATOR-002 — one map_fn call per item, results in input order."""
+
     def test_process_calls_map_fn_for_each_item(self) -> None:
         calls = []
         def tracking_fn(prompt: str) -> str:
@@ -123,6 +135,8 @@ class TestBasicProcessing:
 # ===========================================================================
 
 class TestSanitization:
+    """G-ISOLATOR-003 — each item runs through sanitizer.clean() before map_fn."""
+
     def test_items_sanitized_before_map_fn(self, sanitizer: Sanitizer) -> None:
         calls = []
         def tracking_fn(prompt: str) -> str:
@@ -172,6 +186,8 @@ class TestSanitization:
 # ===========================================================================
 
 class TestTrustBoundaries:
+    """G-ISOLATOR-004 — each item is wrapped via trust_boundary.wrap() with supplied source/label."""
+
     def test_items_wrapped_when_boundary_provided(self, trust_boundary: TrustBoundary) -> None:
         calls = []
         def tracking_fn(prompt: str) -> str:
@@ -221,6 +237,8 @@ class TestTrustBoundaries:
 # ===========================================================================
 
 class TestPromptTemplate:
+    """G-ISOLATOR-005 — {tagged_item} placeholder is replaced with the sanitized+wrapped item."""
+
     def test_default_template_passes_item_directly(self) -> None:
         calls = []
         def tracking_fn(prompt: str) -> str:
@@ -264,6 +282,8 @@ class TestPromptTemplate:
 # ===========================================================================
 
 class TestOutputParsing:
+    """G-ISOLATOR-006 + G-ISOLATOR-007 — output_parser populates parsed/error; truthy 'suspicious' sets the flag."""
+
     def test_parser_called_on_each_output(self) -> None:
         iso = MapReduceIsolator(
             map_fn=mock_classify,
@@ -339,6 +359,8 @@ class TestOutputParsing:
 # ===========================================================================
 
 class TestConcurrency:
+    """G-ISOLATOR-002 — parallel execution up to max_workers; results in input order."""
+
     def test_multiple_items_processed_in_parallel(self) -> None:
         """Verify items run concurrently by checking total time is less than serial."""
         def slow_fn(prompt: str) -> str:
@@ -397,6 +419,8 @@ class TestConcurrency:
 # ===========================================================================
 
 class TestTimeout:
+    """G-ISOLATOR-008 — per-item timeout is captured on that item; other items continue."""
+
     def test_slow_item_gets_timeout_error(self) -> None:
         def slow_fn(prompt: str) -> str:
             if "slow" in prompt:
@@ -438,6 +462,8 @@ class TestTimeout:
 # ===========================================================================
 
 class TestErrorHandling:
+    """G-ISOLATOR-008 + G-ISOLATOR-011 — map_fn / pre-processing errors captured per item, batch continues."""
+
     def test_map_fn_exception_captured(self) -> None:
         def failing_fn(prompt: str) -> str:
             raise ValueError("something broke")
@@ -498,6 +524,8 @@ class TestErrorHandling:
 # ===========================================================================
 
 class TestIsolationVerification:
+    """G-ISOLATOR-001 — each map_fn invocation sees only its own item; no shared state."""
+
     def test_each_map_call_receives_only_its_own_item(self) -> None:
         """Critical test: no cross-contamination between items."""
         call_log = []
@@ -566,6 +594,8 @@ class TestIsolationVerification:
 # ===========================================================================
 
 class TestEmptyInputs:
+    """G-ISOLATOR-010 — empty input list returns an empty IsolatorResult; map_fn is not called."""
+
     def test_empty_list_returns_empty_result(self) -> None:
         iso = MapReduceIsolator(map_fn=echo_map)
         result = iso.process([])
@@ -588,6 +618,8 @@ class TestEmptyInputs:
 # ===========================================================================
 
 class TestIsolatorResultProperties:
+    """G-ISOLATOR-009 — successful/failed partitions; suspicious_items filters by G-ISOLATOR-007."""
+
     def test_successful_filters_correctly(self) -> None:
         items = [
             ItemResult(index=0, output="ok"),
@@ -643,6 +675,8 @@ class TestIsolatorResultProperties:
 # ===========================================================================
 
 class TestIntegration:
+    """G-ISOLATOR-012 — end-to-end pipeline (sanitize → wrap → template → map → parse) works per item."""
+
     def test_full_pipeline_sanitize_wrap_map_parse(self) -> None:
         """Full pipeline: sanitize + trust boundary + map + parse."""
         sanitizer = Sanitizer()
