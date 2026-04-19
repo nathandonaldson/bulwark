@@ -1,0 +1,90 @@
+feature: Pipeline validation harness for defense-layer effectiveness
+version: "1.0.0"
+module: bulwark.validator
+
+guarantees:
+  - id: G-VALIDATOR-001
+    summary: >
+      PipelineValidator.validate() runs each attack payload through
+      each configured defense layer (sanitizer, trust_boundary, canary)
+      independently and produces per-layer verdicts plus an overall
+      verdict per attack.
+  - id: G-VALIDATOR-002
+    summary: >
+      Sanitizer verdict is BLOCKED when sanitizer.clean() reduces the
+      payload by more than 50%, REDUCED for a 0–50% reduction, and
+      EXPOSED when the payload is returned unchanged. SKIPPED when no
+      sanitizer is configured.
+  - id: G-VALIDATOR-003
+    summary: >
+      Trust-boundary verdict is BLOCKED when the payload contains no
+      boundary-escape markers (</untrusted_, <system, <trusted_, etc.)
+      and REDUCED when such markers are present. SKIPPED when no
+      trust_boundary is configured.
+  - id: G-VALIDATOR-004
+    summary: >
+      Canary verdict is BLOCKED when canary.check() detects leaked
+      tokens already in the payload, REDUCED for attacks categorised
+      as DATA_EXFILTRATION (caught only once the LLM echoes tokens),
+      and SKIPPED otherwise.
+  - id: G-VALIDATOR-005
+    summary: >
+      Overall verdict is BLOCKED if any layer returns BLOCKED; else
+      REDUCED if any layer returns REDUCED; else EXPOSED. Layer
+      priority is monotonic: stronger verdicts dominate weaker ones.
+  - id: G-VALIDATOR-006
+    summary: >
+      PipelineValidator.validate(categories=[...]) filters attacks to
+      the supplied AttackCategory list. Omitting the parameter runs
+      the full attack suite.
+  - id: G-VALIDATOR-007
+    summary: >
+      ValidationReport exposes .total, .blocked, .reduced, .exposed
+      counters that correctly partition the results list by overall
+      verdict.
+  - id: G-VALIDATOR-008
+    summary: >
+      ValidationReport.score is (BLOCKED + 0.5 * REDUCED) / total * 100,
+      rounded to one decimal. Empty result sets yield 0.
+  - id: G-VALIDATOR-009
+    summary: >
+      ValidationReport.by_category() returns a dict keyed by
+      AttackCategory with values that are the subset of results whose
+      attack.category matches the key.
+  - id: G-VALIDATOR-010
+    summary: >
+      ValidationReport.summary() produces a human-readable text report
+      with headline score, blocked/reduced/exposed counts, a
+      per-category breakdown, and the list of exposed attacks.
+  - id: G-VALIDATOR-011
+    summary: >
+      The full defense stack (Sanitizer + TrustBoundary + CanarySystem)
+      blocks all built-in steganography attacks and produces a score
+      above 70% on the full attack suite.
+  - id: G-VALIDATOR-012
+    summary: >
+      Unconfigured defense layers produce SKIPPED per-layer verdicts
+      without raising. The overall verdict still reflects the layers
+      that ARE configured, so partial deployments are scored correctly.
+
+non_guarantees:
+  - id: NG-VALIDATOR-001
+    summary: Does not test live LLM behaviour
+    reason: >
+      Validation operates purely on payload transformations. Whether a
+      given prompt actually jailbreaks a specific LLM is outside scope
+      — that's what the red-team suite measures.
+  - id: NG-VALIDATOR-002
+    summary: Does not claim the attack suite is exhaustive
+    reason: >
+      The built-in AttackSuite covers common attack categories and
+      techniques, not every possible attack. A high score means the
+      configured stack handles the tested attacks, not that it is
+      safe against every attack.
+  - id: NG-VALIDATOR-003
+    summary: Does not model interactions between defense layers
+    reason: >
+      Each layer is evaluated against the raw payload, not against the
+      output of the layer before it. Real deployments compose layers,
+      but composition is expressed in bulwark.clean() — validator
+      measures per-layer capability, not the composed pipeline.

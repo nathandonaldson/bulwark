@@ -1,4 +1,14 @@
-"""Comprehensive tests for the two-phase executor."""
+"""Comprehensive tests for the two-phase executor.
+
+Contract: spec/contracts/executor.yaml (G-EXECUTOR-001..013).
+
+Non-guarantees:
+  NG-EXECUTOR-001 — analyze_fn vs execute_fn capability split is the caller's
+                    contract (no LLM-config introspection here).
+  NG-EXECUTOR-002 — AnalysisGuard patterns are heuristic (see TestAnalysisGuard).
+  NG-EXECUTOR-003 — canary is the only covert-channel defense in Phase 1 output
+                    (see TestCanaryChecking).
+"""
 import json
 import pytest
 
@@ -33,6 +43,8 @@ def mock_analyze_with_leak(canary_token: str):
 # ---------------------------------------------------------------------------
 
 class TestPhase1Analyze:
+    """G-EXECUTOR-001 + G-EXECUTOR-002 — Phase 1 runs alone when execute_fn is None."""
+
     def test_analyze_fn_called_with_full_prompt(self):
         """analyze_fn receives the exact prompt passed to run()."""
         received = []
@@ -70,6 +82,8 @@ class TestPhase1Analyze:
 # ---------------------------------------------------------------------------
 
 class TestPhase2Execute:
+    """G-EXECUTOR-001 + G-EXECUTOR-003 — Phase 2 receives the templated analysis, not raw input."""
+
     def test_execute_fn_called_with_templated_prompt(self):
         """execute_fn receives the secure default template with analysis inserted."""
         received = []
@@ -150,6 +164,8 @@ class TestPhase2Execute:
 # ---------------------------------------------------------------------------
 
 class TestCanaryChecking:
+    """G-EXECUTOR-004 + G-EXECUTOR-005 — canary leak blocks Phase 2; execute_fn is never called."""
+
     def test_clean_analysis_passes_canary_check(self):
         """When analysis has no canary tokens, execution proceeds."""
         cs = CanarySystem()
@@ -267,6 +283,8 @@ class TestCanaryChecking:
 # ---------------------------------------------------------------------------
 
 class TestValidation:
+    """G-EXECUTOR-006 — validate_analysis is called before the canary check; raising prevents Phase 2."""
+
     def test_validate_analysis_called_with_output(self):
         """validate_analysis receives the Phase 1 output string."""
         validated = []
@@ -342,6 +360,8 @@ class TestValidation:
 # ---------------------------------------------------------------------------
 
 class TestAnalyzeOnly:
+    """G-EXECUTOR-011 — analyze_only() runs Phase 1 only, bypassing all bridge guards."""
+
     def test_returns_analysis_string(self):
         """analyze_only returns the raw analysis string."""
         executor = TwoPhaseExecutor(analyze_fn=mock_analyze)
@@ -381,6 +401,8 @@ class TestAnalyzeOnly:
 # ---------------------------------------------------------------------------
 
 class TestTemplateFormatting:
+    """G-EXECUTOR-003 — {analysis} placeholder substitution, default/custom templates."""
+
     def test_default_template_includes_analysis(self):
         """Default template wraps analysis in the secure trust boundary format."""
         received = []
@@ -451,6 +473,8 @@ class TestTemplateFormatting:
 # ---------------------------------------------------------------------------
 
 class TestIntegration:
+    """G-EXECUTOR-013 — full pipeline runs in the documented order and short-circuits on failure."""
+
     def test_full_pipeline_analyze_canary_execute(self):
         """Full pipeline: analyze -> canary check -> execute, all clean."""
         cs = CanarySystem()
@@ -583,6 +607,8 @@ class TestIntegration:
 # ---------------------------------------------------------------------------
 
 class TestBridgeSanitization:
+    """G-EXECUTOR-010 — sanitize_bridge cleans Phase 1 output before it enters Phase 2."""
+
     def test_sanitize_bridge_strips_zero_width_from_analysis(self):
         """Analysis with zero-width characters gets cleaned before Phase 2."""
         received = []
@@ -650,6 +676,8 @@ class TestBridgeSanitization:
 # ---------------------------------------------------------------------------
 
 class TestAnalysisGuard:
+    """G-EXECUTOR-008 + G-EXECUTOR-009 + G-EXECUTOR-012 — guard blocks suspicious analysis; custom patterns/checks."""
+
     def test_guard_blocks_instruction_override(self):
         """'ignore previous instructions' in analysis raises AnalysisSuspiciousError."""
         executor = TwoPhaseExecutor(
@@ -813,6 +841,8 @@ class TestAnalysisGuard:
 # ---------------------------------------------------------------------------
 
 class TestRequireJson:
+    """G-EXECUTOR-007 — require_json rejects non-JSON Phase 1 output with ValueError."""
+
     def test_require_json_accepts_valid_json(self):
         """Valid JSON analysis proceeds normally."""
         executor = TwoPhaseExecutor(
@@ -865,6 +895,8 @@ class TestRequireJson:
 # ---------------------------------------------------------------------------
 
 class TestSecureTemplate:
+    """G-EXECUTOR-003 — default execute_prompt_template wraps analysis in trust-tagged envelope."""
+
     def test_default_template_wraps_in_trust_tags(self):
         """Default template contains trust boundary markers."""
         executor = TwoPhaseExecutor(analyze_fn=mock_analyze)

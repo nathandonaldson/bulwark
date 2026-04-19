@@ -1,4 +1,16 @@
-"""Comprehensive tests for the Sanitizer module."""
+"""Comprehensive tests for the Sanitizer module.
+
+Contract: spec/contracts/sanitizer.yaml (G-SANITIZER-001..017).
+
+Non-guarantees covered by the absence-of-behaviour this file tests:
+  NG-SANITIZER-001 — no HTML parsing (regex-only stripping; see TestHTMLStripping).
+  NG-SANITIZER-002 — no Unicode normalization by default (see TestUnicodeNormalization,
+                     which only runs when normalize_unicode=True is set explicitly).
+  NG-SANITIZER-003 — HTML entities are not decoded (no entity-unescaping test exists
+                     or is desired; scope is steganography, not markup interpretation).
+  NG-SANITIZER-004 — CSS stripping covers common text-hiding patterns, not the full
+                     CSS surface (see TestCSSHiddenText — patterns are enumerated).
+"""
 from __future__ import annotations
 
 import pytest
@@ -38,6 +50,8 @@ def bare() -> Sanitizer:
 # ===========================================================================
 
 class TestZeroWidthRemoval:
+    """G-SANITIZER-001 — zero-width characters are removed by default."""
+
     def test_removes_zero_width_space(self, s: Sanitizer) -> None:
         assert s.clean("hello\u200bworld") == "helloworld"
 
@@ -81,6 +95,8 @@ class TestZeroWidthRemoval:
 # ===========================================================================
 
 class TestHTMLStripping:
+    """G-SANITIZER-003 — HTML tags are stripped while text content is preserved."""
+
     def test_strips_bold_tag(self, s: Sanitizer) -> None:
         assert s.clean("<b>bold</b>") == "bold"
 
@@ -115,6 +131,8 @@ class TestHTMLStripping:
 # ===========================================================================
 
 class TestScriptStyleRemoval:
+    """G-SANITIZER-002 — <script>/<style> tags and their content are removed."""
+
     def test_removes_script_tag_and_content(self, s: Sanitizer) -> None:
         text = "before<script>alert('xss')</script>after"
         assert s.clean(text) == "beforeafter"
@@ -150,6 +168,8 @@ class TestScriptStyleRemoval:
 # ===========================================================================
 
 class TestCSSHiddenText:
+    """G-SANITIZER-004 — common CSS patterns that hide text are removed."""
+
     def test_removes_display_none(self, s: Sanitizer) -> None:
         text = "visible display:none; hidden"
         result = s.clean(text)
@@ -199,6 +219,8 @@ class TestCSSHiddenText:
 # ===========================================================================
 
 class TestControlCharRemoval:
+    """G-SANITIZER-005 — Unicode Cc/Cf control characters are removed, ordinary whitespace preserved."""
+
     def test_removes_null_byte(self, s: Sanitizer) -> None:
         assert s.clean("hello\x00world") == "helloworld"
 
@@ -232,6 +254,8 @@ class TestControlCharRemoval:
 # ===========================================================================
 
 class TestWhitespaceCollapsing:
+    """G-SANITIZER-008 — runs of spaces collapse to one, 3+ newlines collapse to two."""
+
     def test_collapses_multiple_spaces(self, s: Sanitizer) -> None:
         assert s.clean("hello     world") == "hello world"
 
@@ -263,6 +287,8 @@ class TestWhitespaceCollapsing:
 # ===========================================================================
 
 class TestMaxLength:
+    """G-SANITIZER-009 — output is truncated to max_length after other cleaning steps."""
+
     def test_truncates_to_max_length(self) -> None:
         san = Sanitizer(max_length=10)
         result = san.clean("a" * 100)
@@ -292,6 +318,8 @@ class TestMaxLength:
 # ===========================================================================
 
 class TestCustomPatterns:
+    """G-SANITIZER-010 — user-supplied regex patterns are applied in order."""
+
     def test_applies_custom_regex(self) -> None:
         san = Sanitizer(custom_patterns=[r'\[IGNORE\]'])
         assert san.clean("hello [IGNORE] world") == "hello world"
@@ -315,6 +343,8 @@ class TestCustomPatterns:
 # ===========================================================================
 
 class TestBatchProcessing:
+    """G-SANITIZER-017 — clean_batch() maps clean() across a list, preserving length and order."""
+
     def test_clean_batch_processes_list(self, s: Sanitizer) -> None:
         texts = ["<b>bold</b>", "normal", "hello\u200bworld"]
         results = s.clean_batch(texts)
@@ -334,6 +364,8 @@ class TestBatchProcessing:
 # ===========================================================================
 
 class TestConfiguration:
+    """G-SANITIZER-016 — individual cleaning steps can be disabled via dataclass fields."""
+
     def test_default_config_all_enabled(self) -> None:
         san = Sanitizer()
         assert san.strip_zero_width is True
@@ -391,6 +423,8 @@ class TestConfiguration:
 # ===========================================================================
 
 class TestEdgeCases:
+    """G-SANITIZER-012 + G-SANITIZER-014 + G-SANITIZER-015 — preserves legitimate Unicode, handles empty/whitespace-only input, and raises TypeError on non-str input."""
+
     def test_empty_string(self, s: Sanitizer) -> None:
         assert s.clean("") == ""
 
@@ -447,6 +481,8 @@ class TestEdgeCases:
 # ===========================================================================
 
 class TestIntegration:
+    """G-SANITIZER-013 — cleaning steps run in a fixed deterministic order."""
+
     def test_real_world_email_with_hidden_content(self, s: Sanitizer) -> None:
         email_body = (
             '<div>Hello Nathan,</div>'
@@ -544,6 +580,8 @@ class TestIntegration:
 # ===========================================================================
 
 class TestEmojiSmuggling:
+    """G-SANITIZER-007 — emoji variation selectors and Unicode tag characters are removed."""
+
     def test_strips_variation_selectors(self) -> None:
         # U+FE00 through U+FE0F
         text = "hello\ufe00world\ufe0ftest"
@@ -591,6 +629,8 @@ class TestEmojiSmuggling:
 # ===========================================================================
 
 class TestBidiStripping:
+    """G-SANITIZER-006 — bidirectional override/embedding characters are removed."""
+
     def test_strips_lro_rlo(self) -> None:
         # U+202D (LRO), U+202E (RLO)
         text = "hello\u202dworld\u202etest"
@@ -631,6 +671,8 @@ class TestBidiStripping:
 # ===========================================================================
 
 class TestUnicodeNormalization:
+    """G-SANITIZER-011 — NFKC normalization maps homoglyphs and fullwidth forms when enabled."""
+
     def test_nfkc_maps_homoglyphs(self) -> None:
         # Roman numeral Ⅰ (U+2160) should map to I
         san = Sanitizer(normalize_unicode=True)
