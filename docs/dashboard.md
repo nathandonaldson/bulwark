@@ -23,19 +23,20 @@ Open http://localhost:3000.
 
 ## Pages
 
-**Shield** — concentric ring visualization of all 5 defense layers. Real-time activity feed with sparkline charts. Per-layer event counts.
+**Shield** — concentric ring visualization of the full pipeline. Outer ring = first layer, inner ring = last. Status banner, 24h totals (items processed, attacks neutralized, canary leaks, bridge blocks), sparkline trend, and a recent activity feed.
 
-**Events** — filterable event feed. Click any event to expand the full trace.
+**Events** — filterable stream of every layer event (sanitizer hits, detection verdicts, bridge blocks, canary leaks). Filter by layer, severity, source, or free-text search. Export as JSON.
 
-**Configure** — three sections:
-- *Defense layers:* toggle sanitizer, trust boundary, guard, canary, and sub-features (emoji smuggling, bidi defense, NFKC normalization)
-- *AnalysisGuard patterns:* view, add, and remove regex patterns checked at the bridge
-- *Detection integrations:* activate ProtectAI DeBERTa, PromptGuard-86M, or other classifiers. Click "Activate" to download and load the model. Active models run on every Test tab payload.
-- *Canary tokens:* view embedded tripwires and their sources
+**Configure** — click any pipeline stage (Sanitizer, Trust Boundary, Detection, Phase 1 Analyze, Bridge Guard, Canary Tokens, Phase 2 Execute) to open its settings on the right. Toggle the switch next to a stage to drop it from the pipeline.
+- *Sanitizer:* emoji smuggling defense, bidirectional override stripping, NFKC normalization
+- *Detection:* activate ProtectAI DeBERTa or PromptGuard-86M. First activation downloads the model (~180MB).
+- *Bridge Guard:* view, add, remove AnalysisGuard regex patterns
+- *LLM backend:* Anthropic, OpenAI-compatible (Ollama / llama.cpp / vLLM / LM Studio), or sanitize-only
+- *Canary Tokens:* view embedded tripwires and their sources
 
 **Test** — two sections:
-- *Manual testing:* paste any payload (or select from 8 presets), hit "Run Through Pipeline," watch the pipeline trace. If detection models are active, they run at the bridge.
-- *Red teaming:* send Garak's attack probes through the real production Bulwark+LLM pipeline. Three tiers — Smoke Test (10 probes), Standard Scan (~4k probes), Full Sweep (~33k probes) — with counts pulled dynamically from garak. Reports are saved to `reports/` and downloadable as JSON. Inline report with defense score, layer breakdown, and vulnerability details.
+- *Manual testing:* paste any payload (or select from 8 presets), hit "Run through pipeline," watch the pipeline trace. If detection models are active, they run at the bridge. A "cURL" button copies the exact request for scripting.
+- *Red teaming:* sends Garak attack probes through the real production Bulwark+LLM pipeline. Five tiers — Smoke Test (10), LLM Quick (10 curated), LLM Suite (~200 balanced), Standard Scan (~4k), Full Sweep (~33k) — with counts pulled dynamically from your installed garak version. Reports are saved to `reports/` and downloadable as JSON with defense score, layer breakdown, and vulnerability details.
 
 ## Detection models
 

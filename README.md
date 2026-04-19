@@ -209,19 +209,24 @@ OpenAPI spec at `http://localhost:3000/openapi.json` or in `spec/openapi.yaml`.
 
 ## Dashboard
 
-Test attacks interactively, configure your LLM backend, and monitor your pipeline.
+Four tabs: **Shield** (live status), **Events** (per-layer event stream), **Configure** (pipeline stages), **Test** (payloads + red team).
 
 ![Shield view](docs/images/shield.png)
-![Test page](docs/images/test-page.png)
 
-**Configure tab** lets you:
+The Shield page shows the whole pipeline at a glance — concentric rings map to defense layers, outer to inner. Recent activity, 24h totals, and stage event counts all live here.
+
+![Configure page](docs/images/configure.png)
+
+**Configure** lets you click any stage to open its settings. Toggle a layer off to remove it from the pipeline. Use this tab to:
 - Switch LLM backend: Anthropic API, OpenAI-compatible (local inference), or sanitize-only
 - Activate detection models (ProtectAI DeBERTa, PromptGuard-86M)
 - Toggle defense layers and guard patterns
 
-**Test tab** sends payloads through `/v1/clean` — the same endpoint your production code calls — and shows a per-layer trace with timing, LLM backend badges, and detection model verdicts.
+![Test page](docs/images/test-page.png)
 
-**Red teaming** sends Garak probe payloads through `/v1/clean`. What we test is what we ship.
+**Test** sends payloads through `/v1/clean` — the same endpoint your production code calls — and shows a per-layer trace with timing, LLM backend badges, and detection model verdicts. The bottom half runs Garak red team sweeps against your configured pipeline.
+
+**Events** is a filterable stream of every layer event (sanitizer hits, bridge blocks, canary leaks). Export as JSON for offline review.
 
 ### Local inference
 
@@ -239,7 +244,9 @@ bulwark test --full             # All 77 attacks, 10 seconds
 bulwark test -c steganography   # Filter by category
 ```
 
-Production red team (in the dashboard): sends Garak probe payloads through `/v1/clean` — the same endpoint production uses — and evaluates whether the LLM followed its instructions or the injection hijacked it. Three tiers — Smoke Test (10 probes), Standard Scan (~4k probes), Full Sweep (~33k probes) — with counts pulled dynamically from your installed garak version. Requires `pip install garak`.
+Production red team (in the dashboard): sends Garak probe payloads through `/v1/clean` — the same endpoint production uses — and evaluates whether the LLM followed its instructions or the injection hijacked it. Five tiers — Smoke Test (10 probes), LLM Quick (10 curated), LLM Suite (~200 balanced), Standard Scan (~4k), Full Sweep (~33k) — with counts pulled dynamically from your installed garak version. Requires `pip install garak`.
+
+For model bake-offs (efficacy × latency × cost), use the `bulwark_bench` CLI — a sibling tool that sweeps the same probe tiers across multiple LLMs and prints a comparison table.
 
 ## OpenClaw integration
 

@@ -30,10 +30,14 @@ bulwark test -c steganography # Filter by category
 
 The dashboard's Test tab includes a production red team runner. This is not a simulation. It sends Garak's attack payloads through your actual pipeline: Sanitizer, TrustBoundary, detection models, real LLM call (via your configured backend), canary check. Then evaluates whether the LLM followed its instructions or the injection hijacked it.
 
-Three tiers (probe counts pulled dynamically from your installed garak version):
+Five tiers (probe counts pulled dynamically from your installed garak version):
 - **Smoke Test** (10 probes) — quick check that the pipeline is working
+- **LLM Quick** (10 curated) — bypasses detectors so every probe reaches the analyze LLM; ideal for fast model bake-offs
+- **LLM Suite** (~200 balanced) — ~200 probes across 16 attack families, detectors bypassed, tuned for `bulwark_bench` model comparisons
 - **Standard Scan** (~4k probes) — all active garak probes across injection, encoding, exfiltration, jailbreaks, content safety
 - **Full Sweep** (~33k probes) — every probe including extended payload variants
+
+For cross-model comparisons (efficacy × speed × cost), run `bulwark_bench` — a sibling CLI that sweeps the `llm-quick` or `llm-suite` tiers across multiple LLMs and prints a markdown comparison table.
 
 Reports are automatically saved to `reports/` as JSON and downloadable from the dashboard for gap analysis.
 

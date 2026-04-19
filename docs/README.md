@@ -17,6 +17,8 @@ Dashboard at http://localhost:3000. See [Configuration](config.md) for env var s
 - [Two-phase execution](two-phase.md) — direct executor setup, bridge configuration
 - [Batch isolation](batch.md) — MapReduceIsolator for processing multiple items
 - [Async support](async.md) — async pipelines, mixed sync/async callables
-- [CLI reference](cli.md) — all commands and flags
+- [CLI reference](cli.md) — all commands and flags (`bulwark` and `bulwark_bench`)
+- [HTTP API reference](api-reference.md) — `/v1/clean`, `/v1/guard`, `/healthz`
 - [Red teaming](red-teaming.md) — built-in attacks, production red team runner, Garak integration
+- [OpenClaw integration](openclaw.md) — Docker sidecar + plugin hooks
 - [Roadmap](../ROADMAP.md) — what's shipped, what's next

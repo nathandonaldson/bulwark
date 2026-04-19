@@ -58,3 +58,15 @@ echo "output text" | bulwark canary-check --tokens canaries.json
 ```
 
 Exit code 1 if tokens found.
+
+## bulwark_bench
+
+Sibling CLI for LLM bake-offs — sweeps Garak probes across multiple models and prints efficacy × latency × cost.
+
+```bash
+bulwark_bench --models claude-haiku-4-5,gpt-4o-mini --tier llm-quick
+bulwark_bench --models claude-sonnet-4-6,claude-haiku-4-5 --tier llm-suite
+bulwark_bench --models ollama/llama3 --tier llm-quick --bypass-detectors
+```
+
+Reads pricing from `src/bulwark_bench/pricing.py`. Use `--bypass-detectors` to guarantee every probe reaches the analyze LLM (recommended when comparing model defense quality). See also the `/bulwark-bench` Claude Code skill for an interactive picker.
