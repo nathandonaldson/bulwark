@@ -145,6 +145,10 @@ When Bulwark returns `blocked: true` with `block_reason` mentioning a canary sou
 2. Stops processing the triggering content.
 3. Does **not** automatically rotate the canary. Rotation is a human decision — the canary did its job; changing its value doesn't change what it tells you.
 
+### Wiring the sidecar to Wintermute's alert channel
+
+Set `BULWARK_WEBHOOK_URL` in the sidecar's env to Wintermute's existing alert endpoint (or directly at a Slack incoming webhook). Bulwark fires a fire-and-forget POST on every BLOCKED event — canary leak, guard-pattern hit, detection-model block — so Wintermute's on-call path hears about leaks without polling `/api/events`. See [ADR-026](../../spec/decisions/026-external-webhook-on-blocked-events.md) for the payload shape and failure semantics.
+
 ## Auth
 
 In Wintermute's default local deployment, `BULWARK_API_TOKEN` is not set and the endpoints are open to `localhost:3000`. This is acceptable because the sidecar is on `localhost` only (not bound to `0.0.0.0` on an untrusted network).

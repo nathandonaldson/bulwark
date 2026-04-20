@@ -1,0 +1,69 @@
+feature: External webhook alerting on BLOCKED events
+version: "1.0.0"
+module: bulwark.dashboard (config) + bulwark.events.WebhookEmitter (delivery)
+
+guarantees:
+  - id: G-WEBHOOK-001
+    summary: >
+      When `webhook_url` is empty or unset, no external POST is made on
+      any event. The dashboard's internal EventDB + SSE stream still
+      receive events as normal.
+  - id: G-WEBHOOK-002
+    summary: >
+      When `webhook_url` is set AND an event's verdict is "blocked",
+      a single HTTP POST is issued to that URL with the event payload.
+      Non-blocked verdicts (passed, neutralized, etc.) do not fire the
+      webhook — see ADR-026 for rationale.
+  - id: G-WEBHOOK-003
+    summary: >
+      The webhook body is `{"events": [<event>]}` where <event> has
+      timestamp, layer, verdict, source_id, detail, duration_ms, and
+      metadata fields. Same wire format the internal ingestion
+      endpoint accepts — a caller can point BULWARK_WEBHOOK_URL at
+      another Bulwark's `/api/events` for federation.
+  - id: G-WEBHOOK-004
+    summary: >
+      POSTs are fire-and-forget: delivered in a daemon thread with a
+      short timeout. Failures (network error, 5xx response, timeout)
+      are swallowed so the primary `/v1/clean` request is never delayed
+      or failed by an unreachable webhook.
+  - id: G-WEBHOOK-005
+    summary: >
+      `webhook_url` accepts only `http://` and `https://` schemes;
+      other schemes raise ValueError at emitter construction time.
+      Prevents operators accidentally pointing the webhook at file://
+      or similar non-network destinations.
+  - id: G-WEBHOOK-006
+    summary: >
+      The BULWARK_WEBHOOK_URL environment variable, when set, wins over
+      any webhook_url persisted to bulwark-config.yaml. Matches the
+      ADR-022 env-shadowing pattern used by LLM backend fields: env
+      provides the default, UI/API can override for the session, save()
+      blanks env-shadowed fields so the env remains authoritative.
+
+non_guarantees:
+  - id: NG-WEBHOOK-001
+    summary: No retries on delivery failure
+    reason: >
+      Fire-and-forget; a dropped event stays in EventDB but is not
+      re-delivered externally. Retry logic belongs in a downstream
+      alert router (most ops teams already run one).
+  - id: NG-WEBHOOK-002
+    summary: Only one webhook URL per deployment
+    reason: >
+      Callers needing fan-out (Slack AND PagerDuty AND Datadog) should
+      point this at a router that does the multiplexing. Keeps the
+      Bulwark surface a single URL.
+  - id: NG-WEBHOOK-003
+    summary: No per-layer or per-source filter beyond verdict
+    reason: >
+      Verdict == "blocked" is the single inclusion rule. Receivers
+      that want to split on layer can read the `layer` field in the
+      payload. Adding server-side filters widens the contract surface
+      without clear need.
+  - id: NG-WEBHOOK-004
+    summary: No authentication headers added to the POST
+    reason: >
+      Slack / Datadog / most SaaS webhooks authenticate via URL-embedded
+      secrets. Operators needing header-based auth should front this
+      with a reverse proxy. Avoids a credentials-in-config surface.

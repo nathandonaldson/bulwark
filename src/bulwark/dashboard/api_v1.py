@@ -24,8 +24,9 @@ router = APIRouter(prefix="/v1", tags=["Bulwark API v1"])
 
 
 def _emit_event(layer: str, verdict: str, source_id: str = "", detail: str = "", duration_ms: float = 0):
-    """Emit a BulwarkEvent to the dashboard's EventDB and SSE subscribers."""
-    from bulwark.dashboard.app import db, _subscribers
+    """Emit a BulwarkEvent to the dashboard's EventDB, SSE subscribers, and —
+    if configured — an external webhook (ADR-026, G-WEBHOOK-001..006)."""
+    from bulwark.dashboard.app import db, _subscribers, config
     import asyncio
     event = {
         "timestamp": time.time(),
@@ -42,6 +43,46 @@ def _emit_event(layer: str, verdict: str, source_id: str = "", detail: str = "",
             q.put_nowait(event)
         except (asyncio.QueueFull, Exception):
             pass
+    # G-WEBHOOK-002: external fan-out only on BLOCKED verdicts. G-WEBHOOK-004:
+    # fire-and-forget; a dead webhook must not delay the /v1/clean response.
+    if verdict == "blocked" and config.webhook_url:
+        _fire_webhook(config.webhook_url, event)
+
+
+def _fire_webhook(url: str, event: dict) -> None:
+    """Dispatch a single BLOCKED event to the configured external URL.
+
+    Wraps bulwark.events.WebhookEmitter (which already runs in a daemon
+    thread when async_send=True). Construction can raise on an invalid URL
+    scheme (G-WEBHOOK-005) — we swallow that so a misconfigured operator
+    URL never crashes the primary path. The config-change path is where
+    schema errors should surface; _emit_event is not the place to raise.
+    """
+    try:
+        from bulwark.events import WebhookEmitter, BulwarkEvent, Layer, Verdict
+        emitter = WebhookEmitter(url, timeout=5.0, async_send=True)
+        # Marshal the dict back into a BulwarkEvent for consistent wire shape.
+        # Unknown layer/verdict strings fall through to sensible defaults so
+        # a future verdict name doesn't silently drop the webhook.
+        try:
+            layer_enum = Layer(event["layer"])
+        except ValueError:
+            layer_enum = Layer.EXECUTOR
+        try:
+            verdict_enum = Verdict(event["verdict"])
+        except ValueError:
+            verdict_enum = Verdict.BLOCKED
+        emitter.emit(BulwarkEvent(
+            timestamp=event["timestamp"],
+            layer=layer_enum,
+            verdict=verdict_enum,
+            source_id=event.get("source_id", ""),
+            detail=event.get("detail", ""),
+            duration_ms=event.get("duration_ms", 0.0),
+            metadata=event.get("metadata", {}),
+        ))
+    except Exception:
+        pass  # G-WEBHOOK-004: never fail the primary request
 
 
 @router.post(

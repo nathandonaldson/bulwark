@@ -114,6 +114,12 @@ class BulwarkConfig:
     canary_tokens: dict[str, str] = field(default_factory=dict)
     canary_file: str = ""
 
+    # External webhook for BLOCKED-event alerting (ADR-026, G-WEBHOOK-001..006).
+    # Empty = no external POST; set to an https://… URL to fan out blocked
+    # events (prompt-injection blocks, canary leaks, guard-pattern hits) to
+    # Slack / PagerDuty / an internal alert router.
+    webhook_url: str = ""
+
     # LLM Backend
     llm_backend: LLMBackendConfig = field(default_factory=LLMBackendConfig)
 
@@ -154,6 +160,9 @@ class BulwarkConfig:
         for field, env_var in self._ENV_SHADOWED_LLM_FIELDS.items():
             if os.environ.get(env_var) and field in llm:
                 llm[field] = ""
+        # G-WEBHOOK-006: same env-shadowing pattern for top-level webhook_url.
+        if os.environ.get("BULWARK_WEBHOOK_URL") and "webhook_url" in d:
+            d["webhook_url"] = ""
         p.write_text(yaml.dump(d, default_flow_style=False, sort_keys=False))
 
     @classmethod
@@ -171,6 +180,10 @@ class BulwarkConfig:
             val = os.environ.get(env_key)
             if val is not None:
                 setattr(cfg.llm_backend, field_name, val)
+        # G-WEBHOOK-006: webhook URL env-shadowing.
+        webhook = os.environ.get("BULWARK_WEBHOOK_URL")
+        if webhook is not None:
+            cfg.webhook_url = webhook
 
     @classmethod
     def load(cls, path: str = None) -> "BulwarkConfig":
