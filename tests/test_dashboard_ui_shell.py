@@ -28,12 +28,8 @@ def _data_source():
 def _run_pill(store: dict) -> dict:
     """Execute computeStatusPill(store) via Node and return {kind, label}."""
     import json
-    import shutil
-    import subprocess
 
-    node = shutil.which("node")
-    if not node:
-        pytest.skip("node not on PATH — cannot exercise JSX status-pill logic")
+    from tests._node_helpers import run_node_eval
 
     # Stub LAYERS array (7 entries — matches data.jsx). The pill only reads
     # l.id and the layerConfig keyed by that id.
@@ -65,11 +61,7 @@ def _run_pill(store: dict) -> dict:
         + pill_src.group(0) + "\n"
         + f"process.stdout.write(JSON.stringify(computeStatusPill({json.dumps(store)})));"
     )
-    out = subprocess.run(
-        [node, "-e", harness],
-        check=True, capture_output=True, text=True, timeout=5,
-    )
-    return json.loads(out.stdout)
+    return run_node_eval(harness, skip_reason="node not on PATH — cannot exercise JSX status-pill logic")
 
 
 def _store(**overrides):

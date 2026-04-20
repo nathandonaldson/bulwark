@@ -9,8 +9,9 @@ Non-guarantees:
                      bulwark.clean()'s job; see TestTrustBoundaryDetection /
                      TestCanaryDetection — each tests one layer in isolation).
 
-TestCLI below tests the `bulwark test` CLI command rather than validator
-guarantees directly; it is left unlinked because the CLI has no contract yet.
+TestCLI below tests the `bulwark test` CLI command — now linked to
+G-CLI-007 (spec/contracts/cli.yaml, added in the same commit that
+wrote this contract).
 """
 import pytest
 
@@ -363,7 +364,7 @@ def cli_runner():
 
 
 class TestCLI:
-    """CLI test command integration."""
+    """G-CLI-007 — `bulwark test` runs the attack suite and emits a scorecard."""
 
     def test_bulwark_test_runs_and_produces_output(self, cli_runner):
         from bulwark.cli import main

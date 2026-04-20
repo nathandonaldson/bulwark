@@ -15,9 +15,7 @@ PAGE_SHIELD = SRC / "page-shield.jsx"
 
 def _run_has_incident(events: list[dict], now_ms: int) -> bool:
     """Execute hasRecentIncident(events, now_ms) via Node."""
-    node = shutil.which("node")
-    if not node:
-        pytest.skip("node not on PATH — cannot exercise hasRecentIncident")
+    from tests._node_helpers import run_node_eval
 
     fn_src = re.search(
         r"function hasRecentIncident\(events, nowMs\) \{.*?\n\}\n",
@@ -30,11 +28,7 @@ def _run_has_incident(events: list[dict], now_ms: int) -> bool:
         fn_src.group(0) + "\n"
         + f"process.stdout.write(JSON.stringify(hasRecentIncident({json.dumps(events)}, {now_ms})));"
     )
-    out = subprocess.run(
-        [node, "-e", harness],
-        check=True, capture_output=True, text=True, timeout=5,
-    )
-    return json.loads(out.stdout)
+    return run_node_eval(harness, skip_reason="node not on PATH — cannot exercise hasRecentIncident")
 
 
 # ---------------------------------------------------------------------------

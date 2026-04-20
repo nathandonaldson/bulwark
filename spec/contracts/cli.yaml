@@ -1,0 +1,79 @@
+feature: Bulwark command-line interface
+version: "1.0.0"
+module: bulwark.cli
+
+guarantees:
+  - id: G-CLI-001
+    summary: >
+      `bulwark sanitize` reads from stdin, writes sanitized text to stdout,
+      and exits 0 on success. Default sanitization applies the full
+      Sanitizer default pipeline (G-SANITIZER-001..016).
+  - id: G-CLI-002
+    summary: >
+      `bulwark sanitize --max-length N` truncates the sanitized output to
+      at most N characters (G-SANITIZER-009 at the CLI layer).
+  - id: G-CLI-003
+    summary: >
+      `bulwark sanitize --no-html`, `--no-css`, `--no-zero-width` each
+      disable their respective Sanitizer step independently, matching
+      G-SANITIZER-016's per-field toggle semantics.
+  - id: G-CLI-004
+    summary: >
+      `bulwark canary-check --tokens <file>` scans stdin against the
+      canary list in `<file>` (YAML mapping of source→token) and exits
+      non-zero when any canary is detected in the input.
+  - id: G-CLI-005
+    summary: >
+      `bulwark canary-generate --sources s1,s2,... --output path.yaml`
+      writes a YAML mapping of source labels to freshly-generated canary
+      tokens. Without `--output`, prints the mapping to stdout.
+  - id: G-CLI-006
+    summary: >
+      `bulwark wrap` reads stdin and writes it wrapped in a trust
+      boundary tag to stdout. `--source` names the source, `--label`
+      names the tag, and `--format xml|markdown` selects the boundary
+      format — matching TrustBoundary's public surface.
+  - id: G-CLI-007
+    summary: >
+      `bulwark test` runs the built-in attack suite and prints a
+      scorecard. `--full` switches to all 77 attacks; `-c/--category`
+      filters to one AttackCategory. Exit code is 0 when no attacks
+      are EXPOSED, non-zero otherwise.
+  - id: G-CLI-008
+    summary: >
+      `bulwark --version` prints the installed package version
+      (Hatch-supplied via importlib.metadata, falling back to
+      `bulwark.__version__`). Exits 0.
+  - id: G-CLI-009
+    summary: >
+      Unknown subcommand or unknown option raises a non-zero exit code
+      with a usage message (click's default behaviour, documented here
+      as a CLI-level contract).
+  - id: G-CLI-010
+    summary: >
+      `bulwark canary` subgroup (list/add/remove/generate) is governed
+      by G-CANARY-010 in spec/contracts/canaries.yaml. This contract
+      does not restate those guarantees — it names the delegation so
+      adding a new canary subcommand without updating that contract
+      would be an inconsistency.
+
+non_guarantees:
+  - id: NG-CLI-001
+    summary: Does not provide a daemon/serve subcommand
+    reason: >
+      Running the dashboard lives under `python -m bulwark.dashboard`,
+      not a CLI subcommand. The CLI is for one-shot operations;
+      long-lived processes use the module entry point.
+  - id: NG-CLI-002
+    summary: Does not emit machine-readable output by default
+    reason: >
+      `sanitize`, `wrap`, and `canary-check` emit plain text for
+      human use and pipeline integration. Adding `--json` is deferred
+      until a caller actually asks for it.
+  - id: NG-CLI-003
+    summary: Does not mutate the dashboard config file directly
+    reason: >
+      The `bulwark canary` subgroup talks to the running dashboard
+      over HTTP (same as any other client). If the dashboard is down,
+      the CLI cannot rescue the config — intentional, keeps the
+      single persistence path.
