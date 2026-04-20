@@ -106,6 +106,35 @@ services:
 
 Tighten file permissions: `chmod 600 ~/.config/bulwark/bulwark-config.yaml`. Canaries are by design non-sensitive (a leaked canary grants an attacker nothing), but there's no reason for other local processes to read the file.
 
+## Webhook alerting on BLOCKED events (ADR-026)
+
+Set `BULWARK_WEBHOOK_URL` (env) or `webhook_url` (YAML) to have Bulwark POST every BLOCKED event — prompt-injection blocks, canary leaks, guard-pattern hits, detection-model blocks — to an external URL.
+
+```bash
+# .env
+BULWARK_WEBHOOK_URL=https://hooks.slack.com/services/T0.../B0.../xxx
+```
+
+Payload shape:
+
+```json
+{
+  "events": [
+    {
+      "timestamp": 1744905823.412,
+      "layer": "canary",
+      "verdict": "blocked",
+      "source_id": "api:clean:email",
+      "detail": "Blocked: Canary token leaked from: prod_db_url",
+      "duration_ms": 1420.3,
+      "metadata": {}
+    }
+  ]
+}
+```
+
+Delivery is fire-and-forget — a slow or unreachable webhook never delays `/v1/clean`. No retries, no auth headers (URL is the secret). Only `verdict == "blocked"` fires; PASSED / MODIFIED events are internal-only. See [spec/contracts/webhooks.yaml](../spec/contracts/webhooks.yaml) for the full contract.
+
 ## Runtime changes
 
 ```python

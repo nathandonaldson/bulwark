@@ -87,6 +87,7 @@ All env vars:
 | `BULWARK_BASE_URL` | Endpoint URL for OpenAI-compatible servers (Ollama, llama.cpp, vLLM) |
 | `BULWARK_ANALYZE_MODEL` | Phase 1 model (default: `claude-haiku-4-5-20251001`) |
 | `BULWARK_EXECUTE_MODEL` | Phase 2 model (default: `claude-sonnet-4-6`) |
+| `BULWARK_WEBHOOK_URL` | POST URL for BLOCKED-event alerts (Slack, PagerDuty, etc.). See ADR-026. |
 
 You can also configure everything in the dashboard UI, but those changes are lost on container restart. Env vars are the persistent config mechanism for Docker.
 
@@ -269,7 +270,11 @@ bulwark canary generate --shape bearer    # preview only, no network
 bulwark canary remove prod_aws
 ```
 
-Five shapes ship: `aws` (AKIA…), `bearer` (`tk_live_…`), `password`, `url` (internal admin URL), `mongo`. Each emits a unique value per call. Deferred: webhook alerting on leak, rotation grace period, overlap detection (see ADR-025).
+Five shapes ship: `aws` (AKIA…), `bearer` (`tk_live_…`), `password`, `url` (internal admin URL), `mongo`. Each emits a unique value per call.
+
+**Alert on leaks** — set `BULWARK_WEBHOOK_URL` (or `webhook_url` in `bulwark-config.yaml`) to any `https://` URL. Every BLOCKED event — canary leak, guard-pattern match, detection-model block — fires a fire-and-forget POST with `{"events": [{layer, verdict, detail, source_id, timestamp, duration_ms, metadata}]}`. Wire it at Slack / PagerDuty / Datadog / an internal alert router. See [ADR-026](spec/decisions/026-external-webhook-on-blocked-events.md).
+
+Still deferred: rotation grace period, overlap detection (see ADR-025).
 
 ## Red teaming
 
