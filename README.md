@@ -234,6 +234,43 @@ Configure any OpenAI-compatible endpoint (Ollama, llama.cpp, vLLM, LM Studio) in
 
 Note: Claude achieves 100% on red team probes. Open models vary (60-80% typical). Use Claude for production, local models for development and testing.
 
+## Canary tokens
+
+Canary tokens are sentinel strings the analysis LLM must never echo. If any appears in Phase 1 output, Phase 2 is blocked before `execute_fn` is called — proof the model trusted untrusted content. Manage them three ways:
+
+**Dashboard UI** — Configure page → Canary panel has an inline Add form with a shape picker (aws / bearer / password / url / mongo) and a per-entry Remove button.
+
+**HTTP API** — for CI-driven rotation:
+
+```bash
+# List
+curl http://localhost:3000/api/canaries
+
+# Add with a generated token matching a real credential shape
+curl -X POST http://localhost:3000/api/canaries \
+  -H 'Content-Type: application/json' \
+  -d '{"label": "prod_db_url", "shape": "mongo"}'
+
+# Rotate (POST with same label replaces the token)
+curl -X POST http://localhost:3000/api/canaries \
+  -H 'Content-Type: application/json' \
+  -d '{"label": "prod_db_url", "shape": "mongo"}'
+
+# Remove
+curl -X DELETE http://localhost:3000/api/canaries/prod_db_url
+```
+
+**CLI** — `bulwark canary {list, add, remove, generate}`:
+
+```bash
+bulwark canary add prod_aws --shape aws
+bulwark canary list
+bulwark canary generate --shape bearer    # preview only, no network
+bulwark canary remove prod_aws
+```
+
+Five shapes ship: `aws` (AKIA…), `bearer` (`tk_live_…`), `password`, `url` (internal admin URL), `mongo`. Each emits a unique value per call. Deferred: webhook alerting on leak, rotation grace period, overlap detection (see ADR-025).
+
 ## Red teaming
 
 Built-in attack suite:
@@ -248,20 +285,19 @@ Production red team (in the dashboard): sends Garak probe payloads through `/v1/
 
 For model bake-offs (efficacy × latency × cost), use the `bulwark_bench` CLI — a sibling tool that sweeps the same probe tiers across multiple LLMs and prints a comparison table.
 
-## OpenClaw integration
+## Integrations
 
-Drop-in prompt injection defense for [OpenClaw](https://openclaw.ai) agents. A Docker sidecar + plugin hooks into OpenClaw's message pipeline at infrastructure level — the agent cannot bypass sanitization.
+**OpenClaw** — Drop-in prompt injection defense for [OpenClaw](https://openclaw.ai) agents. A Docker sidecar + plugin hooks into OpenClaw's message pipeline at infrastructure level — the agent cannot bypass sanitization. Three hooks: `message:received`, `tool_result_persist`, `before_message_write`.
 
 ```bash
 cd integrations/openclaw && ./install.sh
 ```
 
-Three hooks enforced before the agent sees content:
-- `message:received` — sanitize inbound chat messages
-- `tool_result_persist` — sanitize web fetches, emails, MCP tool results
-- `before_message_write` — guard outbound content
+See [integrations/openclaw/README.md](integrations/openclaw/README.md).
 
-See [integrations/openclaw/README.md](integrations/openclaw/README.md) for setup.
+**Wintermute** — Personal agent that runs Bulwark as a local Docker sidecar on `localhost:3000` and calls `POST /v1/clean` before feeding any external content (emails, documents, web pages) to its LLM. See [docs/integrations/wintermute.md](docs/integrations/wintermute.md) for the full integration guide — request/response shape, canary handling, auth, health checks, and failure modes.
+
+**Any HTTP client** — the `/v1/clean` endpoint is language-agnostic. Run Bulwark once via `docker compose up -d`, point your agent at `http://localhost:3000/v1/clean`, check `response.blocked` before acting on content. [HTTP API reference](docs/api-reference.md).
 
 ## Development
 

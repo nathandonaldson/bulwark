@@ -664,6 +664,68 @@ List currently loaded detection models.
 
 ---
 
+## Canary Management (ADR-025)
+
+Canary tokens are sentinel strings the analysis LLM must never echo. When `canary_enabled` is true and the Phase 1 output contains a configured canary, Phase 2 is blocked before `execute_fn` is called. See [ADR-025](../spec/decisions/025-canary-management-api.md) for the full design.
+
+All three endpoints respect the dashboard's Bearer-auth middleware — when `BULWARK_API_TOKEN` is set, callers must pass `Authorization: Bearer <token>`. Contract: [`spec/contracts/canaries.yaml`](../spec/contracts/canaries.yaml) (G-CANARY-001..011).
+
+### GET /api/canaries
+
+List every configured canary.
+
+**Response 200:**
+```json
+{
+  "canaries": [
+    {"label": "prod_db_url", "token": "mongodb+srv://svc_..."},
+    {"label": "aws_prod", "token": "AKIA7Z9XK2P4QW8T3NFG"}
+  ]
+}
+```
+
+The list reflects `canary_tokens` in `bulwark-config.yaml` exactly — no filtering, no masking. Canaries are designed to be non-sensitive (a leaked canary grants an attacker nothing).
+
+### POST /api/canaries
+
+Create or rotate a canary entry. Upsert semantics — POSTing with an existing label replaces the token atomically; no grace period (NG-CANARY-002).
+
+**Request body:**
+```json
+{
+  "label": "prod_db_url",
+  "shape": "mongo"
+}
+```
+
+- `label` *(required, 1-64 chars, no whitespace)* — stable identifier. Pick labels that tell you *what leaked* (e.g. `prod_admin_portal`, not `canary1`).
+- `token` *(optional)* — literal canary string, minimum 8 characters. If supplied, used verbatim.
+- `shape` *(optional)* — generate a canary matching a known credential format. Valid values: `aws`, `bearer`, `password`, `url`, `mongo`.
+
+Provide either `token` or `shape`. If both are supplied, `token` wins. If neither, 400.
+
+**Response 200:**
+```json
+{
+  "label": "prod_db_url",
+  "token": "mongodb+srv://svc_4f8a2c91:Pw_d7e6b5a3f0c2@cluster-d8e9b1.prod.mongodb.net/app_a7f6c4"
+}
+```
+
+**Response 400:** invalid label, missing both token and shape, unknown shape, or token shorter than 8 chars.
+
+**Response 401:** auth required but not supplied.
+
+### DELETE /api/canaries/{label}
+
+Remove a canary. Idempotent for the caller, but a second delete returns 404 rather than silently succeeding — use the status code to distinguish "removed" from "wasn't there".
+
+**Response 204:** deleted.
+**Response 404:** no canary with that label.
+**Response 401:** auth required but not supplied.
+
+---
+
 ## Typical Integration Flow
 
 ### 1. Input sanitization only (no LLM needed)

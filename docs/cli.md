@@ -40,13 +40,42 @@ echo "content" | bulwark wrap --source web --format markdown
 
 Options: `--source`, `--label`, `--format` (xml/markdown/delimiter)
 
-## bulwark canary-generate
+## bulwark canary (subgroup)
 
-Generate canary tokens for data sources.
+Manage canaries on a running dashboard via the [canary management API](api-reference.md#canary-management-adr-025). Requires the `[bench]` extra (the subgroup uses `httpx`): `pip install bulwark-shield[bench]`. If the dashboard has auth enabled, set `BULWARK_API_TOKEN` in the environment and the CLI will attach it.
+
+```bash
+# List configured canaries
+bulwark canary list
+
+# Add a generated canary matching a credential shape
+bulwark canary add prod_db_url --shape mongo
+bulwark canary add prod_aws_key --shape aws
+
+# Add a literal canary (bring your own string, min 8 chars)
+bulwark canary add legacy --token "INTERNAL-SECRET-VALUE-HERE"
+
+# Rotate (same label → new token, no grace period)
+bulwark canary add prod_db_url --shape mongo
+
+# Remove
+bulwark canary remove prod_db_url
+
+# Preview a canary without saving (no network call)
+bulwark canary generate --shape bearer
+```
+
+Shapes: `aws`, `bearer`, `password`, `url`, `mongo`. Each emits a shape-matching, UUID-tailed string — every call is guaranteed unique.
+
+Dashboard URL defaults to `http://localhost:3000`; override with `--url http://elsewhere`.
+
+## bulwark canary-generate (legacy)
+
+Pre-ADR-025 command — generates a YAML/JSON canary file for offline use (no dashboard required). Kept for scripted pipelines that pre-date the HTTP API.
 
 ```bash
 bulwark canary-generate user_data config api_keys
-bulwark canary-generate user_data --output canaries.json --prefix MY-APP
+bulwark canary-generate user_data --output canaries.yaml --prefix MY-APP
 ```
 
 ## bulwark canary-check
@@ -54,10 +83,10 @@ bulwark canary-generate user_data --output canaries.json --prefix MY-APP
 Check for canary token leaks in stdin.
 
 ```bash
-echo "output text" | bulwark canary-check --tokens canaries.json
+echo "output text" | bulwark canary-check --tokens canaries.yaml
 ```
 
-Exit code 1 if tokens found.
+Exit code 1 if tokens found. Useful in CI for post-run verification when the dashboard isn't in the loop.
 
 ## bulwark_bench
 
