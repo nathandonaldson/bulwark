@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.2] - 2026-04-20
+
+### Added
+- **Canary management as a product feature** (ADR-025, G-CANARY-001..011). The Configure page's Canary panel is no longer read-only — it has an inline Add form with a shape picker (aws / bearer / password / url / mongo), a live hint line, and a per-entry Remove button. New HTTP endpoints `GET/POST /api/canaries` and `DELETE /api/canaries/{label}` sit under the dashboard's Bearer-auth middleware. `bulwark.canary_shapes.generate_canary(shape)` produces shape-matching, UUID-tailed canaries; five shapes ship, each uniquely constructed so repeated invocations never collide. `bulwark canary {list, add, remove, generate}` CLI wraps the HTTP API for CI-driven rotation. Deferred (NG-CANARY-001..005): webhook alerting, rotation grace period, overlap detection, encryption at rest.
+- **Contracts for the four core defense modules** (ADR-024). `spec/contracts/sanitizer.yaml` (17 G, 4 NG), `isolator.yaml` (12 G, 3 NG), `executor.yaml` (13 G, 3 NG), `validator.yaml` (12 G, 3 NG). Closes the biggest finding from the v1.3.1 SDD audit: ~2,700 lines of tests across the defense pipeline had no `G-*` references, so a silent behaviour regression would have passed CI. Tagging every test class with the guarantee IDs it enforces means `test_every_guarantee_has_test` now enforces coverage both ways for these modules. No test logic was rewritten.
+- **Reverse spec-compliance check**. `test_spec_compliance.py::test_app_paths_are_documented_or_allowlisted` asserts every FastAPI route is either in `spec/openapi.yaml` or on an explicit `INTERNAL_PATHS` allowlist. Adding a new app route now forces a conscious public/internal decision. Closes the one-way-enforcement gap the audit flagged as Red.
+- **`/api/presets` HTTP-level test**. Guarantees G-PRESETS-005 and G-PRESETS-007 now have smoke-level coverage in `test_http_api.py` so they survive even when `test_presets.py`'s wheel-build integration test is skipped.
+- **docker-compose.yml + .env.example**. Bind-mounts `~/.config/bulwark/bulwark-config.yaml` so canaries, guard patterns, and UI edits persist across container recreation. Default `BULWARK_CONFIG_PATH` is overridable.
+
+### Fixed
+- **GitHub Actions Tests workflow has been red since v1.3.0**. `bulwark_bench.bulwark_client` imports `httpx` at module level, but the CI install line was only `.[cli]`, which never pulled it in. Three `test_bulwark_bench.py::TestBulwarkClient` cases failed with `ModuleNotFoundError: No module named 'httpx'`. Added a dedicated `bench` optional-dependency group (`httpx`, `pyyaml`) declared separately from the dashboard stack, and updated CI to install `.[cli,bench,dashboard]`. The `dashboard` install also lets FastAPI-gated test suites actually execute in CI instead of silently skipping. All three Python versions (3.11 / 3.12 / 3.13) are green for the first time since v1.3.0.
+
 ## [1.3.1] - 2026-04-19
 
 ### Fixed
