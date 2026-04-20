@@ -187,9 +187,12 @@ guarantees:
       status to 'loading' while in flight.
   - id: G-UI-CONFIG-CANARIES-001
     summary: >
-      CanaryPane renders one card per entry in store.canaryTokens. With zero
-      entries it renders an empty-state message directing users to
-      bulwark-config.yaml — no random/fabricated tokens are rendered.
+      CanaryPane renders one card per entry in store.canaryTokens plus an
+      inline Add form (label + shape selector + optional custom token).
+      Updated by ADR-025: entries are removable via a button on each card;
+      additions POST /api/canaries and refresh the store. With zero entries
+      the empty state invites adding one — no random/fabricated tokens are
+      rendered.
   - id: G-UI-CONFIG-PATTERNS-001
     summary: >
       BridgePane renders the list of regex patterns from store.guardPatterns.
@@ -266,10 +269,11 @@ non_guarantees:
     reason: Table slices filtered events to the first 120 for rendering cost.
       Users filter to narrow; exporting full history uses "Export JSON".
   - id: NG-UI-CONFIG-001
-    summary: Does NOT let users edit guard patterns or canary tokens inline
-    reason: Both read from bulwark-config.yaml. Inline editing of regex patterns
-      has obvious footguns (broken regexes in prod). Deferred until a validated
-      edit flow exists; config file edits + restart are the supported path.
+    summary: Does NOT let users edit guard patterns inline
+    reason: Guard patterns read from bulwark-config.yaml. Inline editing of
+      regex patterns has obvious footguns (broken regexes in prod). Deferred
+      until a validated edit flow exists; config file edits + restart are the
+      supported path. (Canaries WERE in this category too, lifted by ADR-025.)
   - id: NG-UI-CONFIG-002
     summary: Does NOT display live hit counts on guard patterns
     reason: The old UI showed randomly-generated "N hits" values per pattern;

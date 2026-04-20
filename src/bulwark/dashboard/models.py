@@ -145,3 +145,17 @@ class GuardResponse(BaseModel):
         default=None,
         description="Which check triggered the block, if any.",
     )
+
+
+class CanaryUpsertRequest(BaseModel):
+    """Request body for POST /api/canaries — spec/contracts/canaries.yaml.
+
+    Field-shape validation only. Length bounds and cross-field rules (either
+    token or shape; label non-whitespace) are enforced in the handler so
+    the API returns 400 per the spec, not Pydantic's default 422.
+    """
+    label: str = Field(..., description="Source identifier; 1..64 chars, no whitespace.")
+    token: Optional[str] = Field(default=None, description="Literal canary string; min 8 chars.")
+    shape: Optional[str] = Field(
+        default=None, description="Generate a canary matching this credential format."
+    )

@@ -234,6 +234,109 @@ paths:
                           type: string
                           description: Optional explanation surfaced as a tooltip.
 
+  /api/canaries:
+    get:
+      operationId: listCanaries
+      summary: List configured canary tokens
+      description: |
+        Returns every canary currently configured in bulwark-config.yaml.
+        Canaries are sentinel strings the executor watches for in Phase 1
+        LLM output; if any appears, Phase 2 is blocked (ADR-025).
+      responses:
+        "200":
+          description: Canary list
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - canaries
+                properties:
+                  canaries:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - label
+                        - token
+                      properties:
+                        label:
+                          type: string
+                          description: Source identifier (e.g. "aws_access_key").
+                        token:
+                          type: string
+                          description: The sentinel string the LLM must never echo.
+    post:
+      operationId: upsertCanary
+      summary: Create or rotate a canary token
+      description: |
+        Upserts a canary by label. Pass `token` to set a literal value, or
+        `shape` to have Bulwark generate one matching a known credential
+        format (aws, bearer, password, url, mongo). POSTing against an
+        existing label rotates the token; no grace period.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - label
+              properties:
+                label:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+                  description: Stable identifier; must not contain whitespace.
+                token:
+                  type: string
+                  minLength: 8
+                  description: Literal canary string. Wins if both token and shape are given.
+                shape:
+                  type: string
+                  enum: ["aws", "bearer", "password", "url", "mongo"]
+                  description: Generate a canary matching this credential format.
+      responses:
+        "200":
+          description: Canary created or rotated
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - label
+                  - token
+                properties:
+                  label:
+                    type: string
+                  token:
+                    type: string
+        "400":
+          description: Invalid label, missing token AND shape, or unknown shape
+        "401":
+          description: Auth required but not supplied (when BULWARK_API_TOKEN is set)
+
+  /api/canaries/{label}:
+    delete:
+      operationId: deleteCanary
+      summary: Remove a canary by label
+      description: |
+        Deletes the named canary and persists the updated config. Idempotent
+        from the caller's perspective: a second delete returns 404.
+      parameters:
+        - name: label
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Canary removed
+        "404":
+          description: No canary with that label
+        "401":
+          description: Auth required but not supplied (when BULWARK_API_TOKEN is set)
+
   /api/redteam/tiers:
     get:
       operationId: redteamTiers

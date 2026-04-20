@@ -1,0 +1,105 @@
+feature: Canary token management API
+version: "1.0.0"
+module: bulwark.dashboard (HTTP) + bulwark.canary_shapes (generator)
+
+guarantees:
+  - id: G-CANARY-001
+    summary: >
+      GET /api/canaries returns 200 with JSON body {canaries: [...]}
+      where each entry has at least 'label' and 'token' fields. The
+      list reflects bulwark-config.yaml's canary_tokens map exactly —
+      no filtering, no masking.
+  - id: G-CANARY-002
+    summary: >
+      POST /api/canaries creates or replaces a canary entry. Request
+      body {label: str, token?: str, shape?: enum}. If token is
+      supplied it is used verbatim. If shape is supplied without
+      token, a canary matching that shape is generated. If both are
+      supplied, token wins. If neither is supplied, 400 is returned.
+  - id: G-CANARY-003
+    summary: >
+      DELETE /api/canaries/{label} removes the named entry and
+      persists the updated config. Returns 204 on success, 404 if
+      the label does not exist.
+  - id: G-CANARY-004
+    summary: >
+      POST /api/canaries with an existing label replaces its token
+      (rotation). The response body reflects the new token. No
+      grace period — the old value stops matching immediately.
+  - id: G-CANARY-005
+    summary: >
+      The canary management endpoints respect the dashboard auth
+      middleware — when BULWARK_API_TOKEN is set, they require a
+      valid Bearer token, returning 401 otherwise. Parity with
+      the existing /api/config write path.
+  - id: G-CANARY-006
+    summary: >
+      bulwark.canary_shapes.generate_canary(shape) returns a string
+      matching the documented format for the shape: aws (AKIA + 16
+      uppercase alphanumeric), bearer (tk_live_ + 32 hex),
+      password (18 mixed chars with symbols), url
+      (https://<subdomain>.internal/<path>), mongo (mongodb+srv://...).
+  - id: G-CANARY-007
+    summary: >
+      Every call to generate_canary() produces a value containing a
+      UUID-derived suffix, guaranteeing no two invocations of the
+      same shape return identical strings — canaries are unique by
+      construction.
+  - id: G-CANARY-008
+    summary: >
+      generate_canary() raises ValueError when called with an
+      unknown shape. The set of valid shapes is bounded and exposed
+      via bulwark.canary_shapes.AVAILABLE_SHAPES.
+  - id: G-CANARY-009
+    summary: >
+      POST /api/canaries rejects labels that are empty, contain
+      whitespace, or exceed 64 characters with 400. Rejects tokens
+      shorter than 8 characters with 400.
+  - id: G-CANARY-010
+    summary: >
+      The `bulwark canary` CLI provides add / list / remove /
+      generate subcommands. add and remove call POST and DELETE
+      against a running dashboard. list fetches GET. generate prints
+      a fresh canary without hitting the network.
+  - id: G-CANARY-011
+    summary: >
+      The dashboard Configure page's Canary panel renders an Add
+      form (label + shape selector + optional custom token) and a
+      Remove button next to every entry. Edits issue POST/DELETE to
+      the new endpoints and refresh the store on success.
+
+non_guarantees:
+  - id: NG-CANARY-001
+    summary: Does not alert externally on canary leaks
+    reason: >
+      This change manages canaries; reacting to leaks (webhook,
+      Slack, pager) stays on the existing event bus. ADR-025
+      explicitly defers alerting.
+  - id: NG-CANARY-002
+    summary: No rotation grace period
+    reason: >
+      Rotating a canary (POST with existing label) replaces the
+      token atomically. There is no window where both old and new
+      tokens match. Callers needing rollback must keep the old
+      value externally.
+  - id: NG-CANARY-003
+    summary: No overlap detection
+    reason: >
+      Nothing prevents adding a canary that is a substring of a
+      real config value or of another canary. Detecting this
+      reliably requires semantic knowledge of what is "real" which
+      Bulwark does not have.
+  - id: NG-CANARY-004
+    summary: Shape library is bounded
+    reason: >
+      Five shapes ship; new shapes require a code change and
+      contract update. Users needing a custom format must pass the
+      literal token via the POST body's `token` field.
+  - id: NG-CANARY-005
+    summary: No encryption at rest
+    reason: >
+      Canaries live in bulwark-config.yaml as plaintext, same as
+      today. They are by design non-sensitive (a leaked canary
+      grants an attacker nothing). If deployment requires
+      encrypted config, use host-side disk encryption or a secrets
+      mount.

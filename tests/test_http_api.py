@@ -1117,6 +1117,151 @@ class TestPresetsEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# /api/canaries — spec/contracts/canaries.yaml (ADR-025)
+#
+# HTTP coverage: G-CANARY-001, G-CANARY-002, G-CANARY-003, G-CANARY-004,
+# G-CANARY-005, G-CANARY-009.
+# CLI coverage for G-CANARY-010 lives in tests/test_cli.py.
+# Dashboard UI coverage for G-CANARY-011 lives in the JSX test files.
+#
+# Non-guarantees:
+#   NG-CANARY-001 — no external alerting on leaks (deferred).
+#   NG-CANARY-002 — no rotation grace period; see test_rotate_replaces_existing_token.
+#   NG-CANARY-003 — no overlap detection; callers responsible for distinct values.
+#   NG-CANARY-004 — shape library is bounded to AVAILABLE_SHAPES.
+#   NG-CANARY-005 — no encryption at rest; plaintext in bulwark-config.yaml.
+# ---------------------------------------------------------------------------
+
+class TestCanariesAPI:
+    """Canary management HTTP endpoints."""
+
+    @pytest.fixture(autouse=True)
+    def _clean_canaries(self, monkeypatch, tmp_path):
+        """Isolate each test from real config: point CONFIG_PATH at a tmp file
+        and reset the in-memory canary dict before/after."""
+        from bulwark.dashboard import app as app_module
+        monkeypatch.setattr(
+            "bulwark.dashboard.config.CONFIG_PATH", tmp_path / "bulwark-config.yaml"
+        )
+        saved = dict(app_module.config.canary_tokens)
+        app_module.config.canary_tokens.clear()
+        yield
+        app_module.config.canary_tokens.clear()
+        app_module.config.canary_tokens.update(saved)
+
+    def test_list_returns_empty_when_none_configured(self):
+        """G-CANARY-001: GET returns {canaries: []} when none set."""
+        resp = _get_client().get("/api/canaries")
+        assert resp.status_code == 200
+        assert resp.json() == {"canaries": []}
+
+    def test_create_with_literal_token(self):
+        """G-CANARY-002: POST with {label, token} stores verbatim."""
+        resp = _get_client().post(
+            "/api/canaries", json={"label": "aws", "token": "AKIA1234567890ABCDEF"}
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body == {"label": "aws", "token": "AKIA1234567890ABCDEF"}
+        # Verify it appears in the list
+        listed = _get_client().get("/api/canaries").json()["canaries"]
+        assert listed == [{"label": "aws", "token": "AKIA1234567890ABCDEF"}]
+
+    def test_create_with_shape_generates_token(self):
+        """G-CANARY-002: POST with {label, shape} generates a matching token."""
+        resp = _get_client().post(
+            "/api/canaries", json={"label": "db", "shape": "mongo"}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["token"].startswith("mongodb+srv://")
+
+    def test_token_wins_when_both_provided(self):
+        """G-CANARY-002: literal token takes priority over shape."""
+        resp = _get_client().post(
+            "/api/canaries",
+            json={"label": "k", "token": "literal-wins-123", "shape": "aws"},
+        )
+        assert resp.json()["token"] == "literal-wins-123"
+
+    def test_rotate_replaces_existing_token(self):
+        """G-CANARY-004: POST with existing label rotates atomically."""
+        client = _get_client()
+        client.post("/api/canaries", json={"label": "k", "token": "original-1234"})
+        client.post("/api/canaries", json={"label": "k", "token": "rotated-5678"})
+        listed = client.get("/api/canaries").json()["canaries"]
+        assert listed == [{"label": "k", "token": "rotated-5678"}]
+
+    def test_delete_removes_entry(self):
+        """G-CANARY-003: DELETE returns 204 and removes the entry."""
+        client = _get_client()
+        client.post("/api/canaries", json={"label": "k", "token": "12345678"})
+        resp = client.delete("/api/canaries/k")
+        assert resp.status_code == 204
+        assert client.get("/api/canaries").json()["canaries"] == []
+
+    def test_delete_missing_returns_404(self):
+        """G-CANARY-003: deleting a non-existent label returns 404."""
+        resp = _get_client().delete("/api/canaries/ghost")
+        assert resp.status_code == 404
+
+    def test_empty_label_rejected(self):
+        """G-CANARY-009: empty label returns 400."""
+        resp = _get_client().post(
+            "/api/canaries", json={"label": "", "token": "12345678"}
+        )
+        assert resp.status_code == 400
+
+    def test_whitespace_label_rejected(self):
+        """G-CANARY-009: label with whitespace returns 400."""
+        resp = _get_client().post(
+            "/api/canaries", json={"label": "bad label", "token": "12345678"}
+        )
+        assert resp.status_code == 400
+
+    def test_oversized_label_rejected(self):
+        """G-CANARY-009: label >64 chars returns 400."""
+        resp = _get_client().post(
+            "/api/canaries", json={"label": "x" * 65, "token": "12345678"}
+        )
+        assert resp.status_code == 400
+
+    def test_short_token_rejected(self):
+        """G-CANARY-009: token <8 chars returns 400."""
+        resp = _get_client().post(
+            "/api/canaries", json={"label": "k", "token": "short"}
+        )
+        assert resp.status_code == 400
+
+    def test_missing_token_and_shape_rejected(self):
+        """G-CANARY-002: POST with neither token nor shape returns 400."""
+        resp = _get_client().post("/api/canaries", json={"label": "k"})
+        assert resp.status_code == 400
+
+    def test_unknown_shape_rejected(self):
+        """G-CANARY-002: unknown shape returns 400."""
+        resp = _get_client().post(
+            "/api/canaries", json={"label": "k", "shape": "base64"}
+        )
+        assert resp.status_code == 400
+
+    def test_auth_required_when_token_set(self, monkeypatch):
+        """G-CANARY-005: endpoints require Bearer auth when BULWARK_API_TOKEN is set."""
+        monkeypatch.setenv("BULWARK_API_TOKEN", "correct-token")
+        client = _get_client()
+        # No header → 401
+        assert client.get("/api/canaries").status_code == 401
+        assert client.post(
+            "/api/canaries", json={"label": "k", "token": "12345678"}
+        ).status_code == 401
+        assert client.delete("/api/canaries/k").status_code == 401
+        # With header → authorized (list is still empty, but we got past auth)
+        ok = client.get(
+            "/api/canaries", headers={"Authorization": "Bearer correct-token"}
+        )
+        assert ok.status_code == 200
+
+
+# ---------------------------------------------------------------------------
 # GET /api/redteam/tiers — spec/contracts/redteam_tiers.yaml
 # ---------------------------------------------------------------------------
 
