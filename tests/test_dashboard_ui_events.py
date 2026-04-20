@@ -19,15 +19,11 @@ def _extract_fn(source: str, name: str) -> str:
     return m.group(0)
 
 
+from tests._node_helpers import run_node_eval
+
+
 def _run_node(harness: str):
-    node = shutil.which("node")
-    if not node:
-        pytest.skip("node not on PATH — cannot exercise page-events.jsx logic")
-    out = subprocess.run(
-        [node, "-e", harness],
-        check=True, capture_output=True, text=True, timeout=5,
-    )
-    return json.loads(out.stdout)
+    return run_node_eval(harness, skip_reason="node not on PATH — cannot exercise page-events.jsx logic")
 
 
 # ---------------------------------------------------------------------------

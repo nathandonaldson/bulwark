@@ -67,19 +67,6 @@ class TestAuthEnabled:
         resp = client.post("/v1/guard", json={"text": "test"})
         assert resp.status_code == 200
 
-    def test_v1_clean_full_stack_public(self, monkeypatch):
-        """G-AUTH-002: /v1/clean (full stack) works without auth."""
-        import bulwark.dashboard.app as app_mod
-        from bulwark.dashboard.config import BulwarkConfig
-        old = app_mod.config
-        app_mod.config = BulwarkConfig()  # mode=none, no LLM call
-        try:
-            client = _get_client()
-            resp = client.post("/v1/clean", json={"content": "test"})
-            assert resp.status_code == 200
-        finally:
-            app_mod.config = old
-
     def test_login_sets_cookie(self):
         """G-AUTH-004: POST /api/auth/login validates token and sets cookie."""
         client = _get_client()

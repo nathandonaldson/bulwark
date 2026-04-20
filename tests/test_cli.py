@@ -1,4 +1,23 @@
-"""Tests for the Bulwark CLI."""
+"""Tests for the Bulwark CLI.
+
+Contract: spec/contracts/cli.yaml (G-CLI-001..010).
+
+Subcommand → guarantee map:
+  sanitize         → G-CLI-001, G-CLI-002, G-CLI-003
+  canary-check     → G-CLI-004
+  canary-generate  → G-CLI-005
+  wrap             → G-CLI-006
+  test             → G-CLI-007 (verified in test_validator.py::TestCLI)
+  --version        → G-CLI-008
+  unknown cmd      → G-CLI-009
+  canary subgroup  → G-CLI-010 (delegates to G-CANARY-010)
+
+Non-guarantees documented in this file by absence of any conflicting test:
+  NG-CLI-001 — no serve/daemon subcommand (no test asserts one exists).
+  NG-CLI-002 — no --json output flag (no test parses JSON from sanitize/wrap/canary-check).
+  NG-CLI-003 — `bulwark canary` never writes bulwark-config.yaml directly
+               (TestCanaryCli mocks the HTTP client, not the filesystem).
+"""
 from __future__ import annotations
 
 import json
@@ -116,11 +135,18 @@ def test_wrap_with_label():
 
 
 def test_version():
-    """bulwark --version prints version."""
+    """G-CLI-008: bulwark --version prints version."""
     runner = CliRunner()
     result = runner.invoke(main, ['--version'])
     assert result.exit_code == 0
     assert "bulwark-shield, version" in result.output
+
+
+def test_unknown_command_exits_nonzero():
+    """G-CLI-009: unknown subcommand fails loudly."""
+    runner = CliRunner()
+    result = runner.invoke(main, ['this-is-not-a-command'])
+    assert result.exit_code != 0
 
 
 # ── Enhanced test command ───────────────────────────────────────
