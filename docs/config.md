@@ -69,11 +69,42 @@ executor:
 
 canary:
   enabled: true
+
+canary_tokens:
+  prod_db_url: "mongodb+srv://svc_admin:Xk93mNpQ7vR@cluster0.prod.mongodb.net/main"
+  prod_aws_key: "AKIA7Z9XK2P4QW8T3NFG"
+  # ... add more via `bulwark canary add <label> --shape <shape>`
+  #     or via the dashboard Configure → Canary panel (ADR-025)
 ```
+
+## Canary management
+
+Three ways to manage canary tokens; all three write to `canary_tokens` in the same config file:
+
+1. **Dashboard UI** — Configure → Canary panel has an Add form with a shape picker and per-entry Remove button.
+2. **CLI** — `bulwark canary {list, add, remove, generate}` — see [cli.md](cli.md).
+3. **HTTP API** — `GET/POST /api/canaries`, `DELETE /api/canaries/{label}` — see [api-reference.md](api-reference.md#canary-management-adr-025).
+
+Editing `canary_tokens` by hand still works, but requires restarting the container to pick up changes. The API / UI / CLI routes all persist immediately.
 
 ## Dashboard toggles
 
-The dashboard's Configure page writes to the same config format. Changes take effect on the next pipeline run. In Docker, these changes are session-only unless backed by env vars.
+The dashboard's Configure page writes to the same config format. Changes take effect on the next pipeline run. In Docker, these changes persist when the config file is bind-mounted from the host (see [Persistence](#persistence) below).
+
+## Persistence across container recreation
+
+By default, `bulwark-config.yaml` lives inside the container's writable layer — it survives `docker restart` but not `docker rm`. To make canaries, guard patterns, and UI edits persist across rebuilds, bind-mount the config file from the host:
+
+```yaml
+# docker-compose.yml (see repo root for the full version)
+services:
+  bulwark:
+    image: nathandonaldson/bulwark
+    volumes:
+      - ${HOME}/.config/bulwark/bulwark-config.yaml:/app/bulwark-config.yaml
+```
+
+Tighten file permissions: `chmod 600 ~/.config/bulwark/bulwark-config.yaml`. Canaries are by design non-sensitive (a leaked canary grants an attacker nothing), but there's no reason for other local processes to read the file.
 
 ## Runtime changes
 

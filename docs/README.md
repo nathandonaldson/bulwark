@@ -21,4 +21,5 @@ Dashboard at http://localhost:3000. See [Configuration](config.md) for env var s
 - [HTTP API reference](api-reference.md) — `/v1/clean`, `/v1/guard`, `/healthz`
 - [Red teaming](red-teaming.md) — built-in attacks, production red team runner, Garak integration
 - [OpenClaw integration](openclaw.md) — Docker sidecar + plugin hooks
+- [Wintermute integration](integrations/wintermute.md) — personal-agent integration via the Docker HTTP API, with request/response shape, canary handling, failure modes
 - [Roadmap](../ROADMAP.md) — what's shipped, what's next
