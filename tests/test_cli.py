@@ -281,3 +281,123 @@ class TestTestCommandOutputFormat:
         # Just make sure the command doesn't crash
         result = runner.invoke(main, ['test'])
         assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# canary subcommand — G-CANARY-010
+# ---------------------------------------------------------------------------
+
+class TestCanaryCli:
+    """bulwark canary {add, list, remove, generate} — G-CANARY-010."""
+
+    def test_generate_prints_matching_shape(self):
+        """generate emits a fresh canary without network calls."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["canary", "generate", "--shape", "aws"])
+        assert result.exit_code == 0
+        assert result.output.strip().startswith("AKIA")
+
+    def test_generate_rejects_unknown_shape(self):
+        runner = CliRunner()
+        result = runner.invoke(main, ["canary", "generate", "--shape", "base64"])
+        assert result.exit_code != 0
+
+    def test_add_requires_token_or_shape(self):
+        """add with neither --token nor --shape fails loudly."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["canary", "add", "mylabel"])
+        assert result.exit_code != 0
+        assert "token" in result.output.lower() or "shape" in result.output.lower()
+
+    def test_list_calls_dashboard(self, monkeypatch):
+        """list fetches GET /api/canaries from the configured URL."""
+        import bulwark.cli as cli
+
+        class _Resp:
+            status_code = 200
+            text = ""
+            def json(self):
+                return {"canaries": [{"label": "aws", "token": "AKIAABCDEF1234567890"}]}
+
+        class _Client:
+            def __init__(self, *a, **k): pass
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def get(self, path):
+                assert path == "/api/canaries"
+                return _Resp()
+
+        monkeypatch.setattr(cli, "_canary_client", lambda url: _Client())
+        result = CliRunner().invoke(main, ["canary", "list"])
+        assert result.exit_code == 0
+        assert "aws" in result.output
+        assert "AKIAABCDEF1234567890" in result.output
+
+    def test_add_posts_shape(self, monkeypatch):
+        """add --shape mongo POSTs the right body."""
+        import bulwark.cli as cli
+        captured = {}
+
+        class _Resp:
+            status_code = 200
+            text = ""
+            def json(self):
+                return {"label": captured["json"]["label"], "token": "mongodb+srv://..."}
+
+        class _Client:
+            def __init__(self, *a, **k): pass
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def post(self, path, json):
+                captured["path"] = path
+                captured["json"] = json
+                return _Resp()
+
+        monkeypatch.setattr(cli, "_canary_client", lambda url: _Client())
+        result = CliRunner().invoke(main, ["canary", "add", "db", "--shape", "mongo"])
+        assert result.exit_code == 0, result.output
+        assert captured["path"] == "/api/canaries"
+        assert captured["json"] == {"label": "db", "shape": "mongo"}
+
+    def test_remove_deletes_by_label(self, monkeypatch):
+        """remove issues DELETE /api/canaries/{label}."""
+        import bulwark.cli as cli
+        captured = {}
+
+        class _Resp:
+            status_code = 204
+            text = ""
+
+        class _Client:
+            def __init__(self, *a, **k): pass
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def delete(self, path):
+                captured["path"] = path
+                return _Resp()
+
+        monkeypatch.setattr(cli, "_canary_client", lambda url: _Client())
+        result = CliRunner().invoke(main, ["canary", "remove", "db"])
+        assert result.exit_code == 0
+        assert captured["path"] == "/api/canaries/db"
+        assert "removed db" in result.output
+
+    def test_remove_missing_reports_404(self, monkeypatch):
+        """remove on a missing label surfaces a clear error."""
+        import bulwark.cli as cli
+
+        class _Resp:
+            status_code = 404
+            text = ""
+
+        class _Client:
+            def __init__(self, *a, **k): pass
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def delete(self, path):
+                return _Resp()
+
+        monkeypatch.setattr(cli, "_canary_client", lambda url: _Client())
+        result = CliRunner().invoke(main, ["canary", "remove", "ghost"])
+        assert result.exit_code != 0
+        assert "no canary" in result.output.lower() or "ghost" in result.output.lower()

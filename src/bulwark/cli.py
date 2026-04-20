@@ -362,3 +362,101 @@ def _display_garak_summary(summary):
     else:
         msg = f"{summary.passed}/{summary.total} passed, {summary.failed} failed (vulnerabilities found)."
         click.echo(click.style(msg, fg="red", bold=True))
+
+
+# ---------------------------------------------------------------------------
+# canary — manage canary tokens via the running dashboard
+# (G-CANARY-010 per spec/contracts/canaries.yaml)
+# ---------------------------------------------------------------------------
+
+@main.group("canary")
+def canary_cmd():
+    """Manage canary tokens: list, add, remove, or generate."""
+    pass
+
+
+def _canary_client(url: str):
+    """Return an httpx-based client bound to the dashboard URL + optional auth."""
+    try:
+        import httpx
+    except ImportError:
+        raise click.ClickException(
+            "canary commands need httpx. Install with: pip install bulwark-shield[bench]"
+        )
+    import os
+    headers = {}
+    token = os.environ.get("BULWARK_API_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return httpx.Client(base_url=url.rstrip("/"), headers=headers, timeout=10.0)
+
+
+_URL_OPTION = click.option(
+    "--url", default="http://localhost:3000",
+    help="Dashboard URL (default: http://localhost:3000). Set BULWARK_API_TOKEN env var if auth is enabled."
+)
+
+
+@canary_cmd.command("list")
+@_URL_OPTION
+def canary_list(url: str):
+    """List all configured canaries (G-CANARY-010)."""
+    with _canary_client(url) as client:
+        resp = client.get("/api/canaries")
+    if resp.status_code != 200:
+        raise click.ClickException(f"GET /api/canaries → {resp.status_code}: {resp.text}")
+    items = resp.json().get("canaries", [])
+    if not items:
+        click.echo("No canaries configured.")
+        return
+    width = max(len(c["label"]) for c in items)
+    for c in items:
+        click.echo(f"  {c['label']:<{width}}  {c['token']}")
+
+
+@canary_cmd.command("add")
+@click.argument("label")
+@click.option("--token", help="Literal canary token (use this OR --shape).")
+@click.option("--shape", type=click.Choice(["aws", "bearer", "password", "url", "mongo"]),
+              help="Generate a canary matching this credential format.")
+@_URL_OPTION
+def canary_add(label: str, token: str | None, shape: str | None, url: str):
+    """Add or rotate a canary by label (G-CANARY-010)."""
+    if not token and not shape:
+        raise click.ClickException("Provide --token or --shape.")
+    body = {"label": label}
+    if token:
+        body["token"] = token
+    if shape:
+        body["shape"] = shape
+    with _canary_client(url) as client:
+        resp = client.post("/api/canaries", json=body)
+    if resp.status_code != 200:
+        raise click.ClickException(f"POST /api/canaries → {resp.status_code}: {resp.text}")
+    data = resp.json()
+    click.echo(f"{data['label']}: {data['token']}")
+
+
+@canary_cmd.command("remove")
+@click.argument("label")
+@_URL_OPTION
+def canary_remove(label: str, url: str):
+    """Remove a canary by label (G-CANARY-010)."""
+    with _canary_client(url) as client:
+        resp = client.delete(f"/api/canaries/{label}")
+    if resp.status_code == 204:
+        click.echo(f"removed {label}")
+    elif resp.status_code == 404:
+        raise click.ClickException(f"no canary named {label!r}")
+    else:
+        raise click.ClickException(f"DELETE → {resp.status_code}: {resp.text}")
+
+
+@canary_cmd.command("generate")
+@click.option("--shape", required=True,
+              type=click.Choice(["aws", "bearer", "password", "url", "mongo"]),
+              help="Credential shape to generate.")
+def canary_generate(shape: str):
+    """Print a fresh canary without touching the dashboard (G-CANARY-010)."""
+    from bulwark.canary_shapes import generate_canary
+    click.echo(generate_canary(shape))

@@ -292,34 +292,134 @@ function BridgePane({ store, stage }) {
   );
 }
 
+// G-CANARY-011: Canary panel is a real form — add (with shape generator) and remove
+// via POST/DELETE /api/canaries. ADR-025.
 function CanaryPane({ store, stage }) {
   const tokens = store.canaryTokens && typeof store.canaryTokens === 'object' ? store.canaryTokens : {};
   const entries = Object.entries(tokens);
+  const [label, setLabel] = React.useState('');
+  const [shape, setShape] = React.useState('aws');
+  const [token, setToken] = React.useState('');
+  const [useLiteral, setUseLiteral] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState('');
+
+  async function addCanary(e) {
+    if (e) e.preventDefault();
+    setError('');
+    if (!label.trim()) { setError('Label is required.'); return; }
+    const body = { label: label.trim() };
+    if (useLiteral) {
+      if (token.length < 8) { setError('Token must be at least 8 characters.'); return; }
+      body.token = token;
+    } else {
+      body.shape = shape;
+    }
+    setBusy(true);
+    try {
+      const resp = await fetch('/api/canaries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        const j = await resp.json().catch(() => ({}));
+        setError(j.error || `${resp.status} ${resp.statusText}`);
+        return;
+      }
+      setLabel(''); setToken(''); setUseLiteral(false);
+      BulwarkStore.refreshConfig();
+    } finally { setBusy(false); }
+  }
+
+  async function removeCanary(key) {
+    setBusy(true);
+    try {
+      await fetch('/api/canaries/' + encodeURIComponent(key), { method: 'DELETE' });
+      BulwarkStore.refreshConfig();
+    } finally { setBusy(false); }
+  }
+
+  const shapeHints = {
+    aws: 'AKIA + 16 uppercase alphanumeric',
+    bearer: 'tk_live_ + 32 hex chars',
+    password: '18+ chars, upper + lower + digit + symbol',
+    url: 'https://admin-xxx.infra.internal/v1/keys/…',
+    mongo: 'mongodb+srv://svc_xxx:pw@cluster…',
+  };
+
   return (
     <div className="card" style={{padding: 0}}>
       <DetailHeader stage={stage}/>
       <div style={{padding: '8px 24px 22px'}}>
         <SubToggle name="Encoding-resistant variants" desc="Check base64, hex, reversed, case-insensitive"
           on={store.layerConfig.encoding_canaries} onToggle={() => BulwarkStore.toggleLayer('encoding_canaries')}/>
+
         <div style={{padding: '14px 0'}}>
           <div className="label" style={{marginBottom: 10}}>
             Active canaries
             <span className="mono dim" style={{marginLeft: 8, letterSpacing: 0, textTransform: 'none', fontSize: 11}}>{entries.length} token{entries.length === 1 ? '' : 's'}</span>
           </div>
+
           {entries.length === 0 ? (
-            <div className="empty-slate" style={{padding: 20, border: '1px dashed var(--border)', borderRadius: 8, fontSize: 12}}>
-              No canary tokens configured. Add entries to <span className="mono">bulwark-config.yaml</span> under <span className="mono">canary_tokens</span>.
+            <div className="empty-slate" style={{padding: 20, border: '1px dashed var(--border)', borderRadius: 8, fontSize: 12, marginBottom: 14}}>
+              No canary tokens configured. Add one below.
             </div>
           ) : (
-            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8}}>
-              {entries.map(([src, token]) => (
-                <div key={src} style={{padding: 12, background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 8}}>
+            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14}}>
+              {entries.map(([src, tok]) => (
+                <div key={src} style={{padding: 12, background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 8, position: 'relative'}}>
+                  <button type="button" onClick={() => removeCanary(src)} disabled={busy}
+                    aria-label={`Remove canary ${src}`}
+                    style={{position: 'absolute', top: 6, right: 8, background: 'transparent', border: 0, color: 'var(--text-2)', cursor: 'pointer', fontSize: 14}}>×</button>
                   <div className="label" style={{marginBottom: 4}}>{src}</div>
-                  <div className="mono" style={{fontSize: 11, color: 'var(--amber)', wordBreak: 'break-all'}}>{token}</div>
+                  <div className="mono" style={{fontSize: 11, color: 'var(--amber)', wordBreak: 'break-all', paddingRight: 16}}>{tok}</div>
                 </div>
               ))}
             </div>
           )}
+
+          <form onSubmit={addCanary} style={{padding: 14, border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg-1)'}}>
+            <div className="label" style={{marginBottom: 10}}>Add canary</div>
+            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10}}>
+              <label style={{display: 'flex', flexDirection: 'column', gap: 4}}>
+                <span className="dim" style={{fontSize: 11}}>Label</span>
+                <input type="text" value={label} onChange={(e) => setLabel(e.target.value)}
+                  placeholder="e.g. prod_admin_url" maxLength={64}
+                  style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12}}/>
+              </label>
+              <label style={{display: 'flex', flexDirection: 'column', gap: 4}}>
+                <span className="dim" style={{fontSize: 11}}>
+                  Source <button type="button" onClick={() => setUseLiteral(v => !v)}
+                    style={{marginLeft: 6, background: 'transparent', border: 0, color: 'var(--accent-ink)', cursor: 'pointer', fontSize: 11, textDecoration: 'underline'}}>
+                    {useLiteral ? 'use generator' : 'paste literal'}
+                  </button>
+                </span>
+                {useLiteral ? (
+                  <input type="text" value={token} onChange={(e) => setToken(e.target.value)}
+                    placeholder="Paste a canary string (≥ 8 chars)"
+                    style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12}}/>
+                ) : (
+                  <select value={shape} onChange={(e) => setShape(e.target.value)}
+                    style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12}}>
+                    {Object.keys(shapeHints).map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                )}
+              </label>
+            </div>
+            {!useLiteral && (
+              <div className="dim" style={{fontSize: 11, marginBottom: 10}}>
+                Generates: {shapeHints[shape]}
+              </div>
+            )}
+            {error && (
+              <div style={{fontSize: 11, color: 'var(--red)', marginBottom: 10}}>{error}</div>
+            )}
+            <button type="submit" disabled={busy}
+              style={{padding: '6px 14px', background: 'var(--accent-ink)', color: 'var(--bg-0)', border: 0, borderRadius: 6, cursor: busy ? 'wait' : 'pointer', fontSize: 12, fontWeight: 600}}>
+              {busy ? 'Saving…' : 'Add canary'}
+            </button>
+          </form>
         </div>
       </div>
     </div>

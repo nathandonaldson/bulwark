@@ -302,14 +302,36 @@ class TestCanaryPane:
         assert "rand(" not in body
         assert "BLWK-" not in body  # old faked prefix
 
-    def test_empty_state_points_to_config_file(self):
-        """G-UI-CONFIG-CANARIES-001: empty state names the config file."""
+    def test_empty_state_invites_adding(self):
+        """G-UI-CONFIG-CANARIES-001 (post-ADR-025): empty state invites add, not a config-file note."""
         src = _configure_src()
         fn = re.search(r"function CanaryPane.*?\n\}\n", src, flags=re.DOTALL)
         assert fn
         body = fn.group(0)
-        assert "bulwark-config.yaml" in body
         assert "No canary tokens configured" in body
+        # The old read-only instruction to edit YAML should be gone now that
+        # the UI has an inline add form (G-CANARY-011, ADR-025).
+        assert "Add entries to" not in body
+
+    def test_add_form_posts_to_api_canaries(self):
+        """G-CANARY-011 / G-UI-CONFIG-CANARIES-001: inline add form posts to /api/canaries."""
+        src = _configure_src()
+        fn = re.search(r"function CanaryPane.*?\n\}\n", src, flags=re.DOTALL)
+        assert fn
+        body = fn.group(0)
+        # Form + fetch to the management endpoint is wired.
+        assert "<form" in body
+        assert "/api/canaries" in body
+        assert "method: 'POST'" in body or "method: \"POST\"" in body
+
+    def test_remove_button_calls_delete(self):
+        """G-CANARY-011: each canary has a remove button that issues DELETE /api/canaries/{label}."""
+        src = _configure_src()
+        fn = re.search(r"function CanaryPane.*?\n\}\n", src, flags=re.DOTALL)
+        assert fn
+        body = fn.group(0)
+        assert "method: 'DELETE'" in body or "method: \"DELETE\"" in body
+        assert "/api/canaries/" in body
 
 
 class TestBridgePane:
@@ -370,11 +392,12 @@ class TestNonGuarantees:
         assert "<textarea" not in body
         assert "+ Add pattern" not in body
 
-    def test_no_inline_canary_editor(self):
-        """NG-UI-CONFIG-001: canary tokens are not inline-editable."""
+    def test_no_inline_guard_patterns_editor(self):
+        """NG-UI-CONFIG-001 (scoped post-ADR-025): guard patterns remain read-only."""
         src = _configure_src()
-        fn = re.search(r"function CanaryPane.*?\n\}\n", src, flags=re.DOTALL)
+        fn = re.search(r"function BridgePane.*?\n\}\n", src, flags=re.DOTALL)
         assert fn
         body = fn.group(0)
+        # BridgePane should not present an editable regex list; guard patterns
+        # still flow through bulwark-config.yaml to avoid broken-regex footguns.
         assert "<textarea" not in body
-        assert "<input" not in body

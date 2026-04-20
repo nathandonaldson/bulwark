@@ -15,8 +15,9 @@ from starlette.responses import JSONResponse as StarletteJSONResponse
 
 from bulwark.dashboard.db import EventDB
 from bulwark.dashboard.config import BulwarkConfig, AVAILABLE_INTEGRATIONS, IntegrationConfig, get_api_token
-from bulwark.dashboard.models import RetestRequest
+from bulwark.dashboard.models import RetestRequest, CanaryUpsertRequest
 from bulwark.presets import load_presets
+from bulwark.canary_shapes import AVAILABLE_SHAPES, generate_canary
 
 
 # Load presets once at import time so malformed YAML fails startup (G-PRESETS-006).
@@ -287,6 +288,71 @@ async def update_config(request: Request):
         return {"error": error}
     config.save()
     return config.to_dict()
+
+
+# ---------------------------------------------------------------------------
+# Canary management — spec/contracts/canaries.yaml (ADR-025)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/canaries")
+async def list_canaries():
+    """G-CANARY-001: return the current canary_tokens map as a list."""
+    return {
+        "canaries": [
+            {"label": label, "token": token}
+            for label, token in config.canary_tokens.items()
+        ]
+    }
+
+
+@app.post("/api/canaries")
+async def upsert_canary(req: CanaryUpsertRequest):
+    """G-CANARY-002/004/009: create or rotate a canary entry."""
+    label = req.label.strip()
+
+    if not label or any(c.isspace() for c in label) or len(label) > 64:
+        return StarletteJSONResponse(
+            {"error": "label must be 1..64 chars with no whitespace"},
+            status_code=400,
+        )
+
+    token = req.token
+    if token is None and req.shape is None:
+        return StarletteJSONResponse(
+            {"error": "provide either token or shape"},
+            status_code=400,
+        )
+
+    if token is None:
+        if req.shape not in AVAILABLE_SHAPES:
+            return StarletteJSONResponse(
+                {"error": f"unknown shape; valid: {', '.join(AVAILABLE_SHAPES)}"},
+                status_code=400,
+            )
+        token = generate_canary(req.shape)
+
+    if len(token) < 8:
+        return StarletteJSONResponse(
+            {"error": "token must be at least 8 characters"},
+            status_code=400,
+        )
+
+    config.canary_tokens[label] = token
+    config.save()
+    return {"label": label, "token": token}
+
+
+@app.delete("/api/canaries/{label}")
+async def delete_canary(label: str):
+    """G-CANARY-003: remove a canary by label; 404 if absent."""
+    if label not in config.canary_tokens:
+        return StarletteJSONResponse(
+            {"error": f"no canary with label {label!r}"}, status_code=404,
+        )
+    del config.canary_tokens[label]
+    config.save()
+    return StarletteJSONResponse(status_code=204, content=None)
 
 
 @app.get("/api/integrations")

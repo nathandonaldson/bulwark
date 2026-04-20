@@ -322,6 +322,19 @@ const BulwarkStore = (() => {
       _connectSSE();
     },
 
+    // G-CANARY-011: Canary pane calls this after POST/DELETE /api/canaries
+    // to re-pull the live config and re-render.
+    async refreshConfig() {
+      try {
+        const cfg = await _fetchJson('/api/config');
+        state.layerConfig = _layerConfigFromBackend(cfg);
+        state.llm = _llmFromBackend(cfg);
+        state.guardPatterns = Array.isArray(cfg.guard_patterns) ? cfg.guard_patterns : [];
+        state.canaryTokens = (cfg.canary_tokens && typeof cfg.canary_tokens === 'object') ? cfg.canary_tokens : {};
+        emit();
+      } catch (e) { /* leave state as-is on failure */ }
+    },
+
     toggleLayer(id) {
       const current = !!state.layerConfig[id];
       if (id === 'detection') return; // aggregate — managed via Detection pane
