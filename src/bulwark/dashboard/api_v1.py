@@ -23,6 +23,25 @@ from bulwark.canary import CanarySystem, CanaryLeakError
 router = APIRouter(prefix="/v1", tags=["Bulwark API v1"])
 
 
+def _resolve_llm_api_key(req_api_key: str, req_base_url: str, configured_api_key: str, configured_base_url: str) -> str:
+    """Resolve API key safely for LLM test/model endpoints.
+
+    If caller overrides base_url, never fall back to the server-stored key.
+    This prevents sending stored credentials to caller-controlled endpoints.
+    """
+    has_explicit_key = bool(req_api_key and "..." not in req_api_key)
+    if has_explicit_key:
+        return req_api_key
+
+    if req_base_url:
+        requested = req_base_url.rstrip("/")
+        configured = (configured_base_url or "").rstrip("/")
+        if requested != configured:
+            return ""
+
+    return configured_api_key
+
+
 def _emit_event(layer: str, verdict: str, source_id: str = "", detail: str = "", duration_ms: float = 0):
     """Emit a BulwarkEvent to the dashboard's EventDB, SSE subscribers, and —
     if configured — an external webhook (ADR-026, G-WEBHOOK-001..006)."""
@@ -395,7 +414,12 @@ async def test_llm_connection(req: LLMTestRequest):
     from bulwark.dashboard.app import config as app_config
     cfg = LLMBackendConfig(
         mode=req.mode or app_config.llm_backend.mode,
-        api_key=req.api_key if req.api_key and "..." not in req.api_key else app_config.llm_backend.api_key,
+        api_key=_resolve_llm_api_key(
+            req_api_key=req.api_key,
+            req_base_url=req.base_url,
+            configured_api_key=app_config.llm_backend.api_key,
+            configured_base_url=app_config.llm_backend.base_url,
+        ),
         base_url=req.base_url or app_config.llm_backend.base_url,
         analyze_model=req.analyze_model or app_config.llm_backend.analyze_model,
         execute_model=req.execute_model or app_config.llm_backend.execute_model,
@@ -415,7 +439,12 @@ async def list_llm_models(req: LLMModelsRequest):
     from bulwark.dashboard.app import config as app_config
     cfg = LLMBackendConfig(
         mode=req.mode or app_config.llm_backend.mode,
-        api_key=req.api_key if req.api_key and "..." not in req.api_key else app_config.llm_backend.api_key,
+        api_key=_resolve_llm_api_key(
+            req_api_key=req.api_key,
+            req_base_url=req.base_url,
+            configured_api_key=app_config.llm_backend.api_key,
+            configured_base_url=app_config.llm_backend.base_url,
+        ),
         base_url=req.base_url or app_config.llm_backend.base_url,
     )
     return {"models": list_models(cfg)}

@@ -488,6 +488,58 @@ class TestLLMTestEndpoint:
         # Test succeeds, but this says nothing about pipeline execution quality
         assert data["ok"] is True
 
+    def test_custom_base_url_does_not_reuse_configured_key(self, monkeypatch):
+        """Security: overriding base_url must not reuse stored API key."""
+        import bulwark.dashboard.app as app_mod
+        app_mod.config.llm_backend.mode = "openai_compatible"
+        app_mod.config.llm_backend.base_url = "https://api.openai.com/v1"
+        app_mod.config.llm_backend.api_key = "sk-config-secret"
+
+        captured = {}
+
+        def _fake_test_connection(cfg):
+            captured["api_key"] = cfg.api_key
+            captured["base_url"] = cfg.base_url
+            return {"ok": True, "message": "stub", "model": ""}
+
+        monkeypatch.setattr("bulwark.dashboard.llm_factory.test_connection", _fake_test_connection)
+
+        client = _get_client()
+        resp = client.post("/v1/llm/test", json={
+            "mode": "openai_compatible",
+            "base_url": "https://attacker.example/v1",
+        })
+        assert resp.status_code == 200
+        assert captured["base_url"] == "https://attacker.example/v1"
+        assert captured["api_key"] == ""
+
+
+class TestLLMModelsEndpoint:
+    def test_custom_base_url_does_not_reuse_configured_key(self, monkeypatch):
+        """Security: list-models with custom base_url must not reuse stored API key."""
+        import bulwark.dashboard.app as app_mod
+        app_mod.config.llm_backend.mode = "openai_compatible"
+        app_mod.config.llm_backend.base_url = "https://api.openai.com/v1"
+        app_mod.config.llm_backend.api_key = "sk-config-secret"
+
+        captured = {}
+
+        def _fake_list_models(cfg):
+            captured["api_key"] = cfg.api_key
+            captured["base_url"] = cfg.base_url
+            return ["model-a"]
+
+        monkeypatch.setattr("bulwark.dashboard.llm_factory.list_models", _fake_list_models)
+
+        client = _get_client()
+        resp = client.post("/v1/llm/models", json={
+            "mode": "openai_compatible",
+            "base_url": "https://attacker.example/v1",
+        })
+        assert resp.status_code == 200
+        assert captured["base_url"] == "https://attacker.example/v1"
+        assert captured["api_key"] == ""
+
 
 # ---------------------------------------------------------------------------
 # CORS — security enforcement
