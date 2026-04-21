@@ -665,11 +665,32 @@ function LLMBackendPane({ store, selected, stage }) {
               />
             </div>
 
-            <div style={{display: 'flex', gap: 8}}>
-              <button className="btn" onClick={() => BulwarkStore.testConnection()}
-                disabled={store.llm.status === 'loading'}>
-                {store.llm.status === 'loading' ? 'Testing…' : 'Test connection'}
+            <div style={{display: 'flex', gap: 8, alignItems: 'center'}}>
+              {/* G-UI-CONFIG-TEST-CONNECTION: button fires testConnection()
+                  with the current in-form values (not just the saved config)
+                  so the user can validate edits before Save. Renders a
+                  spinner while in flight, a tick or cross after — see
+                  TestConnectionStatus below. */}
+              <button className="btn" onClick={() => BulwarkStore.testConnection({
+                mode: store.llm.mode,
+                base_url: baseUrl,
+                analyze_model: analyzeModel,
+                execute_model: executeModel,
+                api_key: apiKey || undefined,
+              })} disabled={store.llm.status === 'loading'}>
+                {store.llm.status === 'loading' ? (
+                  <>
+                    <span aria-hidden="true" style={{
+                      width: 10, height: 10, border: '1.5px solid var(--accent-ink-soft)',
+                      borderTopColor: 'var(--accent-ink)', borderRadius: '50%',
+                      display: 'inline-block', marginRight: 6, verticalAlign: '-2px',
+                      animation: 'spin 0.8s linear infinite',
+                    }}/>
+                    Testing…
+                  </>
+                ) : 'Test connection'}
               </button>
+              <TestConnectionStatus status={store.llm.status} result={store.llmTestResult}/>
               <button className="btn btn-primary" style={{marginLeft: 'auto'}}
                 onClick={save}>Save</button>
             </div>
@@ -744,6 +765,35 @@ function ModelDropdown({ value, onChange, models, loading, phase }) {
         <option key={value} value={value}>{value}</option>
       )}
     </select>
+  );
+}
+
+// G-UI-CONFIG-TEST-CONNECTION-STATUS: render the outcome of a Test
+// connection click. Idle → nothing. Loading → handled by the button
+// itself (spinner + "Testing…"). Success → green tick + diagnostic
+// (model count, etc.). Error → red cross + message.
+function TestConnectionStatus({ status, result }) {
+  if (status === 'loading' || !result) return null;
+  const ok = result.ok === true || result.connected === true || result.status === 'ok';
+  const message = result.message || result.error || (ok ? 'Connected.' : 'Connection failed.');
+  return (
+    <span role="status" aria-live="polite"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        fontSize: 12,
+        color: ok ? 'var(--green)' : 'var(--red)',
+        maxWidth: 480,
+      }}>
+      <span aria-hidden="true" style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: 16, height: 16, borderRadius: '50%',
+        background: ok ? 'var(--green-soft)' : 'var(--red-soft)',
+        border: '1px solid ' + (ok ? 'var(--green-line)' : 'var(--red-line)'),
+        fontSize: 10, fontWeight: 700, lineHeight: 1,
+      }}>{ok ? '✓' : '✕'}</span>
+      <span style={{overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}
+        title={message}>{message}</span>
+    </span>
   );
 }
 

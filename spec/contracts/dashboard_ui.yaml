@@ -182,9 +182,22 @@ guarantees:
       for the duration of the request.
   - id: G-UI-CONFIG-TEST-CONNECTION
     summary: >
-      BulwarkStore.testConnection() POSTs /v1/llm/test and updates
-      state.llm.status to 'connected' on success or 'error' on failure. Sets
-      status to 'loading' while in flight.
+      BulwarkStore.testConnection(overrides?) POSTs /v1/llm/test with the
+      current in-form field values (mode, base_url, analyze_model,
+      execute_model, api_key) when the caller supplies them — so the user
+      can validate edits before saving. Updates state.llm.status to
+      'connected' on success or 'error' on failure; 'loading' while in
+      flight. The response body is stored on state.llmTestResult for the
+      UI to render.
+  - id: G-UI-CONFIG-TEST-CONNECTION-STATUS
+    summary: >
+      While state.llm.status is 'loading', the Test connection button
+      renders a spinning icon (css `animation: spin …`) next to "Testing…"
+      and is disabled. After the probe completes, TestConnectionStatus
+      renders a green tick with a diagnostic message on success or a red
+      cross with the error message on failure. The result region has
+      role="status" + aria-live="polite" so assistive tech announces the
+      outcome.
   - id: G-UI-CONFIG-CANARIES-001
     summary: >
       CanaryPane renders one card per entry in store.canaryTokens plus an
