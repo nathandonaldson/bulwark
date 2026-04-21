@@ -499,22 +499,34 @@ const BulwarkStore = (() => {
     },
 
     // Stage 7: live LLM connectivity probe used by the "Test connection" button.
-    async testConnection() {
+    //
+    // Accepts an optional overrides object so the caller (LLMBackendPane) can
+    // test the current *in-form* values rather than only the last-saved config
+    // (G-UI-CONFIG-TEST-CONNECTION). Fields not provided fall back to the
+    // backend's saved values via /v1/llm/test's own defaulting.
+    async testConnection(overrides = {}) {
       state.llm = { ...state.llm, status: 'loading' };
       state.llmTestResult = null;
       emit();
+      const body = {
+        mode: overrides.mode !== undefined ? overrides.mode : state.llm.mode,
+      };
+      if (overrides.base_url !== undefined) body.base_url = overrides.base_url;
+      if (overrides.analyze_model !== undefined) body.analyze_model = overrides.analyze_model;
+      if (overrides.execute_model !== undefined) body.execute_model = overrides.execute_model;
+      if (overrides.api_key) body.api_key = overrides.api_key;
       try {
         const res = await _fetchJson('/v1/llm/test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode: state.llm.mode }),
+          body: JSON.stringify(body),
         });
         const ok = res && (res.ok === true || res.connected === true || res.status === 'ok');
         state.llm = { ...state.llm, status: ok ? 'connected' : 'error' };
         state.llmTestResult = res;
       } catch (e) {
         state.llm = { ...state.llm, status: 'error' };
-        state.llmTestResult = { ok: false, error: String(e && e.message || e) };
+        state.llmTestResult = { ok: false, message: String(e && e.message || e) };
       } finally {
         emit();
       }

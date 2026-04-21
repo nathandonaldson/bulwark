@@ -271,18 +271,54 @@ class TestTestConnection:
     def test_store_test_connection_posts_llm_test(self):
         """G-UI-CONFIG-TEST-CONNECTION: testConnection() POSTs /v1/llm/test and updates status."""
         src = _data_src()
-        assert "async testConnection()" in src, "testConnection not found on the store"
-        start = src.index("async testConnection()")
+        assert "async testConnection(" in src, "testConnection not found on the store"
+        start = src.index("async testConnection(")
         end = src.index("\n    },\n", start)
         body = src[start:end]
         assert "/v1/llm/test" in body
         assert "state.llm = { ...state.llm, status: 'loading' }" in body
         assert "status: ok ? 'connected' : 'error'" in body
 
+    def test_test_connection_sends_form_values(self):
+        """G-UI-CONFIG-TEST-CONNECTION: caller-supplied overrides are forwarded to /v1/llm/test."""
+        src = _data_src()
+        start = src.index("async testConnection(")
+        end = src.index("\n    },\n", start)
+        body = src[start:end]
+        # The handler assembles the POST body from overrides — the fields
+        # a user would edit pre-save must all be forwardable.
+        for field in ("base_url", "analyze_model", "execute_model", "api_key"):
+            assert field in body, f"testConnection overrides missing {field!r}"
+
     def test_test_connection_button_wired(self):
         """G-UI-CONFIG-TEST-CONNECTION: LLMBackendPane has a button calling testConnection()."""
         src = _configure_src()
-        assert "onClick={() => BulwarkStore.testConnection()}" in src
+        assert "BulwarkStore.testConnection(" in src
+
+    def test_test_connection_button_has_spinner(self):
+        """G-UI-CONFIG-TEST-CONNECTION-STATUS: loading state renders a spinning icon."""
+        src = _configure_src()
+        # Scope the search to LLMBackendPane so we don't accidentally match
+        # the Test-page spinner.
+        start = src.index("function LLMBackendPane(")
+        end = src.index("\nfunction ", start + 1)
+        pane = src[start:end]
+        assert "Testing…" in pane, "loading copy missing"
+        # The spinner is a CSS-animated span with `animation: spin` in
+        # the button body when status === 'loading'.
+        assert "animation: 'spin" in pane, "expected CSS spinner on loading state"
+
+    def test_test_connection_status_component_exists(self):
+        """G-UI-CONFIG-TEST-CONNECTION-STATUS: TestConnectionStatus renders tick or cross + message."""
+        src = _configure_src()
+        assert "function TestConnectionStatus(" in src
+        start = src.index("function TestConnectionStatus(")
+        end = src.index("\nfunction ", start + 1)
+        body = src[start:end]
+        # Tick + cross glyphs, aria-live region, message from result.
+        assert "'✓'" in body and "'✕'" in body
+        assert "aria-live" in body
+        assert "result.message" in body
 
 
 # ---------------------------------------------------------------------------
