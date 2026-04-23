@@ -258,6 +258,47 @@ class TestGuardEndpoint:
         data = resp.json()
         assert data["safe"] is True
 
+    def test_canary_tokens_too_many_entries_422(self):
+        """G-HTTP-GUARD-009: >64 canary_tokens entries returns 422."""
+        client = _get_client()
+        canary_tokens = {f"src{i}": f"token-{i}abcdef" for i in range(65)}
+        resp = client.post("/v1/guard", json={
+            "text": "some text", "canary_tokens": canary_tokens,
+        })
+        assert resp.status_code == 422
+
+    def test_canary_token_value_too_long_422(self):
+        """G-HTTP-GUARD-009: canary token value >256 chars returns 422."""
+        client = _get_client()
+        resp = client.post("/v1/guard", json={
+            "text": "some text",
+            "canary_tokens": {"secrets": "a" * 257},
+        })
+        assert resp.status_code == 422
+
+    def test_canary_token_key_too_long_422(self):
+        """G-HTTP-GUARD-009: canary source name >64 chars returns 422."""
+        client = _get_client()
+        resp = client.post("/v1/guard", json={
+            "text": "some text",
+            "canary_tokens": {"s" * 65: "valid-token-value"},
+        })
+        assert resp.status_code == 422
+
+    def test_canary_tokens_exactly_at_bounds_accepted(self):
+        """G-HTTP-GUARD-009: 64 entries, 64-char keys, 256-char values are fine.
+
+        NG-HTTP-GUARD-002: these per-request bounds cap CPU cost for a
+        single request. They do NOT rate-limit; front with a reverse-proxy
+        rate limiter if request-flood DoS is in scope for a deployment.
+        """
+        client = _get_client()
+        canary_tokens = {("k" * 64)[: max(1, 64 - len(str(i)))] + str(i): "v" * 256 for i in range(64)}
+        resp = client.post("/v1/guard", json={
+            "text": "some text", "canary_tokens": canary_tokens,
+        })
+        assert resp.status_code == 200
+
     def test_reason_format_not_guaranteed(self):
         """NG-HTTP-GUARD-001: Exact reason string format is not guaranteed.
 
@@ -1683,3 +1724,75 @@ class TestRedteamReports:
         source = inspect.getsource(app_mod.list_redteam_reports)
         assert "prune" not in source.lower()
         assert "delete" not in source.lower()
+
+
+# ---------------------------------------------------------------------------
+# /api/integrations/detect — ADR-030 M4: cached pip dry-run
+# ---------------------------------------------------------------------------
+
+class TestDetectIntegrationsCache:
+    """Pip dry-run result cached alongside latest-version lookup.
+
+    Closes the Codex DoS finding where every request spawned a 15-second
+    subprocess. After the first call with a given (installed, latest)
+    pair, subsequent calls read from cache.
+    """
+
+    def test_pip_dry_run_cached_per_version_pair(self, monkeypatch):
+        import bulwark.dashboard.app as app_mod
+
+        calls = []
+
+        def _fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            class _R:
+                returncode = 0
+                stderr = ""
+                stdout = ""
+            return _R()
+
+        import subprocess as _sp
+        monkeypatch.setattr(_sp, "run", _fake_run)
+
+        # Reset the module-level cache so we start clean.
+        app_mod._garak_dry_run_cache.clear()
+
+        # First call runs subprocess.
+        app_mod._check_garak_python_upgrade_needed("0.9.0", "0.10.0")
+        assert len(calls) == 1
+
+        # Second call with same version pair reads cache.
+        app_mod._check_garak_python_upgrade_needed("0.9.0", "0.10.0")
+        assert len(calls) == 1, "cached result should suppress second subprocess"
+
+        # Third call with different pair recomputes.
+        app_mod._check_garak_python_upgrade_needed("0.9.0", "0.11.0")
+        assert len(calls) == 2
+
+    def test_pip_dry_run_cache_expires_after_hour(self, monkeypatch):
+        """Stale cache entries are recomputed so a bad result doesn't linger forever."""
+        import bulwark.dashboard.app as app_mod
+
+        calls = []
+
+        def _fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            class _R:
+                returncode = 0
+                stderr = ""
+                stdout = ""
+            return _R()
+
+        import subprocess as _sp
+        monkeypatch.setattr(_sp, "run", _fake_run)
+        app_mod._garak_dry_run_cache.clear()
+
+        app_mod._check_garak_python_upgrade_needed("0.9.0", "0.10.0")
+        assert len(calls) == 1
+
+        # Backdate the cached entry to 2 hours ago.
+        key = ("0.9.0", "0.10.0")
+        app_mod._garak_dry_run_cache[key]["checked_at"] -= 7200
+
+        app_mod._check_garak_python_upgrade_needed("0.9.0", "0.10.0")
+        assert len(calls) == 2, "expired cache entry should trigger recompute"

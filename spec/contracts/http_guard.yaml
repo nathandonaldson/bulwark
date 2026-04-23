@@ -1,5 +1,5 @@
 endpoint: POST /v1/guard
-version: "0.3.0"
+version: "0.4.0"
 
 guarantees:
   - id: G-HTTP-GUARD-001
@@ -19,8 +19,22 @@ guarantees:
     summary: Emits a BulwarkEvent to the dashboard EventDB and SSE subscribers
   - id: G-HTTP-GUARD-008
     summary: Event verdict is BLOCKED when injection/canary detected, PASSED when safe
+  - id: G-HTTP-GUARD-009
+    summary: >
+      canary_tokens is bounded — max 64 entries, each key 1..64 chars,
+      each value 1..256 chars. Oversized submissions return 422. Closes
+      the Codex DoS finding where attacker-controlled canary_tokens
+      forced linear CPU cost (5k tokens × 1M text ≈ 21 s per request)
+      on an unauthenticated endpoint. See ADR-030.
 
 non_guarantees:
   - id: NG-HTTP-GUARD-001
     summary: Exact reason string format is not guaranteed across versions
     reason: Error messages may be tuned. Clients should check safe=true/false, not parse reason.
+  - id: NG-HTTP-GUARD-002
+    summary: Does NOT provide per-request rate limiting
+    reason: >
+      G-HTTP-GUARD-009 bounds CPU cost per request; it does not bound
+      request frequency. Operators needing rate limits should front the
+      dashboard with a reverse proxy. Consistent with the ADR-030
+      scope note that in-process rate limiting is out of scope.

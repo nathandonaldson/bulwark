@@ -5,9 +5,17 @@ The test_spec_compliance.py meta-test validates they agree.
 """
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+
+# G-HTTP-GUARD-009 / ADR-030: per-entry caps for user-supplied canary tokens.
+# 64-char source label (matches canary management API's G-CANARY-009) and
+# 256-char token value (long enough for typical secrets, short enough that
+# 64 × 256 = 16 KB worst-case work stays well under the text scan cost).
+_CanarySourceName = Annotated[str, Field(min_length=1, max_length=64)]
+_CanaryTokenValue = Annotated[str, Field(min_length=1, max_length=256)]
 
 
 class CleanRequest(BaseModel):
@@ -121,8 +129,14 @@ class GuardRequest(BaseModel):
         max_length=1_000_000,
         description="LLM output to check for injection patterns and canary token leaks.",
     )
-    canary_tokens: Optional[dict[str, str]] = Field(
+    # G-HTTP-GUARD-009 / ADR-030: canary_tokens is user-supplied and fed
+    # into CanarySystem.check, which compiles one regex per token against
+    # the 1M-char text. Without bounds the endpoint is a DoS vector —
+    # 5k tokens × 1M text = ~20s CPU per request (Codex finding,
+    # 2026-04-16). Cap at 64 entries and 256 chars per token.
+    canary_tokens: Optional[dict[_CanarySourceName, _CanaryTokenValue]] = Field(
         default=None,
+        max_length=64,
         description="Optional map of source_name to canary token string for leak detection.",
     )
 

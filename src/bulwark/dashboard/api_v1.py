@@ -76,8 +76,18 @@ def _fire_webhook(url: str, event: dict) -> None:
     scheme (G-WEBHOOK-005) — we swallow that so a misconfigured operator
     URL never crashes the primary path. The config-change path is where
     schema errors should surface; _emit_event is not the place to raise.
+
+    G-WEBHOOK-007 / ADR-030: additionally, if somehow a webhook_url
+    pointing at a private/metadata host ended up in config (e.g. loaded
+    from a bulwark-config.yaml that predated the validation), do not
+    POST to it. The config-write validator should have rejected these,
+    but defense-in-depth prevents a stale config file from becoming an
+    SSRF vector when the process restarts.
     """
     try:
+        from bulwark.dashboard.llm_factory import _validate_base_url
+        if _validate_base_url(url):
+            return  # silently skip; config-write path surfaces the real error
         from bulwark.events import WebhookEmitter, BulwarkEvent, Layer, Verdict
         emitter = WebhookEmitter(url, timeout=5.0, async_send=True)
         # Marshal the dict back into a BulwarkEvent for consistent wire shape.

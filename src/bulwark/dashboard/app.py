@@ -34,6 +34,11 @@ _MUTATING_METHODS = frozenset({"POST", "PUT", "DELETE", "PATCH"})
 # Paths that may always be called from any origin, no auth. These are the
 # language-agnostic security surface (clean/guard), the liveness probe, the
 # login form, and the presets catalogue. Nothing here persists state.
+#
+# NOTE: /v1/clean is in this set by default but becomes auth-protected when
+# (a) BULWARK_API_TOKEN is set AND (b) an LLM is configured. See
+# G-AUTH-008 / ADR-030 — unauth LLM invocation with the operator's
+# API key is cost-abuse. Sanitize-only deployments keep the open endpoint.
 _UNAUTH_ALL_ORIGINS = frozenset({
     "/",
     "/healthz",
@@ -42,6 +47,24 @@ _UNAUTH_ALL_ORIGINS = frozenset({
     "/api/auth/login",
     "/api/presets",
 })
+
+
+def _is_llm_configured() -> bool:
+    """Return True if /v1/clean would trigger a real LLM call.
+
+    Used by BearerAuthMiddleware to decide whether /v1/clean — which is
+    on the always-public allowlist in sanitize-only mode — should still
+    require auth when a real LLM backend is wired up (G-AUTH-008).
+
+    `config` is a module-level global defined below; referenced via
+    globals() so this function can be monkeypatched in tests without
+    touching the live config.
+    """
+    cfg = globals().get("config")
+    if cfg is None:
+        return False
+    mode = (cfg.llm_backend.mode or "").strip()
+    return mode in ("anthropic", "openai_compatible")
 
 
 def _is_loopback_client(request: Request) -> bool:
@@ -93,9 +116,16 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
 
         path = request.url.path
 
-        # Public surface — always open, no auth check at all
+        # Public surface — always open, no auth check at all … with one
+        # exception: /v1/clean flips to auth-required when a real LLM is
+        # configured AND a token is set (G-AUTH-008 / ADR-030).
+        # Unauthenticated LLM invocation with the operator's API key is
+        # cost-abuse; sanitize-only mode keeps the permissive default.
         if path in _UNAUTH_ALL_ORIGINS or path.startswith("/static/"):
-            return await call_next(request)
+            if path == "/v1/clean" and get_api_token() and _is_llm_configured():
+                pass  # fall through to the Bearer / cookie check below
+            else:
+                return await call_next(request)
 
         token = get_api_token()
 
@@ -1046,11 +1076,18 @@ async def download_redteam_report(filename: str):
 
 
 _garak_latest_cache: dict = {}  # {version: str, checked_at: float}
+_garak_dry_run_cache: dict = {}  # {(installed, latest): bool, checked_at: float}
 
 
 @app.get("/api/integrations/detect")
 async def detect_integrations():
-    """Check which testing tools are actually installed and if updates are available."""
+    """Check which testing tools are actually installed and if updates are available.
+
+    ADR-030: The pip `--dry-run` compatibility probe is cached alongside
+    the PyPI version check. Without caching this endpoint spawns a 15s
+    pip subprocess on every request, which is a network-reachable DoS
+    vector (Codex finding, 2026-04-16).
+    """
     results = {}
     try:
         import garak
@@ -1063,16 +1100,9 @@ async def detect_integrations():
         if latest and latest != installed_version:
             info["latest"] = latest
             info["update_available"] = True
-            # Check if upgrade is blocked by Python version
-            import subprocess
-            check = subprocess.run(
-                [sys.executable, "-m", "pip", "install", f"garak=={latest}", "--dry-run"],
-                capture_output=True, text=True, timeout=15,
+            info["python_upgrade_needed"] = _check_garak_python_upgrade_needed(
+                installed_version, latest,
             )
-            if check.returncode != 0 and "requires-python" in check.stderr.lower() or "no matching distribution" in check.stderr.lower():
-                info["python_upgrade_needed"] = True
-            else:
-                info["python_upgrade_needed"] = False
         else:
             info["update_available"] = False
 
@@ -1080,6 +1110,43 @@ async def detect_integrations():
     except ImportError:
         results["garak"] = {"installed": False}
     return results
+
+
+def _check_garak_python_upgrade_needed(installed: str, latest: str) -> bool:
+    """Cached wrapper around `pip install garak==<latest> --dry-run`.
+
+    Cache keyed on (installed, latest) — if either changes, recompute.
+    Entries expire after 1 hour so a stale pip result never outlives the
+    paired latest-version cache. The uncached version was a DoS vector
+    (Codex finding, 2026-04-16): any caller could trigger a 15-second
+    pip subprocess per request.
+    """
+    import subprocess
+    import sys as _sys
+    now = time.time()
+    key = (installed, latest)
+    entry = _garak_dry_run_cache.get(key)
+    if entry is not None and entry.get("checked_at", 0) > now - 3600:
+        return bool(entry.get("python_upgrade_needed", False))
+
+    try:
+        check = subprocess.run(
+            [_sys.executable, "-m", "pip", "install", f"garak=={latest}", "--dry-run"],
+            capture_output=True, text=True, timeout=15,
+        )
+        stderr_lower = check.stderr.lower()
+        needed = bool(
+            check.returncode != 0
+            and ("requires-python" in stderr_lower or "no matching distribution" in stderr_lower)
+        )
+    except Exception:
+        needed = False
+
+    # Clear stale keys (keeps dict bounded: we only track one (installed, latest)
+    # tuple at a time in practice).
+    _garak_dry_run_cache.clear()
+    _garak_dry_run_cache[key] = {"python_upgrade_needed": needed, "checked_at": now}
+    return needed
 
 
 def _check_garak_latest() -> Optional[str]:
