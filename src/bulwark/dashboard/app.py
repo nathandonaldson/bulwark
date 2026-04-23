@@ -664,10 +664,34 @@ def _compute_redteam_tiers(_force: bool = False) -> dict:
                 "probe_count": full_count,
                 "families": sorted(full_families),
             },
+            # ADR-036: false-positive sweep — pushes a curated benign corpus
+            # through /v1/clean. Same scan path, inverted metric.
+            *_falsepos_tier_entries(),
         ],
     }
     _redteam_tiers_cache = (time.time(), result)
     return result
+
+
+def _falsepos_tier_entries() -> list[dict]:
+    """Return [tier dict] for the false-positive sweep, or [] if corpus unreadable."""
+    try:
+        from bulwark_falsepos.corpus import load_corpus, categories
+        corpus = load_corpus(_falsepos_corpus_path())
+    except Exception:
+        return []
+    cats = categories(corpus)
+    cat_summary = ", ".join(f"{n} {c}" for c, n in sorted(cats.items()))
+    return [{
+        "id": "falsepos",
+        "name": "False Positives",
+        "description": (
+            f"Curated benign emails through /v1/clean — {cat_summary}. "
+            f"Edit spec/falsepos_corpus.jsonl to extend."
+        ),
+        "probe_count": len(corpus),
+        "families": sorted(cats.keys()),
+    }]
 
 
 @app.get("/api/redteam/tiers")
@@ -755,9 +779,146 @@ def _make_emitter():
     return WebhookEmitter(f"http://127.0.0.1:{_dashboard_port()}/api/events")
 
 
+def _falsepos_corpus_path() -> Path:
+    return Path(__file__).parent.parent.parent.parent / "spec" / "falsepos_corpus.jsonl"
+
+
+async def _run_falsepos_in_background():
+    """ADR-036: run the curated benign corpus through /v1/clean and persist as
+    a redteam-falsepos-* report so it appears in the existing reports list.
+
+    Inverted metric: a 200 (passed) is good; a 422 (blocked) is a false positive.
+    The result schema mimics ProductionRedTeam.run() so the existing UI can
+    render it; `defense_rate` is set to 1 - false_positive_rate so the same
+    column means "good runs / total runs" regardless of tier.
+    """
+    global _redteam_result
+    import concurrent.futures
+    from datetime import datetime, timezone
+    from bulwark_falsepos.corpus import load_corpus
+
+    try:
+        corpus = load_corpus(_falsepos_corpus_path())
+    except Exception as exc:
+        _redteam_result = {"status": "error", "message": f"corpus load failed: {exc}"}
+        return
+
+    _redteam_result = {"status": "running", "completed": 0, "total": len(corpus), "tier": "falsepos"}
+
+    def _do_run() -> dict:
+        import httpx
+        local_url = f"http://127.0.0.1:{_dashboard_port()}"
+        headers = {"Content-Type": "application/json"}
+        token = get_api_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        results: list[dict] = []
+        t0 = time.time()
+        for i, email in enumerate(corpus, start=1):
+            entry = {
+                "probe_family": "falsepos",
+                "probe_class": email.category,
+                "payload": email.text[:200],
+                "llm_response": "",
+                "defended": True,
+                "verdict": "passed",
+                "blocked_by": None,
+                "sanitizer_modified": False,
+                "suspicious_flagged": False,
+                "classification": email.id,
+                "error": None,
+            }
+            try:
+                resp = httpx.post(
+                    f"{local_url}/v1/clean",
+                    json={"content": email.text, "source": "falsepos"},
+                    headers=headers, timeout=60.0,
+                )
+            except Exception as exc:
+                entry["error"] = str(exc)[:200]
+                results.append(entry)
+                _redteam_result["completed"] = i
+                continue
+
+            if resp.status_code == 422:
+                # False positive!
+                entry["defended"] = False
+                entry["verdict"] = "false_positive"
+                try:
+                    body = resp.json()
+                    entry["blocked_by"] = body.get("blocked_at")
+                    entry["llm_response"] = (body.get("block_reason") or "")[:300]
+                except Exception:
+                    pass
+            else:
+                try:
+                    body = resp.json()
+                    entry["sanitizer_modified"] = bool(body.get("modified"))
+                except Exception:
+                    pass
+            results.append(entry)
+            _redteam_result["completed"] = i
+
+        duration_s = time.time() - t0
+        total = len(results)
+        false_positives = sum(1 for r in results if r["verdict"] == "false_positive")
+        errored = sum(1 for r in results if r["error"])
+        defended = total - false_positives  # how many passed cleanly
+        fp_rate = (false_positives / total) if total else 0.0
+
+        # Per-category breakdown (analogous to by_family for redteam).
+        by_family: dict[str, dict[str, int]] = {}
+        for r in results:
+            cat = r.get("probe_class") or "unknown"
+            slot = by_family.setdefault(cat, {"total": 0, "defended": 0, "vulnerable": 0,
+                                              "hijacked": 0, "format_failures": 0})
+            slot["total"] += 1
+            if r["verdict"] == "false_positive":
+                slot["vulnerable"] += 1
+            else:
+                slot["defended"] += 1
+
+        return {
+            "tier": "falsepos",
+            "total": total,
+            "defended": defended,
+            "vulnerable": false_positives,
+            "hijacked": 0,
+            "format_failures": 0,
+            "errors": errored,
+            # Same column the UI already renders, with the right meaning:
+            # "good outcomes / total". For falsepos that's 1 - FP rate.
+            "defense_rate": 1.0 - fp_rate,
+            "false_positive_rate": fp_rate,
+            "duration_s": duration_s,
+            "by_layer": {},
+            "by_family": by_family,
+            "results": results,
+        }
+
+    try:
+        loop = asyncio.get_running_loop()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            summary = await loop.run_in_executor(pool, _do_run)
+        completed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        summary["status"] = "complete"
+        summary["completed_at"] = completed_at
+        _redteam_result = summary
+        _save_redteam_report(_redteam_result)
+    except Exception as exc:
+        _redteam_result = {"status": "error", "message": str(exc)}
+
+
 @app.post("/api/redteam/run")
 async def run_redteam(request: Request):
-    """Start production red team in the background."""
+    """Start production red team in the background.
+
+    The `falsepos` tier (ADR-036) takes the curated benign corpus from
+    spec/falsepos_corpus.jsonl and pushes each email through /v1/clean
+    using the dashboard's current detector configuration. Same scan
+    pattern, inverted metric — for falsepos, BLOCKED counts as failure.
+    """
     global _redteam_task, _redteam_result
 
     if _redteam_task and not _redteam_task.done():
@@ -769,6 +930,11 @@ async def run_redteam(request: Request):
     # Smoke test: cap at 10 probes
     if tier == "quick" and max_probes == 0:
         max_probes = 10
+
+    # ADR-036: falsepos tier dispatches to the corpus runner.
+    if tier == "falsepos":
+        _redteam_task = asyncio.create_task(_run_falsepos_in_background())
+        return {"status": "started"}
 
     _redteam_result = {"status": "running", "completed": 0, "total": 0}
 
@@ -1030,160 +1196,6 @@ async def download_redteam_report(filename: str):
     return FileResponse(path, media_type="application/json", filename=safe_name)
 
 
-# ---------------------------------------------------------------------------
-# False-positive harness — ADR-036 / G-FP-001..008
-# ---------------------------------------------------------------------------
-
-_falsepos_task: Optional[asyncio.Task] = None
-_falsepos_result: dict = {"status": "idle", "completed": 0, "total": 0}
-
-
-def _corpus_path() -> Path:
-    return Path(__file__).parent.parent.parent.parent / "spec" / "falsepos_corpus.jsonl"
-
-
-@app.get("/api/falsepos/corpus")
-async def falsepos_corpus():
-    """Corpus stats: size + per-category counts."""
-    from bulwark_falsepos.corpus import load_corpus, categories
-    try:
-        corpus = load_corpus(_corpus_path())
-    except Exception as exc:
-        return {"error": str(exc), "size": 0, "categories": {}}
-    return {"size": len(corpus), "categories": categories(corpus)}
-
-
-@app.post("/api/falsepos/run")
-async def falsepos_run(request: Request):
-    """Start a false-positive sweep across the requested detector configs.
-
-    Body: {"configs": ["deberta-only", ...]}  (default: deberta-only only)
-    """
-    global _falsepos_task, _falsepos_result
-    if _falsepos_task and not _falsepos_task.done():
-        return {"status": "running", "message": "False-positive sweep already in progress"}
-
-    body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
-    config_slugs = body.get("configs") or ["deberta-only"]
-
-    from bulwark_bench.bulwark_client import BulwarkClient
-    from bulwark_bench.configs import parse_configs
-    from bulwark_falsepos.corpus import load_corpus
-    from bulwark_falsepos.runner import FalseposRunner
-    from bulwark_falsepos.report import render_json, render_markdown
-    try:
-        configs = parse_configs(",".join(config_slugs))
-    except ValueError as exc:
-        return {"status": "error", "message": str(exc)}
-    try:
-        corpus = load_corpus(_corpus_path())
-    except Exception as exc:
-        return {"status": "error", "message": f"corpus load failed: {exc}"}
-
-    _falsepos_result = {
-        "status": "running", "completed": 0, "total": len(corpus) * len(configs),
-        "configs": [c.slug for c in configs],
-    }
-
-    async def _run():
-        global _falsepos_task, _falsepos_result
-        import concurrent.futures
-        from datetime import datetime, timezone
-        progress = {"i": 0}
-        def _cb(event):
-            t = event.get("type")
-            if t == "email_done":
-                progress["i"] += 1
-                _falsepos_result["completed"] = progress["i"]
-                _falsepos_result["last_id"] = event.get("id")
-                _falsepos_result["last_blocked"] = bool(event.get("blocked"))
-
-        # Talk to ourselves over loopback so the harness uses the same auth path.
-        local_url = f"http://127.0.0.1:{_dashboard_port()}"
-        client = BulwarkClient(local_url, token=get_api_token() or None)
-        run_dir = _reports_dir()  # reuse the redteam reports dir for one source of truth
-        runner = FalseposRunner(
-            client=client,
-            run_dir=run_dir,
-            corpus=corpus,
-            configs=configs,
-            progress_cb=_cb,
-        )
-        try:
-            loop = asyncio.get_running_loop()
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                results = await loop.run_in_executor(pool, runner.run_all)
-        except Exception as exc:
-            _falsepos_result = {"status": "error", "message": f"{type(exc).__name__}: {exc}"}
-            return
-
-        completed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        # Persist a single combined report with a falsepos-* filename.
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-        slug = "_".join(c.slug for c in configs)[:64]
-        filename = f"falsepos-{stamp}-{slug}.json"
-        report_payload = render_json(results, corpus_path=str(_corpus_path()))
-        report_payload["completed_at"] = completed_at
-        report_payload["configs"] = [c.slug for c in configs]
-        (run_dir / filename).write_text(json.dumps(report_payload, indent=2))
-        _falsepos_result = {
-            "status": "complete", "completed_at": completed_at,
-            "filename": filename,
-            "configurations": results,
-        }
-
-    _falsepos_task = asyncio.create_task(_run())
-    return {"status": "started", "configs": [c.slug for c in configs], "corpus_size": len(corpus)}
-
-
-@app.get("/api/falsepos/status")
-async def falsepos_status():
-    """Current sweep status (or last completed result)."""
-    return _falsepos_result
-
-
-@app.get("/api/falsepos/reports")
-async def list_falsepos_reports():
-    """List saved false-positive reports, newest first."""
-    d = _reports_dir()
-    reports = []
-    for f in d.glob("falsepos-*.json"):
-        try:
-            data = json.loads(f.read_text())
-            configs = data.get("configurations") or []
-            best = min(
-                (c for c in configs if not c.get("error")),
-                key=lambda c: float(c.get("false_positive_rate", 1) or 1),
-                default=None,
-            )
-            reports.append({
-                "filename": f.name,
-                "completed_at": data.get("completed_at", ""),
-                "config_slugs": data.get("configs", []),
-                "best_config": (best or {}).get("config_slug"),
-                "best_fp_rate": (best or {}).get("false_positive_rate"),
-                "corpus_size": (configs[0].get("corpus_size") if configs else None),
-                "_mtime": f.stat().st_mtime,
-            })
-        except Exception:
-            continue
-    reports.sort(key=lambda r: (r["completed_at"] or "", r["filename"], r["_mtime"]), reverse=True)
-    for r in reports:
-        r.pop("_mtime", None)
-    return {"reports": reports}
-
-
-@app.get("/api/falsepos/reports/{filename}")
-async def download_falsepos_report(filename: str):
-    """Download a saved false-positive report as JSON."""
-    from fastapi.responses import JSONResponse
-    safe_name = Path(filename).name
-    if not safe_name.startswith("falsepos-") or not safe_name.endswith(".json"):
-        return JSONResponse({"error": "Invalid filename"}, status_code=404)
-    path = _reports_dir() / safe_name
-    if not path.exists():
-        return JSONResponse({"error": "Report not found"}, status_code=404)
-    return FileResponse(path, media_type="application/json", filename=safe_name)
 
 
 _garak_latest_cache: dict = {}  # {version: str, checked_at: float}

@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.2.2] - 2026-04-23
+
+### Changed
+
+- **False-positive sweep is a 4th tier card, not a separate harness UI.** Reverted the bespoke FP card + dashboard endpoints from v2.2.1. The false-positive scan is now `tier="falsepos"` on the existing red-team UI: a card alongside Smoke Test / Standard / Full Sweep, same Run button, same Past Reports list. Inverted metric — for falsepos, the displayed defense rate is `1 - false_positive_rate` so the "% handled correctly" column means the same thing across all tiers. Reports save as `redteam-falsepos-{ts}.json` and live in the same directory as red-team reports.
+
 ## [2.2.1] - 2026-04-23
 
 ### Added
