@@ -48,6 +48,11 @@ INTERNAL_PATHS: frozenset[str] = frozenset({
     "/api/redteam/run",
     "/api/redteam/status",
     "/api/redteam/stop",
+    "/api/falsepos/corpus",            # ADR-036 — dashboard-internal
+    "/api/falsepos/run",
+    "/api/falsepos/status",
+    "/api/falsepos/reports",
+    "/api/falsepos/reports/{filename}",
 })
 
 

@@ -1030,6 +1030,162 @@ async def download_redteam_report(filename: str):
     return FileResponse(path, media_type="application/json", filename=safe_name)
 
 
+# ---------------------------------------------------------------------------
+# False-positive harness — ADR-036 / G-FP-001..008
+# ---------------------------------------------------------------------------
+
+_falsepos_task: Optional[asyncio.Task] = None
+_falsepos_result: dict = {"status": "idle", "completed": 0, "total": 0}
+
+
+def _corpus_path() -> Path:
+    return Path(__file__).parent.parent.parent.parent / "spec" / "falsepos_corpus.jsonl"
+
+
+@app.get("/api/falsepos/corpus")
+async def falsepos_corpus():
+    """Corpus stats: size + per-category counts."""
+    from bulwark_falsepos.corpus import load_corpus, categories
+    try:
+        corpus = load_corpus(_corpus_path())
+    except Exception as exc:
+        return {"error": str(exc), "size": 0, "categories": {}}
+    return {"size": len(corpus), "categories": categories(corpus)}
+
+
+@app.post("/api/falsepos/run")
+async def falsepos_run(request: Request):
+    """Start a false-positive sweep across the requested detector configs.
+
+    Body: {"configs": ["deberta-only", ...]}  (default: deberta-only only)
+    """
+    global _falsepos_task, _falsepos_result
+    if _falsepos_task and not _falsepos_task.done():
+        return {"status": "running", "message": "False-positive sweep already in progress"}
+
+    body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+    config_slugs = body.get("configs") or ["deberta-only"]
+
+    from bulwark_bench.bulwark_client import BulwarkClient
+    from bulwark_bench.configs import parse_configs
+    from bulwark_falsepos.corpus import load_corpus
+    from bulwark_falsepos.runner import FalseposRunner
+    from bulwark_falsepos.report import render_json, render_markdown
+    try:
+        configs = parse_configs(",".join(config_slugs))
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+    try:
+        corpus = load_corpus(_corpus_path())
+    except Exception as exc:
+        return {"status": "error", "message": f"corpus load failed: {exc}"}
+
+    _falsepos_result = {
+        "status": "running", "completed": 0, "total": len(corpus) * len(configs),
+        "configs": [c.slug for c in configs],
+    }
+
+    async def _run():
+        global _falsepos_task, _falsepos_result
+        import concurrent.futures
+        from datetime import datetime, timezone
+        progress = {"i": 0}
+        def _cb(event):
+            t = event.get("type")
+            if t == "email_done":
+                progress["i"] += 1
+                _falsepos_result["completed"] = progress["i"]
+                _falsepos_result["last_id"] = event.get("id")
+                _falsepos_result["last_blocked"] = bool(event.get("blocked"))
+
+        # Talk to ourselves over loopback so the harness uses the same auth path.
+        local_url = f"http://127.0.0.1:{_dashboard_port()}"
+        client = BulwarkClient(local_url, token=get_api_token() or None)
+        run_dir = _reports_dir()  # reuse the redteam reports dir for one source of truth
+        runner = FalseposRunner(
+            client=client,
+            run_dir=run_dir,
+            corpus=corpus,
+            configs=configs,
+            progress_cb=_cb,
+        )
+        try:
+            loop = asyncio.get_running_loop()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                results = await loop.run_in_executor(pool, runner.run_all)
+        except Exception as exc:
+            _falsepos_result = {"status": "error", "message": f"{type(exc).__name__}: {exc}"}
+            return
+
+        completed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # Persist a single combined report with a falsepos-* filename.
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        slug = "_".join(c.slug for c in configs)[:64]
+        filename = f"falsepos-{stamp}-{slug}.json"
+        report_payload = render_json(results, corpus_path=str(_corpus_path()))
+        report_payload["completed_at"] = completed_at
+        report_payload["configs"] = [c.slug for c in configs]
+        (run_dir / filename).write_text(json.dumps(report_payload, indent=2))
+        _falsepos_result = {
+            "status": "complete", "completed_at": completed_at,
+            "filename": filename,
+            "configurations": results,
+        }
+
+    _falsepos_task = asyncio.create_task(_run())
+    return {"status": "started", "configs": [c.slug for c in configs], "corpus_size": len(corpus)}
+
+
+@app.get("/api/falsepos/status")
+async def falsepos_status():
+    """Current sweep status (or last completed result)."""
+    return _falsepos_result
+
+
+@app.get("/api/falsepos/reports")
+async def list_falsepos_reports():
+    """List saved false-positive reports, newest first."""
+    d = _reports_dir()
+    reports = []
+    for f in d.glob("falsepos-*.json"):
+        try:
+            data = json.loads(f.read_text())
+            configs = data.get("configurations") or []
+            best = min(
+                (c for c in configs if not c.get("error")),
+                key=lambda c: float(c.get("false_positive_rate", 1) or 1),
+                default=None,
+            )
+            reports.append({
+                "filename": f.name,
+                "completed_at": data.get("completed_at", ""),
+                "config_slugs": data.get("configs", []),
+                "best_config": (best or {}).get("config_slug"),
+                "best_fp_rate": (best or {}).get("false_positive_rate"),
+                "corpus_size": (configs[0].get("corpus_size") if configs else None),
+                "_mtime": f.stat().st_mtime,
+            })
+        except Exception:
+            continue
+    reports.sort(key=lambda r: (r["completed_at"] or "", r["filename"], r["_mtime"]), reverse=True)
+    for r in reports:
+        r.pop("_mtime", None)
+    return {"reports": reports}
+
+
+@app.get("/api/falsepos/reports/{filename}")
+async def download_falsepos_report(filename: str):
+    """Download a saved false-positive report as JSON."""
+    from fastapi.responses import JSONResponse
+    safe_name = Path(filename).name
+    if not safe_name.startswith("falsepos-") or not safe_name.endswith(".json"):
+        return JSONResponse({"error": "Invalid filename"}, status_code=404)
+    path = _reports_dir() / safe_name
+    if not path.exists():
+        return JSONResponse({"error": "Report not found"}, status_code=404)
+    return FileResponse(path, media_type="application/json", filename=safe_name)
+
+
 _garak_latest_cache: dict = {}  # {version: str, checked_at: float}
 _garak_dry_run_cache: dict = {}  # {(installed, latest): bool, checked_at: float}
 

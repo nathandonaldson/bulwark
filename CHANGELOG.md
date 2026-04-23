@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.2.1] - 2026-04-23
+
+### Added
+
+- **Dashboard surface for the false-positive harness.** The Test page now has a "False-positive sweep" card below the red-team scan: corpus stats with per-category pills, three preset checkboxes (DeBERTa-only / +PromptGuard / +LLM Judge — judge slot greys out until configured), Run button with progress bar, last-result table colour-coded by FP rate, and a Past Reports list. New endpoints: `GET /api/falsepos/corpus`, `POST /api/falsepos/run`, `GET /api/falsepos/status`, `GET /api/falsepos/reports`, `GET /api/falsepos/reports/{filename}`. Reports persist in the same directory as red-team reports with a `falsepos-` prefix.
+
 ## [2.2.0] - 2026-04-23
 
 ### Added
