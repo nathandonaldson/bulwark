@@ -1,0 +1,63 @@
+feature: bulwark_falsepos — false-positive harness
+version: "1.0.0"
+module: bulwark_falsepos
+
+guarantees:
+  - id: G-FP-001
+    summary: >
+      Sweeps detector configurations sequentially against a curated
+      benign corpus and reports per-config false-positive rate
+      (HTTP 422 / total).
+  - id: G-FP-002
+    summary: >
+      Each configuration's run persists a per-config result file
+      before the next config starts. --resume reuses prior results.
+  - id: G-FP-003
+    summary: >
+      Reuses bulwark_bench's preset list (deberta-only,
+      deberta+promptguard, deberta+llm-judge, all). Single source of
+      truth for what "a config" means.
+  - id: G-FP-004
+    summary: >
+      Restores the dashboard's original detector state in a finally
+      block — same pattern as bulwark_bench (G-BENCH-013).
+  - id: G-FP-005
+    summary: >
+      The corpus ships as JSONL at spec/falsepos_corpus.jsonl. Each
+      entry has {id, category, subject, body}. Categories include
+      everyday, customer_support, marketing, technical, meta,
+      repetitive, non_english, code_blocks, quoted_attacks.
+  - id: G-FP-006
+    summary: >
+      The report (JSON + markdown) sorts configurations by
+      false_positive_rate ASC (fewer false positives first); ties
+      broken by total elapsed seconds ASC.
+  - id: G-FP-007
+    summary: >
+      Per-config result captures blocked_by_category breakdown and
+      a list of {id, layer, reason} for each blocked email so
+      operators can inspect individual misclassifications.
+  - id: G-FP-008
+    summary: >
+      --max-fp-rate N causes the CLI to exit with status 1 when any
+      configuration's false-positive rate exceeds N. Default: no
+      threshold; harness is informational.
+
+non_guarantees:
+  - id: NG-FP-001
+    summary: >
+      The corpus is curated and small (initial seed ~50 entries). It
+      is NOT a representative sample of all benign traffic; it is a
+      regression suite for known false-positive shapes. Document this
+      caveat in every report.
+  - id: NG-FP-002
+    summary: >
+      Does NOT distinguish between sanitizer modifications and
+      detector blocks. A detector-blocked email is the only thing
+      counted as a false positive; sanitizer-stripped characters
+      (zero-width chars, etc.) are not, since the email still passed.
+  - id: NG-FP-003
+    summary: >
+      Does NOT measure semantic preservation. The harness only checks
+      whether /v1/clean returns 200 vs 422; it does not validate the
+      sanitized output is meaning-equivalent to the input.

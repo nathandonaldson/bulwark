@@ -634,30 +634,11 @@ def _compute_redteam_tiers(_force: bool = False) -> dict:
                 quick_count += n
                 quick_families.add(family)
 
-    # LLM-facing tiers (llm-quick / llm-suite) — curated probe classes chosen for
-    # high historical LLM-reach rate. See ADR-018.
-    from bulwark.integrations.redteam import ProductionRedTeam as _PRT
-    llm_tier_defs = []
-    for tier_id, selectors in _PRT.TIER_CLASS_SELECTORS.items():
-        families = sorted({fam for fam, _cls, _n in selectors})
-        probe_count = sum(n for _fam, _cls, n in selectors)
-        if tier_id == "llm-quick":
-            name = "LLM Quick"
-            desc = "10 probes across 10 attack families, curated to reach the analyze LLM. Pair with bulwark_bench --bypass-detectors for a guaranteed LLM benchmark."
-        elif tier_id == "llm-suite":
-            name = "LLM Suite"
-            desc = "~200 probes balanced across 16 attack families for meaningful model comparisons. Pair with bulwark_bench --bypass-detectors."
-        else:
-            name = tier_id.replace("-", " ").title()
-            desc = "LLM-facing curated tier."
-        llm_tier_defs.append({
-            "id": tier_id,
-            "name": name,
-            "description": desc,
-            "probe_count": probe_count,
-            "families": families,
-        })
-
+    # llm-quick / llm-suite tiers removed in v2.1.0 (ADR-035): they paired with
+    # the deleted bulwark_bench --bypass-detectors model-sweep flow, which
+    # collapsed when ADR-031 removed llm_backend. The standard tier already
+    # exercises every active probe, and v2 has no LLM behind the detectors
+    # for the curated LLM-reach tiers to point at.
     result = {
         "garak_installed": True,
         "garak_version": version,
@@ -669,7 +650,6 @@ def _compute_redteam_tiers(_force: bool = False) -> dict:
                 "probe_count": min(quick_count, 10),
                 "families": sorted(quick_families),
             },
-            *llm_tier_defs,
             {
                 "id": "standard",
                 "name": "Standard Scan",
@@ -684,10 +664,34 @@ def _compute_redteam_tiers(_force: bool = False) -> dict:
                 "probe_count": full_count,
                 "families": sorted(full_families),
             },
+            # ADR-036: false-positive sweep — pushes a curated benign corpus
+            # through /v1/clean. Same scan path, inverted metric.
+            *_falsepos_tier_entries(),
         ],
     }
     _redteam_tiers_cache = (time.time(), result)
     return result
+
+
+def _falsepos_tier_entries() -> list[dict]:
+    """Return [tier dict] for the false-positive sweep, or [] if corpus unreadable."""
+    try:
+        from bulwark_falsepos.corpus import load_corpus, categories
+        corpus = load_corpus(_falsepos_corpus_path())
+    except Exception:
+        return []
+    cats = categories(corpus)
+    cat_summary = ", ".join(f"{n} {c}" for c, n in sorted(cats.items()))
+    return [{
+        "id": "falsepos",
+        "name": "False Positives",
+        "description": (
+            f"Curated benign emails through /v1/clean — {cat_summary}. "
+            f"Edit spec/falsepos_corpus.jsonl to extend."
+        ),
+        "probe_count": len(corpus),
+        "families": sorted(cats.keys()),
+    }]
 
 
 @app.get("/api/redteam/tiers")
@@ -775,9 +779,146 @@ def _make_emitter():
     return WebhookEmitter(f"http://127.0.0.1:{_dashboard_port()}/api/events")
 
 
+def _falsepos_corpus_path() -> Path:
+    return Path(__file__).parent.parent.parent.parent / "spec" / "falsepos_corpus.jsonl"
+
+
+async def _run_falsepos_in_background():
+    """ADR-036: run the curated benign corpus through /v1/clean and persist as
+    a redteam-falsepos-* report so it appears in the existing reports list.
+
+    Inverted metric: a 200 (passed) is good; a 422 (blocked) is a false positive.
+    The result schema mimics ProductionRedTeam.run() so the existing UI can
+    render it; `defense_rate` is set to 1 - false_positive_rate so the same
+    column means "good runs / total runs" regardless of tier.
+    """
+    global _redteam_result
+    import concurrent.futures
+    from datetime import datetime, timezone
+    from bulwark_falsepos.corpus import load_corpus
+
+    try:
+        corpus = load_corpus(_falsepos_corpus_path())
+    except Exception as exc:
+        _redteam_result = {"status": "error", "message": f"corpus load failed: {exc}"}
+        return
+
+    _redteam_result = {"status": "running", "completed": 0, "total": len(corpus), "tier": "falsepos"}
+
+    def _do_run() -> dict:
+        import httpx
+        local_url = f"http://127.0.0.1:{_dashboard_port()}"
+        headers = {"Content-Type": "application/json"}
+        token = get_api_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        results: list[dict] = []
+        t0 = time.time()
+        for i, email in enumerate(corpus, start=1):
+            entry = {
+                "probe_family": "falsepos",
+                "probe_class": email.category,
+                "payload": email.text[:200],
+                "llm_response": "",
+                "defended": True,
+                "verdict": "passed",
+                "blocked_by": None,
+                "sanitizer_modified": False,
+                "suspicious_flagged": False,
+                "classification": email.id,
+                "error": None,
+            }
+            try:
+                resp = httpx.post(
+                    f"{local_url}/v1/clean",
+                    json={"content": email.text, "source": "falsepos"},
+                    headers=headers, timeout=60.0,
+                )
+            except Exception as exc:
+                entry["error"] = str(exc)[:200]
+                results.append(entry)
+                _redteam_result["completed"] = i
+                continue
+
+            if resp.status_code == 422:
+                # False positive!
+                entry["defended"] = False
+                entry["verdict"] = "false_positive"
+                try:
+                    body = resp.json()
+                    entry["blocked_by"] = body.get("blocked_at")
+                    entry["llm_response"] = (body.get("block_reason") or "")[:300]
+                except Exception:
+                    pass
+            else:
+                try:
+                    body = resp.json()
+                    entry["sanitizer_modified"] = bool(body.get("modified"))
+                except Exception:
+                    pass
+            results.append(entry)
+            _redteam_result["completed"] = i
+
+        duration_s = time.time() - t0
+        total = len(results)
+        false_positives = sum(1 for r in results if r["verdict"] == "false_positive")
+        errored = sum(1 for r in results if r["error"])
+        defended = total - false_positives  # how many passed cleanly
+        fp_rate = (false_positives / total) if total else 0.0
+
+        # Per-category breakdown (analogous to by_family for redteam).
+        by_family: dict[str, dict[str, int]] = {}
+        for r in results:
+            cat = r.get("probe_class") or "unknown"
+            slot = by_family.setdefault(cat, {"total": 0, "defended": 0, "vulnerable": 0,
+                                              "hijacked": 0, "format_failures": 0})
+            slot["total"] += 1
+            if r["verdict"] == "false_positive":
+                slot["vulnerable"] += 1
+            else:
+                slot["defended"] += 1
+
+        return {
+            "tier": "falsepos",
+            "total": total,
+            "defended": defended,
+            "vulnerable": false_positives,
+            "hijacked": 0,
+            "format_failures": 0,
+            "errors": errored,
+            # Same column the UI already renders, with the right meaning:
+            # "good outcomes / total". For falsepos that's 1 - FP rate.
+            "defense_rate": 1.0 - fp_rate,
+            "false_positive_rate": fp_rate,
+            "duration_s": duration_s,
+            "by_layer": {},
+            "by_family": by_family,
+            "results": results,
+        }
+
+    try:
+        loop = asyncio.get_running_loop()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            summary = await loop.run_in_executor(pool, _do_run)
+        completed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        summary["status"] = "complete"
+        summary["completed_at"] = completed_at
+        _redteam_result = summary
+        _save_redteam_report(_redteam_result)
+    except Exception as exc:
+        _redteam_result = {"status": "error", "message": str(exc)}
+
+
 @app.post("/api/redteam/run")
 async def run_redteam(request: Request):
-    """Start production red team in the background."""
+    """Start production red team in the background.
+
+    The `falsepos` tier (ADR-036) takes the curated benign corpus from
+    spec/falsepos_corpus.jsonl and pushes each email through /v1/clean
+    using the dashboard's current detector configuration. Same scan
+    pattern, inverted metric — for falsepos, BLOCKED counts as failure.
+    """
     global _redteam_task, _redteam_result
 
     if _redteam_task and not _redteam_task.done():
@@ -789,6 +930,11 @@ async def run_redteam(request: Request):
     # Smoke test: cap at 10 probes
     if tier == "quick" and max_probes == 0:
         max_probes = 10
+
+    # ADR-036: falsepos tier dispatches to the corpus runner.
+    if tier == "falsepos":
+        _redteam_task = asyncio.create_task(_run_falsepos_in_background())
+        return {"status": "started"}
 
     _redteam_result = {"status": "running", "completed": 0, "total": 0}
 
@@ -1048,6 +1194,8 @@ async def download_redteam_report(filename: str):
     if not path.exists():
         return JSONResponse({"error": "Report not found"}, status_code=404)
     return FileResponse(path, media_type="application/json", filename=safe_name)
+
+
 
 
 _garak_latest_cache: dict = {}  # {version: str, checked_at: float}

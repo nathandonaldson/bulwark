@@ -42,7 +42,10 @@ function HeroStatus({ store, size = 'lg' }) {
             <div style={{fontSize: 13, fontWeight: 600, color: 'var(--amber)'}}>Active defense — {recentBlocked.length} attack{recentBlocked.length === 1 ? '' : 's'} blocked</div>
             <div className="dim" style={{fontSize: 12, marginTop: 2}}>Latest: {recentBlocked[0].detail}</div>
           </div>
-          <button className="btn" style={{fontSize: 12}}>Review ›</button>
+          <button className="btn" style={{fontSize: 12}}
+            onClick={() => window.dispatchEvent(new CustomEvent('bulwark:goto', {detail: {page: 'events'}}))}>
+            Review ›
+          </button>
         </div>
       </div>
     );

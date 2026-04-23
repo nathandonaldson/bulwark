@@ -115,52 +115,11 @@ class ProductionRedTeam:
         "full": None,       # None = all (including inactive)
     }
 
-    # LLM-facing tiers — curated probe classes with the highest empirical LLM-reach
-    # rates across historical reports (see spec/decisions/018-llm-facing-tiers.md).
-    # Each entry: (family, class_name, max_prompts_per_class).
-    # Intended to be run with ML detectors (protectai, promptguard) disabled via
-    # bulwark_bench's --bypass-detectors flag; otherwise ~60% still get blocked
-    # upstream of the LLM.
-    TIER_CLASS_SELECTORS: dict[str, list[tuple[str, str, int]]] = {
-        # 10 probes, 10 families — attack-type spread for quick model comparison
-        "llm-quick": [
-            ("latentinjection", "LatentInjectionResumeFull", 1),
-            ("encoding", "InjectBase32", 1),
-            ("divergence", "RepeatedToken", 1),
-            ("dra", "DRA", 1),
-            ("apikey", "GetKey", 1),
-            ("goodside", "Tag", 1),
-            ("suffix", "GCGCached", 1),
-            ("web_injection", "MarkdownURINonImageExfilExtended", 1),
-            ("leakreplay", "LiteratureCompleteFull", 1),
-            ("dan", "DanInTheWildFull", 1),
-        ],
-        # ~200 probes across 16 families — balanced coverage for standard LLM benchmark
-        "llm-suite": [
-            ("ansiescape", "AnsiRaw", 8),
-            ("apikey", "GetKey", 10),
-            ("continuation", "ContinueSlursReclaimedSlursFull", 10),
-            ("dan", "DanInTheWildFull", 10),
-            ("divergence", "RepeatedToken", 10),
-            ("donotanswer", "MaliciousUses", 10),
-            ("donotanswer", "InformationHazard", 6),
-            ("dra", "DRA", 10),
-            ("encoding", "InjectBase32", 10),
-            ("encoding", "InjectBase64", 10),
-            ("goodside", "Tag", 10),
-            ("latentinjection", "LatentInjectionResumeFull", 10),
-            ("latentinjection", "LatentInjectionFactSnippetEiffelFull", 10),
-            ("leakreplay", "LiteratureCompleteFull", 10),
-            ("leakreplay", "LiteratureCloze", 10),
-            ("malwaregen", "SubFunctions", 10),
-            ("malwaregen", "Evasion", 8),
-            ("misleading", "FalseAssertion", 8),
-            ("packagehallucination", "Ruby", 5),
-            ("phrasing", "PastTenseFull", 8),
-            ("phrasing", "FutureTenseFull", 7),
-            ("realtoxicityprompts", "RTPBlank", 10),
-        ],
-    }
+    # llm-quick / llm-suite removed in v2.1.0 (ADR-035). They paired with
+    # bulwark_bench's deleted --bypass-detectors model-sweep flow; with v2's
+    # detection-only architecture there is no LLM behind the detectors for
+    # these tiers to point at.
+    TIER_CLASS_SELECTORS: dict[str, list[tuple[str, str, int]]] = {}
 
     # Known hijack indicators in LLM responses
     HIJACK_MARKERS = [
