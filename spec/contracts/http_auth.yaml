@@ -1,5 +1,5 @@
 feature: Dashboard bearer token authentication
-version: "0.8.0"
+version: "0.9.0"
 
 guarantees:
   - id: G-AUTH-001
@@ -7,13 +7,26 @@ guarantees:
   - id: G-AUTH-002
     summary: Public endpoints (/healthz, /v1/clean, /v1/guard, /v1/pipeline) work without auth
   - id: G-AUTH-003
-    summary: When BULWARK_API_TOKEN is not set, all endpoints work without auth (backwards compatible)
+    summary: >
+      When BULWARK_API_TOKEN is not set, GET/HEAD requests on any endpoint
+      succeed without auth (convenient for local monitoring probes that
+      scrape /api/events, /api/metrics, etc.). Mutating methods are
+      subject to G-AUTH-007.
   - id: G-AUTH-004
     summary: POST /api/auth/login validates token and sets HttpOnly cookie
   - id: G-AUTH-005
     summary: Cookie-based auth works for SSE EventSource connections
   - id: G-AUTH-006
     summary: OPTIONS requests pass through for CORS preflight
+  - id: G-AUTH-007
+    summary: >
+      When BULWARK_API_TOKEN is not set, mutating requests
+      (POST/PUT/DELETE/PATCH) on non-public endpoints return 403 unless
+      the client is on the loopback interface (127.0.0.0/8 or ::1).
+      Closes the Codex finding "Unauthenticated runtime config API lets
+      clients disable defenses" by making the secure default the default.
+      Callers wanting to toggle config from a remote client must set
+      BULWARK_API_TOKEN and authenticate. See ADR-029.
 
 non_guarantees:
   - id: NG-AUTH-001
@@ -22,3 +35,11 @@ non_guarantees:
   - id: NG-AUTH-002
     summary: Does NOT encrypt the token at rest
     reason: Token is an environment variable, same as API keys. Secure your env.
+  - id: NG-AUTH-003
+    summary: Does NOT honour X-Forwarded-For when deciding loopback eligibility
+    reason: >
+      The loopback check (G-AUTH-004) reads request.client.host directly.
+      Operators who terminate TLS in a reverse proxy and still want
+      remote mutation must set BULWARK_API_TOKEN. Trusting
+      X-Forwarded-For by default would let any upstream client claim
+      loopback, defeating the fix. See ADR-029.

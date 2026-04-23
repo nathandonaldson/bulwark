@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 import asyncio
+import ipaddress
 import json
 import time
 import os
@@ -24,8 +25,16 @@ from bulwark.canary_shapes import AVAILABLE_SHAPES, generate_canary
 _PRESETS = [p.to_dict() for p in load_presets()]
 
 
-# Endpoints that never require authentication
-_PUBLIC_PATHS = frozenset({
+# Methods that mutate state; only these are subject to the loopback-only
+# fallback when no BULWARK_API_TOKEN is set (G-HTTP-AUTH-004, ADR-029).
+# GETs never mutate, so a read-only remote client (e.g. a monitoring probe)
+# still sees /api/config, /api/events, etc.
+_MUTATING_METHODS = frozenset({"POST", "PUT", "DELETE", "PATCH"})
+
+# Paths that may always be called from any origin, no auth. These are the
+# language-agnostic security surface (clean/guard), the liveness probe, the
+# login form, and the presets catalogue. Nothing here persists state.
+_UNAUTH_ALL_ORIGINS = frozenset({
     "/",
     "/healthz",
     "/v1/clean",
@@ -35,30 +44,82 @@ _PUBLIC_PATHS = frozenset({
 })
 
 
+def _is_loopback_client(request: Request) -> bool:
+    """Return True if the HTTP client is on the loopback interface.
+
+    Accepts 127.0.0.0/8, ::1, and the FastAPI TestClient sentinel host.
+    Any other source — Docker bridge network, another host on the LAN,
+    a reverse proxy with X-Forwarded-For spoofing — is treated as remote.
+    We do NOT honour X-Forwarded-For here; operators who terminate TLS in
+    front of Bulwark must set BULWARK_API_TOKEN to authenticate mutations.
+    """
+    client = request.client
+    host = client.host if client else None
+    if not host:
+        return False
+    if host == "testclient":
+        return True
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return addr.is_loopback
+
+
 class BearerAuthMiddleware(BaseHTTPMiddleware):
-    """Optional bearer token auth. Disabled when BULWARK_API_TOKEN is not set."""
+    """Bearer token auth for protected endpoints, with a secure default.
+
+    Behaviour:
+      - OPTIONS (CORS preflight) always passes.
+      - Paths in _UNAUTH_ALL_ORIGINS and /static/* always pass (public surface).
+      - If BULWARK_API_TOKEN is set: non-public endpoints require a matching
+        Bearer header or session cookie. 401 otherwise.
+      - If BULWARK_API_TOKEN is NOT set (G-HTTP-AUTH-004, ADR-029): read
+        methods (GET/HEAD) are open, but mutating methods on non-public
+        endpoints require the client to be on the loopback interface.
+        A remote PUT /api/config that would disable defenses gets 403.
+
+    Rationale: the default Docker bind is 0.0.0.0:3000 and many operators
+    run without setting BULWARK_API_TOKEN. Before this middleware, any
+    network-reachable client could flip security toggles via unauthenticated
+    PUT requests. Loopback-only fallback closes that while keeping the
+    localhost-with-no-token dev experience untouched.
+    """
 
     async def dispatch(self, request: Request, call_next):
         # OPTIONS requests always pass through (CORS preflight)
         if request.method == "OPTIONS":
             return await call_next(request)
 
-        token = get_api_token()
-        if not token:
-            # No token configured — auth disabled
-            return await call_next(request)
-
-        # Check if this is a public path
         path = request.url.path
-        if path in _PUBLIC_PATHS or path.startswith("/static/"):
+
+        # Public surface — always open, no auth check at all
+        if path in _UNAUTH_ALL_ORIGINS or path.startswith("/static/"):
             return await call_next(request)
 
-        # Check Authorization header
+        token = get_api_token()
+
+        # G-HTTP-AUTH-004 / ADR-029: no token configured — only loopback
+        # clients may mutate. Remote reads are still allowed (operators
+        # often scrape /api/events or /api/metrics from monitoring).
+        if not token:
+            if request.method in _MUTATING_METHODS and not _is_loopback_client(request):
+                return StarletteJSONResponse(
+                    {"error": (
+                        "Mutating endpoints require BULWARK_API_TOKEN when "
+                        "accessed from a non-loopback client. Set the env "
+                        "var and use Authorization: Bearer <token>."
+                    )},
+                    status_code=403,
+                )
+            return await call_next(request)
+
+        # Token is set — standard Bearer / cookie auth for everything
+        # outside _UNAUTH_ALL_ORIGINS.
         auth_header = request.headers.get("authorization", "")
         if auth_header == f"Bearer {token}":
             return await call_next(request)
 
-        # Check cookie
         cookie_token = request.cookies.get("bulwark_token", "")
         if cookie_token == token:
             return await call_next(request)
