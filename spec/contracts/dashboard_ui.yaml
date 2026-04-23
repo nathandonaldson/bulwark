@@ -234,4 +234,6 @@ non_guarantees:
     reason: The backend returns the complete trace in one response; we render it directly.
   - id: NG-UI-TEST-002
     summary: Does NOT show a cURL snippet for the current payload
-    reason: The "cURL" button is a stub for a future affordance. Deferred.
+    reason: >
+      Removed in v2.3.0 — unwired buttons mislead users. If/when this
+      ships it'll be wired. The Test page exposes Run + Clear only.

@@ -148,27 +148,34 @@
 
   .spark { overflow: visible; }
 
-  /* generic button */
+  /* generic button — ghost by default, subtle hover. Primary is the CTA. */
   .btn {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 7px 12px; border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--surface-2);
+    border: 1px solid transparent;
+    background: transparent;
     color: var(--text-2);
     font-size: 12.5px; font-weight: 500;
-    transition: all 0.15s;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
   }
-  .btn:hover { color: var(--text); border-color: var(--border-2); background: var(--surface-3); }
+  .btn:hover { color: var(--text); background: var(--surface-2); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn:disabled:hover { background: transparent; color: var(--text-2); }
+
   .btn-primary {
     background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600;
   }
   .btn-primary:hover { background: color-mix(in srgb, var(--accent) 88%, white); color: var(--accent-ink); border-color: color-mix(in srgb, var(--accent) 88%, white); }
 
+  .btn-danger { color: var(--red); }
+  .btn-danger:hover { background: var(--red-soft); color: var(--red); }
+
+  .btn-ghost { /* alias kept for back-compat — same as .btn now */ }
+  .btn-ghost:hover { background: var(--surface-2); }
+
   /* Shared @keyframes — Test page spinner + elsewhere */
   @keyframes spin { to { transform: rotate(360deg); } }
-  .btn-danger { background: var(--red-soft); color: var(--red); border-color: var(--red-line); }
-  .btn-ghost { background: transparent; border-color: transparent; }
-  .btn-ghost:hover { background: var(--surface-2); border-color: var(--border); }
 
   /* Checkbox-style pill */
   .pill {

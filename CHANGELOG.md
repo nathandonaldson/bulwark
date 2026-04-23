@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.1] - 2026-04-23
+
+### Fixed
+
+- **Removed three unwired buttons** that had no `onClick` handlers and confused users: Events page "Export JSON" + "Tail log", Test page "cURL". Updated NG-UI-TEST-002 contract + test to reflect the removal.
+- **Unified button styling.** `.btn` is now ghost-by-default with a subtle `surface-2` hover instead of the previous heavy outlined look. `.btn-primary` keeps its solid teal fill (it's the call-to-action). `.btn-danger` is text-only with a soft-red hover. Buttons in the same row no longer mix three different visual treatments.
+
 ## [2.3.0] - 2026-04-23
 
 ### Changed

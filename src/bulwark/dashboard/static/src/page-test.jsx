@@ -128,7 +128,6 @@ function PageTest({ store }) {
                 }}/> Running…</> : <>▶ Run through pipeline</>}
               </button>
               <button className="btn" onClick={() => { setPayload(''); setTrace(null); }}>Clear</button>
-              <button className="btn" style={{marginLeft: 'auto'}}>cURL</button>
             </div>
           </div>
         </div>
