@@ -1,6 +1,14 @@
-feature: Canary token management API
-version: "1.0.0"
+feature: Canary token management API (output-side leak detection)
+version: "2.0.0"
 module: bulwark.dashboard (HTTP) + bulwark.canary_shapes (generator)
+
+scope: |
+  Canaries are output-side only. The caller places a canary in their
+  system prompt or tool context, then runs their own LLM, then calls
+  /v1/guard on the LLM output to detect exfiltration. Canaries are
+  NEVER checked by /v1/clean (see ADR-031). The dashboard surfaces
+  canary management on the dedicated "Leak detection" page, not on
+  the main Config page.
 
 guarantees:
   - id: G-CANARY-001
@@ -63,10 +71,16 @@ guarantees:
       a fresh canary without hitting the network.
   - id: G-CANARY-011
     summary: >
-      The dashboard Configure page's Canary panel renders an Add
-      form (label + shape selector + optional custom token) and a
-      Remove button next to every entry. Edits issue POST/DELETE to
-      the new endpoints and refresh the store on success.
+      The dashboard Leak Detection page renders an Add form (label +
+      shape selector + optional custom token) and a Remove button
+      next to every entry. Edits issue POST/DELETE to the canary
+      endpoints and refresh the store on success.
+  - id: G-CANARY-012
+    summary: >
+      Canaries are never referenced by /v1/clean — the endpoint
+      processes input before any LLM runs, and canaries detect LLM
+      output exfiltration. Only /v1/guard and the dashboard event
+      stream consume the canary list.
 
 non_guarantees:
   - id: NG-CANARY-001

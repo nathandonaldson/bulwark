@@ -1,40 +1,31 @@
 feature: Environment variable configuration
-version: "0.5.0"
+version: "2.0.0"
+
+# v2.0.0 (ADR-031): LLM backend env vars removed — Bulwark no longer calls
+# an LLM. G-ENV-001..005 + G-ENV-012..013 dropped. Remaining env vars cover
+# auth token, allowlists, and dotenv autoload.
 
 guarantees:
-  - id: G-ENV-001
-    summary: BULWARK_LLM_MODE env var sets the LLM backend mode on startup
-  - id: G-ENV-002
-    summary: BULWARK_API_KEY env var sets the Anthropic API key on startup
-  - id: G-ENV-003
-    summary: BULWARK_BASE_URL env var sets the OpenAI-compatible base URL on startup
-  - id: G-ENV-004
-    summary: BULWARK_ANALYZE_MODEL env var sets the Phase 1 model on startup
-  - id: G-ENV-005
-    summary: BULWARK_EXECUTE_MODEL env var sets the Phase 2 model on startup
   - id: G-ENV-006
-    summary: Env vars take effect without any config file present
-  - id: G-ENV-007
-    summary: Dashboard UI reflects env var values on load
-  - id: G-ENV-008
-    summary: Dashboard UI changes override env vars for the current session
+    summary: Config env vars take effect without any config file present
   - id: G-ENV-009
     summary: BULWARK_ALLOWED_HOSTS env var (comma-separated) adds hostnames to the SSRF allowlist
-    rationale: Opt-in widening of the SSRF block for LAN inference servers. See ADR-015.
+    rationale: Opt-in widening of the SSRF block for webhook URLs. See ADR-015.
   - id: G-ENV-010
     summary: Dashboard auto-loads a .env file from cwd at startup, without overriding existing env vars
     rationale: Eliminates the silent failure mode where local-source users edit .env, restart, and hit 401 because Python didn't read the file. Docker path unaffected — --env-file continues to populate os.environ. See ADR-016.
   - id: G-ENV-011
     summary: BULWARK_* env vars override corresponding fields loaded from the saved config file
-    rationale: Docker .env and shell env are the persistent source of truth for credentials. Dashboard UI edits are session-level; next load, env wins. Prior NG-ENV-002 documented the opposite and was wrong.
-  - id: G-ENV-012
-    summary: An empty-string update to an env-shadowed llm_backend field is ignored (does not clobber the env value)
-    rationale: The dashboard UI hides inputs for env-shadowed fields, so the form can silently submit empty strings. Without this guard, a Save click would blank the env-populated api_key / base_url in memory and break the next pipeline request with 401 to api.openai.com.
-  - id: G-ENV-013
-    summary: save() writes empty strings for env-shadowed llm_backend fields, never the env-provided values
-    rationale: Prevents leaking credentials from env into bulwark-config.yaml on disk. On next load, _apply_env_vars refills from env, so round-tripping is lossless for the runtime config.
+    rationale: Env vars are the persistent source of truth. Dashboard UI edits are session-level; next load, env wins.
+  - id: G-ENV-014
+    summary: BULWARK_API_TOKEN env var enables Bearer auth on mutating + LLM-exposed endpoints
+  - id: G-ENV-015
+    summary: BULWARK_WEBHOOK_URL env var sets the external webhook URL, shadowing config
 
 non_guarantees:
   - id: NG-ENV-001
     summary: Dashboard UI changes do NOT persist across container restarts
     reason: Env vars are the persistent config mechanism in Docker. Dashboard changes are in-memory only.
+  - id: NG-ENV-LLM-REMOVED
+    summary: BULWARK_LLM_MODE / BULWARK_API_KEY / BULWARK_BASE_URL / BULWARK_ANALYZE_MODEL / BULWARK_EXECUTE_MODEL are REMOVED in v2.0.0
+    reason: ADR-031 — Bulwark never calls an LLM. These env vars had no remaining function.

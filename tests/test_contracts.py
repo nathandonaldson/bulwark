@@ -6,7 +6,7 @@ The meta-test in test_spec_compliance.py verifies every ID has a test.
 import pytest
 
 from bulwark.shortcuts import clean, guard
-from bulwark.executor import AnalysisSuspiciousError
+from bulwark.guard import SuspiciousPatternError as AnalysisSuspiciousError
 from bulwark.canary import CanarySystem, CanaryLeakError
 
 

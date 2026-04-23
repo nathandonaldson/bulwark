@@ -50,21 +50,12 @@ _UNAUTH_ALL_ORIGINS = frozenset({
 
 
 def _is_llm_configured() -> bool:
-    """Return True if /v1/clean would trigger a real LLM call.
+    """Deprecated in v2.0.0 — Bulwark never calls an LLM. Always returns False.
 
-    Used by BearerAuthMiddleware to decide whether /v1/clean — which is
-    on the always-public allowlist in sanitize-only mode — should still
-    require auth when a real LLM backend is wired up (G-AUTH-008).
-
-    `config` is a module-level global defined below; referenced via
-    globals() so this function can be monkeypatched in tests without
-    touching the live config.
+    Kept as a stub so the middleware keeps compiling; the conditional-auth
+    path it once powered now simply never triggers.
     """
-    cfg = globals().get("config")
-    if cfg is None:
-        return False
-    mode = (cfg.llm_backend.mode or "").strip()
-    return mode in ("anthropic", "openai_compatible")
+    return False
 
 
 def _is_loopback_client(request: Request) -> bool:
@@ -205,7 +196,6 @@ async def healthz():
         "status": "ok",
         "version": _read_version(),
         "docker": os.path.exists("/.dockerenv"),
-        "env_configured": bool(os.environ.get("BULWARK_LLM_MODE")),
         "auth_required": bool(get_api_token()),
     }
 
@@ -337,11 +327,7 @@ async def pipeline_status():
         return {
             "sanitizer": pipeline.sanitizer is not None,
             "trust_boundary": pipeline.trust_boundary is not None,
-            "analysis_guard": pipeline.analysis_guard is not None,
-            "canary": pipeline.canary is not None,
-            "guard_bridge": pipeline.guard_bridge,
-            "sanitize_bridge": pipeline.sanitize_bridge,
-            "require_json": pipeline.require_json,
+            "detector": pipeline.detector is not None,
         }
     except Exception:
         return {"error": "Failed to load pipeline configuration", "using_defaults": True}
@@ -356,18 +342,7 @@ async def get_presets():
 @app.get("/api/config")
 async def get_config():
     """Get current Bulwark configuration."""
-    d = config.to_dict()
-    # Tell the frontend which LLM fields are set via env vars (not editable)
-    d["env_overrides"] = {
-        k: True for k, v in {
-            "mode": "BULWARK_LLM_MODE",
-            "api_key": "BULWARK_API_KEY",
-            "base_url": "BULWARK_BASE_URL",
-            "analyze_model": "BULWARK_ANALYZE_MODEL",
-            "execute_model": "BULWARK_EXECUTE_MODEL",
-        }.items() if os.environ.get(v)
-    }
-    return d
+    return config.to_dict()
 
 
 @app.put("/api/config")

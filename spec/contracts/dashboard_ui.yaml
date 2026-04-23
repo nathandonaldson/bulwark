@@ -1,44 +1,39 @@
-feature: Dashboard UI — shell + Shield + Events + Configure + Test
-version: "0.7.0"
+feature: Dashboard UI — shell + Shield + Events + Configure + Leak Detection + Test
+version: "2.0.0"
 module: bulwark.dashboard.static.src
 
-# This contract covers only what Stage 4 of the dashboard redesign delivers
-# (ADR-020): the top-nav brand + status pill. Subsequent stages add their
-# own G-UI-* guarantees for Shield, Events, Configure, Test.
+# v2.0.0 (ADR-031): LLM backend is gone. No analyze/execute UI, no /v1/llm/*
+# API, no Test-connection button. Pipeline is sanitize → DeBERTa → wrap.
+# Canaries move from the Configure page to their own Leak Detection page.
 
 guarantees:
-  # --- Status pill (top nav), STATES.md §1 ---
+  # --- Status pill (top nav) ---
   - id: G-UI-STATUS-001
     summary: >
       computeStatusPill returns {kind:'ok', label:'All layers active'} when every
-      layer in layerConfig is true AND llm.status === 'connected'.
+      user-controllable layer in layerConfig is true AND detector.status === 'ready'.
   - id: G-UI-STATUS-002
     summary: >
       computeStatusPill returns {kind:'warn', label:'{active} of {total} layers active'}
-      when one or more user-controllable defense layers are off AND llm.status !== 'error'.
+      when one or more user-controllable defense layers are off.
   - id: G-UI-STATUS-003
     summary: >
-      computeStatusPill returns {kind:'bad', label:'Pipeline unreachable'} when
-      llm.status === 'error' AND llm.mode !== 'none'.
+      computeStatusPill returns {kind:'bad', label:'Detector unreachable'} when
+      detector.status === 'error'.
   - id: G-UI-STATUS-004
     summary: >
-      computeStatusPill returns {kind:'warn', label:'Connecting…'} when
-      llm.status === 'loading'.
+      computeStatusPill returns {kind:'warn', label:'Loading detector…'} when
+      detector.status === 'loading' (DeBERTa weights downloading).
   - id: G-UI-STATUS-005
     summary: >
       The Brand component renders "v{version}" from store.version (sourced from
       GET /healthz .version). No hardcoded version string remains in shell.jsx.
-  - id: G-UI-STATUS-006
-    summary: >
-      When llm.mode === 'none', analyze + execute are treated as virtually "on"
-      for the pill's active-layer count. Example: deterministic layers all on +
-      mode='none' → {kind:'ok', label:'All layers active'} not warn.
   - id: G-UI-STATUS-007
     summary: >
       The rendered StatusPill element carries role="status" and aria-live="polite"
-      so state changes are announced by assistive tech (STATES.md §9).
+      so state changes are announced by assistive tech.
 
-  # --- Reduced motion, STATES.md §9 ---
+  # --- Reduced motion ---
   - id: G-UI-A11Y-001
     summary: >
       index.html includes a @media (prefers-reduced-motion: reduce) block that
@@ -48,7 +43,7 @@ guarantees:
       Buttons use button:focus-visible { outline: 2px solid var(--accent);
       outline-offset: 2px } for keyboard focus.
 
-  # --- Shield page, STATES.md §2 ---
+  # --- Shield page ---
   - id: G-UI-INCIDENT-001
     summary: >
       hasRecentIncident(events, nowMs) returns true iff any event has
@@ -60,16 +55,15 @@ guarantees:
   - id: G-UI-INCIDENT-003
     summary: >
       The incident banner element carries role="alert" so assistive tech
-      announces new attacks (STATES.md §9).
+      announces new attacks.
   - id: G-UI-TOKENS-001
     summary: >
       RadialShield ring strokes use CSS custom properties only
       (var(--stage-*)) — no inline hex colors remain in page-shield.jsx.
   - id: G-UI-TOKENS-STAGES-001
     summary: >
-      index.html :root defines --stage-sanitizer, --stage-boundary,
-      --stage-detection, --stage-analyze, --stage-bridge, --stage-canary,
-      --stage-execute custom properties.
+      index.html :root defines --stage-sanitizer, --stage-detection,
+      --stage-boundary, --stage-canary custom properties.
   - id: G-UI-SHIELD-001
     summary: >
       PageShield renders exactly one Shield variant (ShieldRadial). No branching
@@ -77,18 +71,17 @@ guarantees:
   - id: G-UI-SHIELD-002
     summary: >
       The four stat tiles on the Shield page read processed / blocked / canary /
-      bridge from store.stats24h (fed by /api/metrics via data.jsx).
+      modified from store.stats24h (fed by /api/metrics via data.jsx).
   - id: G-UI-SHIELD-003
     summary: >
       Layer rows render every entry in LAYERS unconditionally; disabled layers
-      remain visible with reduced opacity (see G-DASH-LAYERS-002 / NG-DASH-LAYERS-001).
+      remain visible with reduced opacity.
 
-  # --- Events page, STATES.md §4 ---
+  # --- Events page ---
   - id: G-UI-EMPTY-001
     summary: >
       When store.events is empty AND no filter is active, EventsEmptyState
-      renders data-empty-state="no-events" with a "Run a test" primary action
-      that dispatches bulwark:goto to the Test page.
+      renders data-empty-state="no-events" with a "Run a test" primary action.
   - id: G-UI-EMPTY-002
     summary: >
       When filtered results are empty AND at least one filter/layer/search is
@@ -97,7 +90,7 @@ guarantees:
   - id: G-UI-EMPTY-003
     summary: >
       Clicking "Clear filters" resets filter to 'all', layerFilter to 'all',
-      and search to '' (verified via PageEvents state handlers).
+      and search to ''.
   - id: G-UI-EMPTY-004
     summary: >
       isAnyFilterActive(filter, layerFilter, search) returns true iff any of
@@ -110,123 +103,72 @@ guarantees:
   - id: G-UI-EXPAND-001
     summary: >
       When event.verdict === 'modified' and event.metadata carries both `before`
-      and `after` fields, EventExpansion renders two <pre> diff panes (red/soft +
-      green/soft).
+      and `after` fields, EventExpansion renders two <pre> diff panes.
   - id: G-UI-EXPAND-002
     summary: >
       When event.verdict === 'blocked', EventExpansion renders a "Replay in Test"
       button that dispatches a bulwark:goto CustomEvent targeting the Test page.
   - id: G-UI-EXPAND-003
     summary: >
-      When event.metadata has no trace, _defaultTrace falls back to the first 5
+      When event.metadata has no trace, _defaultTrace falls back to the first
       LAYERS so the trace pane is never empty.
 
-  # --- Configure page, STATES.md §3 + §6 ---
+  # --- Configure page (v2 layout) ---
   - id: G-UI-TOKENS-002
     summary: >
       STAGES in page-configure.jsx reference CSS custom properties
       (var(--stage-*)) — no inline hex colors remain.
-  - id: G-UI-NEEDS-001
+  - id: G-UI-CONFIG-LAYOUT-001
     summary: >
-      Analyze and Execute pipeline nodes show a "Needs setup" amber pill when
-      llm.status !== 'connected'. Driven by needsSetup(stage.id) in PipelineFlow.
-  - id: G-UI-NEEDS-002
+      The Configure page shows three sections in order: (1) Pipeline layers
+      (sanitizer, trust boundary toggles), (2) DeBERTa detector (status +
+      confidence threshold), (3) PromptGuard second opinion (opt-in card).
+      Canary management is NOT on this page — it lives on the Leak Detection
+      page.
+  - id: G-UI-CONFIG-DEBERTA-001
     summary: >
-      Detection pipeline node shows a "Needs setup" amber pill when no entry in
-      store.integrations equals 'active'.
-  # Env-shadowed LLM fields — see ADR-022. Supersedes the earlier
-  # G-UI-CONFIG-API-KEY-LOCKED / G-UI-CONFIG-LOCKED-FIELDS-001 guarantees.
-  - id: G-UI-CONFIG-ENV-BADGE
+      DeBERTa detector card shows one of three states: "Loading weights…"
+      (first-run download in progress), "Ready" (weights cached, model loaded,
+      with latency + version info), or "Error: {message}" (download or load
+      failed).
+  - id: G-UI-CONFIG-PROMPTGUARD-001
     summary: >
-      When an LLM-backend field is covered by a BULWARK_* env var
-      (store.llm.envOverrides.<field> is truthy), the corresponding label
-      renders an "ENV" badge and a dim helper line naming the env var.
-  - id: G-UI-CONFIG-ENV-EDITABLE
+      PromptGuard opt-in card renders with a clear "Optional — second opinion
+      detector" label, describes the HuggingFace-approval requirement, and
+      exposes a single toggle. When enabled, a HF token input appears;
+      weights download on first /v1/clean call.
+  - id: G-UI-CONFIG-PATTERNS-001
     summary: >
-      Env-shadowed LLM-backend fields remain editable. API key renders as a
-      password <input> (empty, placeholder showing the masked preview); base
-      URL as a text <input>; mode cards are clickable; model dropdowns accept
-      selections — no read-only <div> swap and no disabled attribute.
-  - id: G-UI-CONFIG-ENV-OVERRIDE
+      Guard-pattern list renders from store.guardPatterns. Empty-state message
+      directs users to bulwark-config.yaml.
+
+  # --- Leak Detection page (new in v2) ---
+  - id: G-UI-LEAK-LAYOUT-001
     summary: >
-      LLMBackendPane.save() sends every edited field via BulwarkStore.setLlm
-      regardless of envOverrides. The backend's G-ENV-012 guard ignores only
-      empty-string updates to env-shadowed fields, so non-empty UI edits
-      override env defaults for the running session.
-  - id: G-UI-CONFIG-LLM-SECTIONS-001
-    summary: >
-      LLMBackendPane is split into two eyebrow-labelled sections:
-      data-section="shared" ("SHARED BY BOTH PHASES" in var(--accent)) covers
-      Backend + Base URL + API Key; data-section="per-phase" ("PER PHASE" in
-      var(--stage-analyze)) contains two PhaseCard blocks.
-  - id: G-UI-CONFIG-LLM-SECTIONS-002
-    summary: >
-      Each PhaseCard bundles the phase header (Phase 1 · Analyze / Phase 2 ·
-      Execute), description, and MODEL dropdown in one visual block. The card
-      gets accent-soft background + accent-line border when the pipeline flow
-      has selected that phase (prop `selected === true`).
-  - id: G-UI-CONFIG-LLM-SECTIONS-003
-    summary: >
-      When analyze_model / execute_model is env-shadowed, the PhaseCard header
-      renders a small EnvBadgeStatic pill and a dim "Env default: BULWARK_*"
-      line under the dropdown — the dropdown itself remains editable.
-  - id: G-UI-CONFIG-MODELS-001
-    summary: >
-      LLMBackendPane fetches the model list via BulwarkStore.fetchModels() on
-      mount and whenever llm.mode or llm.baseUrl changes. The dropdowns
-      (ModelSelect) render options from store.models — no hardcoded model list.
-  - id: G-UI-CONFIG-MODELS-002
-    summary: >
-      BulwarkStore.fetchModels() POSTs /v1/llm/models with {mode, base_url} and
-      populates state.models from response.models. state.modelsLoading is true
-      for the duration of the request.
-  - id: G-UI-CONFIG-TEST-CONNECTION
-    summary: >
-      BulwarkStore.testConnection(overrides?) POSTs /v1/llm/test with the
-      current in-form field values (mode, base_url, analyze_model,
-      execute_model, api_key) when the caller supplies them — so the user
-      can validate edits before saving. Updates state.llm.status to
-      'connected' on success or 'error' on failure; 'loading' while in
-      flight. The response body is stored on state.llmTestResult for the
-      UI to render.
-  - id: G-UI-CONFIG-TEST-CONNECTION-STATUS
-    summary: >
-      While state.llm.status is 'loading', the Test connection button
-      renders a spinning icon (css `animation: spin …`) next to "Testing…"
-      and is disabled. After the probe completes, TestConnectionStatus
-      renders a green tick with a diagnostic message on success or a red
-      cross with the error message on failure. The result region has
-      role="status" + aria-live="polite" so assistive tech announces the
-      outcome.
-  - id: G-UI-CONFIG-CANARIES-001
+      The Leak Detection page (route data-page="leak-detection") renders two
+      sections: (1) a header explaining canaries are for output-side detection
+      via /v1/guard on the caller's own LLM output, and (2) the CanaryPane
+      management UI.
+  - id: G-UI-LEAK-CANARIES-001
     summary: >
       CanaryPane renders one card per entry in store.canaryTokens plus an
       inline Add form (label + shape selector + optional custom token).
-      Updated by ADR-025: entries are removable via a button on each card;
-      additions POST /api/canaries and refresh the store. With zero entries
-      the empty state invites adding one — no random/fabricated tokens are
-      rendered.
-  - id: G-UI-CONFIG-PATTERNS-001
-    summary: >
-      BridgePane renders the list of regex patterns from store.guardPatterns.
-      Empty-state message directs users to bulwark-config.yaml — no random or
-      hardcoded patterns are rendered in the panel.
-  # --- Test page, STATES.md §5 ---
+      Entries are removable via a button on each card. Additions POST
+      /api/canaries and refresh the store.
+
+  # --- Test page ---
   - id: G-UI-PRESETS-001
     summary: >
       The Test page payload library renders presets from store.presets (fetched
-      from GET /api/presets on load). No inline PRESETS constant remains in
-      page-test.jsx or data.jsx.
+      from GET /api/presets on load).
   - id: G-UI-TEST-RUN-001
     summary: >
       runPipeline calls BulwarkStore.runClean(payload) which POSTs /v1/clean
-      with {content, source}. The returned trace is rendered as-is — no random
-      or simulated steps.
+      with {content, source}. The returned trace is rendered as-is.
   - id: G-UI-TEST-RUN-002
     summary: >
-      The trace pane's status is 'blocked' iff the backend returns
-      blocked === true or HTTP 422, 'error' iff the fetch raised, and 'passed'
-      otherwise. Status colors never lie about the real result.
+      The trace pane's status is 'blocked' iff the backend returns HTTP 422,
+      'error' iff the fetch raised, and 'passed' otherwise.
   - id: G-UI-TEST-REPLAY-001
     summary: >
       When the Events page dispatches a bulwark:goto CustomEvent whose detail
@@ -235,30 +177,26 @@ guarantees:
   - id: G-UI-TEST-TIERS-001
     summary: >
       RedTeam renders tiers from store.redteamTiers.tiers (fetched via
-      BulwarkStore.fetchRedteamTiers() → GET /api/redteam/tiers) — no hardcoded
-      tier list or probe counts.
+      BulwarkStore.fetchRedteamTiers() → GET /api/redteam/tiers).
   - id: G-UI-TEST-TIERS-002
     summary: >
-      When garak is not installed (redteamTiers.garak_installed === false),
-      the RedTeam card shows a disabled state and the Run button is disabled.
+      When garak is not installed, the RedTeam card shows a disabled state and
+      the Run button is disabled.
   - id: G-UI-TEST-REPORTS-001
     summary: >
       ReportsList reads from store.redteamReports (GET /api/redteam/reports)
-      and shows an empty-state when none exist — no hardcoded past reports.
+      and shows an empty-state when none exist.
   - id: G-UI-TEST-REPORTS-002
     summary: >
       ReportRow Retest button calls BulwarkStore.retestReport(filename) which
-      POSTs /api/redteam/retest with {filename}. JSON button opens
-      /api/redteam/reports/{filename} in a new tab.
+      POSTs /api/redteam/retest with {filename}.
   - id: G-UI-TEST-REPORTS-003
     summary: >
       ReportRow caps the displayed defense-rate score at 99.99 % when the
-      report has any hijacked probes (hijacked > 0) — matches
-      G-REDTEAM-SCORE-007.
+      report has any hijacked probes (hijacked > 0).
   - id: G-UI-TEST-REPORTS-004
     summary: >
-      After a red-team run completes (store.running transitions truthy → null),
-      RedTeam auto-refetches /api/redteam/reports so the new entry appears.
+      After a red-team run completes, RedTeam auto-refetches /api/redteam/reports.
   - id: G-UI-TOKENS-003
     summary: >
       All JSX files under static/src reference CSS custom properties only —
@@ -267,37 +205,33 @@ guarantees:
 non_guarantees:
   - id: NG-UI-SHELL-001
     summary: Does NOT implement the ⌘K command palette
-    reason: The search icon in the header is a stub per STATES.md §10. Full search modal deferred.
+    reason: The search icon in the header is a stub. Full search modal deferred.
   - id: NG-UI-SHELL-002
     summary: Does NOT render a sidebar navigation
-    reason: Removed before production per ADR-020 (tweaks panel removal).
+    reason: Removed before production per ADR-020.
   - id: NG-UI-SHIELD-001
     summary: Does NOT offer alternate Shield layouts (data-heavy, hybrid)
     reason: Variants pruned per ADR-020. Users get one opinionated shield view.
   - id: NG-UI-EVENTS-001
     summary: Does NOT persist filter state across reloads
-    reason: Filters are React state only. Per-user saved filters deferred (STATES.md §10).
+    reason: Filters are React state only. Per-user saved filters deferred.
   - id: NG-UI-EVENTS-002
     summary: Does NOT show more than 120 rows at once
     reason: Table slices filtered events to the first 120 for rendering cost.
-      Users filter to narrow; exporting full history uses "Export JSON".
   - id: NG-UI-CONFIG-001
     summary: Does NOT let users edit guard patterns inline
-    reason: Guard patterns read from bulwark-config.yaml. Inline editing of
-      regex patterns has obvious footguns (broken regexes in prod). Deferred
-      until a validated edit flow exists; config file edits + restart are the
-      supported path. (Canaries WERE in this category too, lifted by ADR-025.)
+    reason: Guard patterns read from bulwark-config.yaml. Inline editing has obvious
+      footguns; config file edits + restart are the supported path.
   - id: NG-UI-CONFIG-002
     summary: Does NOT display live hit counts on guard patterns
-    reason: The old UI showed randomly-generated "N hits" values per pattern;
-      real per-pattern metrics aren't aggregated yet. Better to show nothing
-      than to fake it.
+    reason: Per-pattern metrics aren't aggregated yet. Better to show nothing than fake it.
+  - id: NG-UI-CONFIG-003
+    summary: Does NOT expose any LLM backend configuration
+    reason: v2.0.0 (ADR-031) — Bulwark never calls an LLM. The caller owns the LLM;
+      there is nothing for the dashboard to configure.
   - id: NG-UI-TEST-001
     summary: Does NOT animate or fake per-step reveal timing on the trace pane
-    reason: The reference prototype revealed trace steps via setTimeout to look
-      dramatic. That can't be faithful to real latencies — the backend returns
-      the complete trace in one response, so we render it directly.
+    reason: The backend returns the complete trace in one response; we render it directly.
   - id: NG-UI-TEST-002
     summary: Does NOT show a cURL snippet for the current payload
-    reason: The "cURL" button is a stub for a future affordance; it does not
-      generate anything today. Deferred to avoid half-built UX.
+    reason: The "cURL" button is a stub for a future affordance. Deferred.

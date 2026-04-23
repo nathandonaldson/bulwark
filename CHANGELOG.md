@@ -1,5 +1,39 @@
 # Changelog
 
+## [2.0.0] - 2026-04-23
+
+### Breaking
+
+- **Bulwark is now detection-only — it never calls an LLM** (ADR-031). The two-phase executor (`TwoPhaseExecutor`) and `AnalysisGuard` bridge between phases are removed. The caller runs their own LLM on the cleaned content returned by `/v1/clean`, then calls `/v1/guard` on the output. This is the full project goal: return safe content or an error.
+- **Removed endpoints**: `POST /v1/llm/test`, `POST /v1/llm/models` are gone.
+- **Removed config**: the `llm_backend` block (mode, api_key, base_url, analyze_model, execute_model) is removed from `bulwark-config.yaml`. Legacy YAMLs with `llm_backend` are accepted on load but ignored.
+- **Removed env vars**: `BULWARK_LLM_MODE`, `BULWARK_API_KEY`, `BULWARK_BASE_URL`, `BULWARK_ANALYZE_MODEL`, `BULWARK_EXECUTE_MODEL`. Remaining vars: `BULWARK_API_TOKEN`, `BULWARK_WEBHOOK_URL`, `BULWARK_ALLOWED_HOSTS`.
+- **Slimmed `/v1/clean` response**: `analysis`, `execution`, `llm_mode` fields are gone. New optional `detector` field reports the DeBERTa/PromptGuard verdict when a detector is loaded.
+- **Removed library exports**: `TwoPhaseExecutor`, `ExecutorResult`, `LLMCallFn`, `SECURE_EXECUTE_TEMPLATE`. `AnalysisGuard` + `AnalysisSuspiciousError` are kept as back-compat aliases for `PatternGuard` + `SuspiciousPatternError` in the new `bulwark.guard` module.
+- **`bulwark.integrations.anthropic`**: `make_analyze_fn` / `make_execute_fn` / `make_pipeline` are removed. `protect()` / `ProtectedAnthropicClient` are kept — they sanitize user messages before they reach the Anthropic API and have always been independent of the executor.
+- **`Pipeline` rewrite**: `Pipeline.run()` now returns a `PipelineResult(result=..., blocked=..., trace=...)`. Signature: `sanitize → optional detector → trust-boundary wrap`.
+
+### Removed
+
+- `src/bulwark/executor.py` (TwoPhaseExecutor + AnalysisGuard)
+- `src/bulwark/dashboard/llm_factory.py` (Anthropic + OpenAI-compatible client factories)
+- `spec/contracts/executor.yaml`, `spec/contracts/http_llm_test.yaml`
+- Tests for removed surfaces (`test_executor.py`, `test_async_pipeline.py`, `test_e2e.py`, `test_anthropic_integration.py`, `test_integration_examples.py`, `test_type_guards.py`, `test_webhook_alerting.py`)
+
+### Added
+
+- `src/bulwark/guard.py` — `PatternGuard` + `SuspiciousPatternError`. Renamed from `AnalysisGuard` to reflect the new role: output-side regex check for caller-produced LLM output, surfaced through `/v1/guard`.
+- `src/bulwark/dashboard/url_validator.py` — SSRF guard lifted out of the deleted `llm_factory.py`; still used by webhook config validation.
+- ADR-031 — detection-only pipeline. Spec of record for this release.
+
+### Motivation
+
+v1.x shipped a two-phase executor on the premise that Phase 2 would have tools and Phase 1 wouldn't, so an injection surviving Phase 1 would hit a tool-less Phase 2 prompt harmlessly. In practice every Bulwark user runs their own LLM downstream, so Phase 2 was a second billing event with no security value. The bridge layers that existed to protect Phase 2 (AnalysisGuard regex on Phase 1 output, sanitize_bridge, canary check between phases) generated false positives on benign content. Removing the executor collapses the architecture to what it actually is: sanitize, classify, wrap, return. See ADR-031.
+
+### Note on PR-B
+
+This release (PR-A) handles the backend simplification. Dashboard UI redesign — Config page cleanup, new Leak Detection page, DeBERTa mandatory with first-run download — lands in PR-B. The UI currently still reflects the v1 layout; the underlying endpoints it calls for LLM management simply no longer exist, so those tabs will show stubs until PR-B ships.
+
 ## [1.3.4] - 2026-04-23
 
 ### Security
