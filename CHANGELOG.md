@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.3.2] - 2026-04-23
+
+### Fixed
+
+- **`bulwark_falsepos` was not packaged into the Docker image.** v2.3.0/v2.3.1 shipped without the `bulwark_falsepos` Python module, which meant the dashboard's "False Positives" red-team tier card never appeared in the Docker deployment (only when running from source). Fixed by:
+  - Adding `src/bulwark_falsepos` to `pyproject.toml` `packages`.
+  - Bundling `spec/falsepos_corpus.jsonl` into the wheel under `bulwark_falsepos/_data/` via `force-include` (mirrors the ADR-023 pattern for `spec/presets.yaml`).
+  - Adding `bulwark-falsepos` console script entry point so the CLI is on `$PATH` post-install.
+  - Resolving the corpus path via `BULWARK_FALSEPOS_CORPUS` env → repo `spec/` → packaged `_data/` so dev and Docker both work.
+
 ## [2.3.1] - 2026-04-23
 
 ### Fixed

@@ -7,7 +7,7 @@ path = "VERSION"
 pattern = "(?P<version>.+)"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/bulwark", "src/bulwark_bench"]
+packages = ["src/bulwark", "src/bulwark_bench", "src/bulwark_falsepos"]
 
 # Bundle spec/presets.yaml into the wheel under bulwark/_data/ so
 # importlib.resources can find it in installed environments. The source
@@ -15,6 +15,7 @@ packages = ["src/bulwark", "src/bulwark_bench"]
 # duplicate. See ADR-023.
 [tool.hatch.build.targets.wheel.force-include]
 "spec/presets.yaml" = "bulwark/_data/presets.yaml"
+"spec/falsepos_corpus.jsonl" = "bulwark_falsepos/_data/falsepos_corpus.jsonl"
 
 [project]
 name = "bulwark-shield"
@@ -47,6 +48,7 @@ all = ["anthropic>=0.39.0", "click>=8.0", "fastapi>=0.100.0", "uvicorn>=0.20.0",
 [project.scripts]
 bulwark = "bulwark.cli:main"
 bulwark-bench = "bulwark_bench.__main__:main"
+bulwark-falsepos = "bulwark_falsepos.__main__:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

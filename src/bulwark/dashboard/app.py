@@ -780,7 +780,23 @@ def _make_emitter():
 
 
 def _falsepos_corpus_path() -> Path:
-    return Path(__file__).parent.parent.parent.parent / "spec" / "falsepos_corpus.jsonl"
+    """Resolve the false-positive corpus path.
+
+    Order: ENV override → repo `spec/` (dev) → packaged `bulwark_falsepos/_data/`
+    (installed wheel + Docker image, see pyproject.toml force-include).
+    """
+    env = os.environ.get("BULWARK_FALSEPOS_CORPUS")
+    if env:
+        return Path(env)
+    repo = Path(__file__).parent.parent.parent.parent / "spec" / "falsepos_corpus.jsonl"
+    if repo.exists():
+        return repo
+    # Installed-wheel layout: bundled via [tool.hatch.build.targets.wheel.force-include].
+    try:
+        from importlib.resources import files
+        return Path(str(files("bulwark_falsepos") / "_data" / "falsepos_corpus.jsonl"))
+    except Exception:
+        return repo  # fall back to the repo path even if missing — caller surfaces the error
 
 
 async def _run_falsepos_in_background():
