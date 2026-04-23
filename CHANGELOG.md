@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.1.0] - 2026-04-23
+
+### Added
+
+- **LLM judge — opt-in third detector** (ADR-033). Sends sanitized input to a configured LLM endpoint with a fixed classifier prompt, parses the verdict, and blocks on `INJECTION` above threshold. Detection only — the LLM's raw output never reaches `/v1/clean` callers (NG-JUDGE-004). Off by default; carries a 1-3s latency cost when enabled. Default `fail_open: true` so a judge outage doesn't take down `/v1/clean`. Same SSRF allowlist as webhook URL (G-JUDGE-006). New config block `judge_backend` (mode, base_url, model, threshold, fail_open, timeout_s). Dashboard surfaces it as a 4th pipeline stage with its own settings pane and a high-latency warning.
+- **`bulwark_bench` rebuilt as detector-config sweep** (ADR-034). v1's model-swap harness broke when v2.0.0 removed `llm_backend`. v2.1.0 sweeps named presets — `deberta-only`, `deberta+promptguard`, `deberta+llm-judge`, `all` — and ranks them by defense rate against a chosen red-team tier. New CLI: `bulwark_bench --configs deberta-only,deberta+llm-judge --judge-base-url http://192.168.1.78:1234/v1 --judge-model prompt-injection-judge-8b --tier standard`. Cost column dropped from the report (NG-BENCH-002 v2) — detector configs don't have a meaningful per-config dollar price.
+- ADR-033 — LLM judge detector spec.
+- ADR-034 — bench rebuild spec.
+- `spec/contracts/llm_judge.yaml` (G-JUDGE-001..008, NG-JUDGE-001..004).
+
+### Dashboard
+
+- Configure page now splits Detection into three separate pipeline stages — DeBERTa (mandatory, "REQUIRED" pill), PromptGuard (optional, toggle), LLM Judge (optional, off by default with prominent latency warning). Each has its own detail pane.
+- Trust Boundary stage tag changed from "deterministic" to "Output formatter" — it's not a defense gate, it's how Bulwark formats safe output.
+- Guard patterns moved from Configure → Leak Detection page. They apply to `/v1/guard` (output-side), so they belong with canaries.
+
+### Notes
+
+- Backend rebuild verified by re-running the Standard tier red-team scan: 100% defense across 3,112 probes on `deberta-only`. The LLM judge layer is included for users with a domain-specific attack distribution where DeBERTa misses — measure first with `bulwark_bench` before turning it on.
+
 ## [2.0.0] - 2026-04-23
 
 ### Breaking

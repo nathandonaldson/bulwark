@@ -1,0 +1,81 @@
+feature: LLM judge detector (opt-in third detection stage)
+version: "1.0.0"
+module: bulwark.detectors.llm_judge
+
+guarantees:
+  - id: G-JUDGE-001
+    summary: >
+      The LLM judge runs only when judge_backend.enabled is true. Default is
+      false; an unconfigured BulwarkConfig has the judge disabled.
+  - id: G-JUDGE-002
+    summary: >
+      The judge prompt is fixed in code. Bulwark sends the sanitized input
+      wrapped in <input>...</input> markers and a system prompt instructing
+      the model to return a single-line JSON object {"verdict": SAFE|INJECTION,
+      "confidence": 0..1}. The user cannot edit the classifier prompt.
+  - id: G-JUDGE-003
+    summary: >
+      The judge response is parsed for verdict + confidence. INJECTION with
+      confidence ≥ judge_backend.threshold blocks /v1/clean with HTTP 422 and
+      records a trace entry "detection:llm_judge" with verdict, confidence,
+      and latency.
+  - id: G-JUDGE-004
+    summary: >
+      The judge runs AFTER DeBERTa and PromptGuard in the detection chain.
+      Earlier detectors blocking short-circuits the judge — Bulwark never
+      pays the LLM round-trip cost when a faster detector already blocked.
+  - id: G-JUDGE-005
+    summary: >
+      Default fail-open: a judge timeout, network error, or unparseable
+      response logs the error to trace and lets the request continue to
+      trust-boundary wrap (HTTP 200 with detector="error" annotation).
+      judge_backend.fail_open=false flips this to fail-closed (HTTP 422).
+  - id: G-JUDGE-006
+    summary: >
+      judge_backend.base_url is validated against the same SSRF allowlist
+      as webhook_url (ADR-030 / G-WEBHOOK-007). Private/loopback/metadata
+      hosts are rejected at config-write time unless allowlisted via
+      BULWARK_ALLOWED_HOSTS. Loopback and host.docker.internal stay
+      permitted for local LM Studio / Ollama deployments.
+  - id: G-JUDGE-007
+    summary: >
+      The judge is detection-only. Bulwark sends the LLM input + classifier
+      prompt and reads ONLY the verdict + confidence. The LLM's response
+      text never reaches /v1/clean's output, never touches /v1/guard, and
+      is never executed as instructions. ADR-031 (Bulwark never invokes
+      a generative LLM) is preserved — the judge is a classifier with a
+      generative API surface.
+  - id: G-JUDGE-008
+    summary: >
+      Per-request latency budget: judge_backend.timeout_s (default 30).
+      A timeout triggers the fail-open / fail-closed path defined by
+      G-JUDGE-005 — it does not crash the request.
+
+non_guarantees:
+  - id: NG-JUDGE-001
+    summary: Does NOT guarantee judge accuracy
+    reason: >
+      Accuracy depends on the model the operator points the judge at. Bulwark
+      passes the input through the classifier prompt; the verdict is whatever
+      the model says. Use bulwark_bench to compare detector configurations.
+  - id: NG-JUDGE-002
+    summary: Does NOT cache judge verdicts across requests
+    reason: >
+      Each /v1/clean call to a judge-enabled deployment performs a fresh LLM
+      round-trip. Caching would either leak across tenants or be useless on
+      typical never-repeat input. Operators wanting cache should front the
+      judge endpoint with their own caching reverse proxy.
+  - id: NG-JUDGE-003
+    summary: Classifier prompt is NOT user-editable
+    reason: >
+      Allowing users to edit the system prompt re-opens the v1 jailbreak
+      surface ADR-031 closed. The prompt ships as a constant in the source.
+      Users wanting a different classifier should fine-tune their judge
+      model rather than reword the prompt.
+  - id: NG-JUDGE-004
+    summary: Does NOT expose the judge's raw response to /v1/clean callers
+    reason: >
+      Only the parsed verdict + confidence + latency reach the trace and
+      response. Returning the raw model output would leak whatever the
+      judge said, which a clever attacker could shape into an exfiltration
+      side channel. Trace records the verdict label; that's it.

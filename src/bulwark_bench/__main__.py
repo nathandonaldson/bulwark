@@ -1,4 +1,4 @@
-"""CLI entry point: `python -m bulwark_bench`."""
+"""CLI entry point: `python -m bulwark_bench` (v2.0.0, ADR-034)."""
 from __future__ import annotations
 
 import argparse
@@ -10,7 +10,7 @@ from pathlib import Path
 
 from bulwark_bench import __version__
 from bulwark_bench.bulwark_client import BulwarkClient
-from bulwark_bench.pricing import PRICING_TABLE_VERSION
+from bulwark_bench.configs import PRESETS, parse_configs
 from bulwark_bench.report import render_json, render_markdown
 from bulwark_bench.runner import BenchRunner, stderr_progress
 
@@ -18,29 +18,40 @@ from bulwark_bench.runner import BenchRunner, stderr_progress
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="bulwark_bench",
-        description="Benchmark LLM models against a running Bulwark dashboard.",
+        description="Compare Bulwark detector configurations against a red-team tier.",
     )
-    p.add_argument("--models", required=True,
-                   help="Comma-separated model ids to benchmark (up to 5 recommended).")
-    p.add_argument("--bulwark", default=os.environ.get("BULWARK_URL", "http://localhost:3001"),
-                   help="Base URL of the Bulwark dashboard (default: http://localhost:3001).")
-    p.add_argument("--token", default=os.environ.get("BULWARK_API_TOKEN"),
-                   help="Bearer token for protected endpoints (env: BULWARK_API_TOKEN).")
-    p.add_argument("--tier", default="quick",
-                   help="Red-team tier to run (default: quick).")
+    p.add_argument(
+        "--configs", default="deberta-only,deberta+promptguard,deberta+llm-judge",
+        help="Comma-separated detector preset slugs. "
+             f"Available: {', '.join(sorted(PRESETS))}.",
+    )
+    p.add_argument(
+        "--bulwark", default=os.environ.get("BULWARK_URL", "http://localhost:3001"),
+        help="Base URL of the Bulwark dashboard (default: http://localhost:3001).",
+    )
+    p.add_argument(
+        "--token", default=os.environ.get("BULWARK_API_TOKEN"),
+        help="Bearer token for protected endpoints (env: BULWARK_API_TOKEN).",
+    )
+    p.add_argument("--tier", default="standard",
+                   help="Red-team tier to run (default: standard).")
     p.add_argument("--output", default=None,
-                   help="Directory to write report.json / report.md and per-model files.")
-    p.add_argument("--no-warmup", action="store_true",
-                   help="Skip warmup probe before each model (warmup is on by default).")
+                   help="Directory to write report.json / report.md and per-config files.")
     p.add_argument("--resume", action="store_true",
-                   help="Skip models whose per-model result already exists in --output.")
+                   help="Skip configurations whose result already exists in --output.")
     p.add_argument("--redteam-timeout", type=int, default=3600,
-                   help="Seconds to wait for a single model's red-team run (default: 3600).")
-    p.add_argument("--bypass-detectors",
-                   help="Comma-separated integrations (e.g. 'protectai,promptguard') to disable "
-                        "for the duration of the sweep so probes reach the analyze LLM. Original "
-                        "state is restored on exit. Recommended with --tier llm-quick/llm-suite.")
-    p.add_argument("--title", default="Bulwark model benchmark",
+                   help="Seconds to wait for one config's red-team run (default: 3600).")
+    p.add_argument("--judge-base-url", default=os.environ.get("BULWARK_JUDGE_URL"),
+                   help="Base URL of the LLM judge endpoint (e.g. http://192.168.1.78:1234/v1). "
+                        "Required when any selected preset enables the LLM judge.")
+    p.add_argument("--judge-model", default=os.environ.get("BULWARK_JUDGE_MODEL"),
+                   help="Judge model identifier (e.g. prompt-injection-judge-8b).")
+    p.add_argument("--judge-mode", default="openai_compatible",
+                   choices=("openai_compatible", "anthropic"),
+                   help="Judge backend mode (default: openai_compatible).")
+    p.add_argument("--judge-api-key", default=os.environ.get("BULWARK_JUDGE_API_KEY"),
+                   help="API key for the judge endpoint (optional for local LM Studio).")
+    p.add_argument("--title", default="Bulwark detector-config benchmark",
                    help="Title on the markdown report.")
     p.add_argument("--version", action="version", version=f"bulwark_bench {__version__}")
     return p
@@ -49,9 +60,18 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
 
-    models = [m.strip() for m in args.models.split(",") if m.strip()]
-    if not models:
-        print("No models specified.", file=sys.stderr)
+    try:
+        configs = parse_configs(args.configs)
+    except ValueError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return 2
+
+    if any(c.llm_judge for c in configs) and not args.judge_model:
+        print(
+            "[ERROR] one or more selected presets includes the LLM judge — "
+            "you must pass --judge-model (and --judge-base-url for openai_compatible mode).",
+            file=sys.stderr,
+        )
         return 2
 
     if args.output:
@@ -59,54 +79,40 @@ def main(argv: list[str] | None = None) -> int:
     else:
         stamp = _dt.datetime.now().strftime("%Y-%m-%d-%H%M%S")
         run_dir = Path("benchmarks") / f"run-{stamp}"
-
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"bulwark_bench {__version__} — sweeping {len(models)} model(s) against {args.bulwark}",
+    print(f"bulwark_bench {__version__} — sweeping {len(configs)} config(s) against {args.bulwark}",
           file=sys.stderr, flush=True)
     print(f"  tier: {args.tier}", file=sys.stderr)
     print(f"  run dir: {run_dir}", file=sys.stderr)
-    print(f"  warmup: {'yes' if not args.no_warmup else 'no'}   resume: {args.resume}",
-          file=sys.stderr, flush=True)
-    if args.tier == "quick":
-        print(
-            "  note: 'quick' tier (10 probes) mostly gets blocked by sanitizer / "
-            "trust_boundary / detectors before reaching the LLM.\n"
-            "        Use --tier standard for LLM-meaningful model comparisons "
-            "(slower, thousands of probes).",
-            file=sys.stderr, flush=True,
-        )
+    for c in configs:
+        print(f"    · {c.slug:24s} ({c.description()})", file=sys.stderr)
 
     client = BulwarkClient(args.bulwark, token=args.token)
     try:
         health = client.healthz()
         print(f"  dashboard: v{health.get('version', '?')} (docker={health.get('docker')})",
               file=sys.stderr, flush=True)
-    except Exception as e:
-        print(f"  [ERROR] dashboard unreachable: {e}", file=sys.stderr, flush=True)
+    except Exception as exc:
+        print(f"  [ERROR] dashboard unreachable: {exc}", file=sys.stderr, flush=True)
         return 1
-
-    bypass = tuple(
-        n.strip() for n in (args.bypass_detectors or "").split(",") if n.strip()
-    )
-    if bypass:
-        print(f"  bypass: disabling {', '.join(bypass)} for duration of sweep",
-              file=sys.stderr, flush=True)
 
     runner = BenchRunner(
         client=client,
         run_dir=run_dir,
         tier=args.tier,
-        warmup=not args.no_warmup,
+        configs=configs,
+        judge_base_url=args.judge_base_url,
+        judge_model=args.judge_model,
+        judge_mode=args.judge_mode,
+        judge_api_key=args.judge_api_key,
         resume=args.resume,
         redteam_timeout_s=args.redteam_timeout,
-        bypass_detectors=bypass,
         progress_cb=stderr_progress,
     )
-    results = runner.run_all(models)
+    results = runner.run_all()
 
-    # Write final reports
-    j = render_json(results, tier=args.tier, pricing_version=PRICING_TABLE_VERSION)
+    j = render_json(results, tier=args.tier)
     md = render_markdown(results, tier=args.tier, title=args.title)
     (run_dir / "report.json").write_text(json.dumps(j, indent=2))
     (run_dir / "report.md").write_text(md)

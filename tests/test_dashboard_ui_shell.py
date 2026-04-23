@@ -33,9 +33,9 @@ def _run_pill(store: dict) -> dict:
 
     # Stub LAYERS array (7 entries — matches data.jsx). The pill only reads
     # l.id and the layerConfig keyed by that id.
+    # v2 (ADR-031): four layers — sanitizer, detection, boundary, canary.
     layers_stub = "const LAYERS = " + json.dumps([
-        {"id": "sanitizer"}, {"id": "boundary"}, {"id": "detection"},
-        {"id": "analyze"}, {"id": "bridge"}, {"id": "canary"}, {"id": "execute"},
+        {"id": "sanitizer"}, {"id": "detection"}, {"id": "boundary"}, {"id": "canary"},
     ]) + ";"
 
     # computeStatusPill delegates to activeLayerCount (defined in data.jsx).
@@ -65,12 +65,12 @@ def _run_pill(store: dict) -> dict:
 
 
 def _store(**overrides):
+    """v2 store fixture (ADR-031): no llm; detector status drives the pill."""
     base = {
         "layerConfig": {
-            "sanitizer": True, "boundary": True, "detection": True,
-            "analyze": True, "bridge": True, "canary": True, "execute": True,
+            "sanitizer": True, "detection": True, "boundary": True, "canary": True,
         },
-        "llm": {"mode": "anthropic", "status": "connected"},
+        "detectorStatus": {"protectai": {"status": "ready"}},
         "version": "9.9.9",
     }
     base.update(overrides)
@@ -78,62 +78,31 @@ def _store(**overrides):
 
 
 class TestComputeStatusPill:
-    def test_all_on_connected_returns_ok(self):
-        """G-UI-STATUS-001: all layers on + connected → ok + 'All layers active'."""
+    def test_all_on_ready_returns_ok(self):
+        """G-UI-STATUS-001: all layers on + detector ready → ok."""
         result = _run_pill(_store())
         assert result == {"kind": "ok", "label": "All layers active"}
 
     def test_one_off_returns_warn_with_count(self):
-        """G-UI-STATUS-002: one layer off → warn + '6 of 7 layers active'."""
+        """G-UI-STATUS-002: one layer off → warn + '3 of 4 layers active'."""
         s = _store()
         s["layerConfig"]["sanitizer"] = False
         result = _run_pill(s)
-        assert result == {"kind": "warn", "label": "6 of 7 layers active"}
+        assert result == {"kind": "warn", "label": "3 of 4 layers active"}
 
-    def test_error_mode_not_none_returns_bad(self):
-        """G-UI-STATUS-003: llm.status=error + mode!=none → bad + 'Pipeline unreachable'."""
+    def test_detector_error_returns_bad(self):
+        """G-UI-STATUS-003: detector status=error → bad + 'Detector unreachable'."""
         s = _store()
-        s["llm"] = {"mode": "anthropic", "status": "error"}
+        s["detectorStatus"] = {"protectai": {"status": "error"}}
         result = _run_pill(s)
-        assert result == {"kind": "bad", "label": "Pipeline unreachable"}
+        assert result == {"kind": "bad", "label": "Detector unreachable"}
 
-    def test_loading_returns_warn_connecting(self):
-        """G-UI-STATUS-004: llm.status=loading → warn + 'Connecting…'."""
+    def test_detector_loading_returns_warn(self):
+        """G-UI-STATUS-004: detector status=loading → warn + 'Loading detector…'."""
         s = _store()
-        s["llm"] = {"mode": "anthropic", "status": "loading"}
+        s["detectorStatus"] = {"protectai": {"status": "loading"}}
         result = _run_pill(s)
-        assert result == {"kind": "warn", "label": "Connecting…"}
-
-    def test_mode_none_with_deterministic_layers_on_returns_ok(self):
-        """G-UI-STATUS-006: deterministic layers all on + mode=none → ok."""
-        s = _store()
-        s["llm"] = {"mode": "none", "status": "connected"}
-        # In real use, data.jsx sets analyze/execute false when mode=none;
-        # the pill carve-out treats them as virtually on anyway.
-        s["layerConfig"]["analyze"] = False
-        s["layerConfig"]["execute"] = False
-        result = _run_pill(s)
-        assert result == {"kind": "ok", "label": "All layers active"}
-
-    def test_mode_none_error_status_does_not_trigger_bad(self):
-        """G-UI-STATUS-003 edge case: mode=none + status=error → NOT bad.
-        An explicit sanitize-only configuration cannot be 'unreachable'."""
-        s = _store()
-        s["llm"] = {"mode": "none", "status": "error"}
-        result = _run_pill(s)
-        assert result["kind"] != "bad"
-
-    def test_mode_none_with_deterministic_layer_off_returns_warn(self):
-        """G-UI-STATUS-002 + G-UI-STATUS-006 interaction: mode=none but a
-        deterministic layer is off → warn, with count reflecting the virtual
-        analyze/execute being 'on' (so 6 of 7 rather than 4 of 7)."""
-        s = _store()
-        s["llm"] = {"mode": "none", "status": "connected"}
-        s["layerConfig"]["analyze"] = False  # virtually on via carve-out
-        s["layerConfig"]["execute"] = False  # virtually on via carve-out
-        s["layerConfig"]["sanitizer"] = False  # genuinely off
-        result = _run_pill(s)
-        assert result == {"kind": "warn", "label": "6 of 7 layers active"}
+        assert result == {"kind": "warn", "label": "Loading detector…"}
 
 
 # ---------------------------------------------------------------------------

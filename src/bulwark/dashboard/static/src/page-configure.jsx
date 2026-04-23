@@ -1,4 +1,7 @@
-// Configure page — one readable pipeline (vertical flow), each node = a real control.
+// Configure page (v2.x): pipeline-flow visualization. Each detector is a
+// separate stage. Trust Boundary is shown last (Output formatter — not a
+// defense gate, just response formatting). LLM judge is opt-in, off by
+// default; it carries a latency warning since it adds 1–3s per request.
 
 function PageConfigure({ store }) {
   const [selected, setSelected] = React.useState('sanitizer');
@@ -14,15 +17,17 @@ function PageConfigure({ store }) {
         <div>
           <div className="label">System</div>
           <h2 className="display" style={{fontSize: 28, fontWeight: 600, letterSpacing: '-0.01em', marginTop: 4}}>Configure pipeline</h2>
-          <div className="dim" style={{fontSize: 13, marginTop: 4, maxWidth: 560}}>
-            Content flows top to bottom. Click any stage to configure it. Toggle the switch to remove it from the pipeline.
+          <div className="dim" style={{fontSize: 13, marginTop: 4, maxWidth: 640}}>
+            Untrusted content flows top to bottom through the pipeline, then is returned to the caller.
+            Bulwark never invokes a generative LLM &mdash; it sanitizes, classifies, and wraps. Your application calls <span className="mono">/v1/clean</span>,
+            feeds the safe output to your own LLM, and calls <span className="mono">/v1/guard</span> on the response.
           </div>
         </div>
       </div>
 
-      <div style={{display: 'grid', gridTemplateColumns: '420px 1fr', gap: 28, alignItems: 'start'}}>
+      <div style={{display: 'grid', gridTemplateColumns: '440px 1fr', gap: 28, alignItems: 'start'}}>
         <PipelineFlow store={store} selected={selected} onSelect={setSelected} />
-        <div style={{paddingTop: 72}}>
+        <div style={{paddingTop: 32}}>
           <DetailPane store={store} selected={selected} />
         </div>
       </div>
@@ -30,29 +35,52 @@ function PageConfigure({ store }) {
   );
 }
 
-// Pipeline stages — each has a real ID that maps to store.layerConfig.
-// Colors reference the per-stage tokens in index.html :root (G-UI-TOKENS-002).
 const STAGES = [
-  { id: 'sanitizer', name: 'Sanitizer',         desc: 'Strip hidden chars, steganography, emoji smuggling',  tag: '<1ms',          color: 'var(--stage-sanitizer)' },
-  { id: 'boundary',  name: 'Trust Boundary',    desc: 'Wrap untrusted content in XML boundary tags',         tag: 'deterministic', color: 'var(--stage-boundary)' },
-  { id: 'detection', name: 'Detection',         desc: 'ProtectAI / PromptGuard classifiers',                 tag: '~30ms',         color: 'var(--stage-detection)' },
-  { id: 'analyze',   name: 'Phase 1 — Analyze', desc: 'LLM reads content. No tools available.',              tag: 'LLM',           color: 'var(--stage-analyze)' },
-  { id: 'bridge',    name: 'Bridge Guard',      desc: 'Check Phase 1 output for injection patterns',         tag: 'deterministic', color: 'var(--stage-bridge)' },
-  { id: 'canary',    name: 'Canary Tokens',     desc: 'Detect exfil via embedded tripwire tokens',           tag: 'deterministic', color: 'var(--stage-canary)' },
-  { id: 'execute',   name: 'Phase 2 — Execute', desc: 'LLM acts on analysis. Never sees raw content.',       tag: 'LLM',           color: 'var(--stage-execute)' },
+  { id: 'sanitizer',   name: 'Sanitizer',                  desc: 'Strip hidden chars, steganography, emoji smuggling',                tag: '<1ms',             color: 'var(--stage-sanitizer)' },
+  { id: 'protectai',   name: 'DeBERTa (mandatory)',        desc: 'ProtectAI deberta-v3 classifier; chunked across 512-token windows', tag: '~30ms',            color: 'var(--stage-detection)' },
+  { id: 'promptguard', name: 'PromptGuard (optional)',     desc: 'Meta mDeBERTa second-opinion detector. Requires HF approval.',      tag: '~50ms',            color: 'var(--stage-detection)' },
+  { id: 'llm_judge',   name: 'LLM Judge (optional)',       desc: 'Send sanitized input to your own classifier LLM. High latency.',     tag: '~1\u20133s',       color: 'var(--stage-detection)' },
+  { id: 'boundary',    name: 'Trust Boundary',             desc: 'Wrap cleaned content in XML boundary tags',                         tag: 'Output formatter', color: 'var(--stage-boundary)' },
 ];
 
-function PipelineFlow({ store, selected, onSelect }) {
-  const needsSetup = (id) => {
-    if (id === 'analyze' || id === 'execute') return store.llm.status !== 'connected';
-    if (id === 'detection') return !Object.values(store.integrations).some(v => v === 'active');
-    return false;
+function _stageWiring(store, id) {
+  const detEvents24h = store.events.filter(
+    e => e.layer === 'detection' && Date.now() - e.ts < 24 * 3600 * 1000,
+  ).length;
+  if (id === 'protectai') {
+    const det = (store.detectorStatus && store.detectorStatus.protectai) || {};
+    return { on: true, togglable: false, onToggle: () => {}, needsAttention: det.status === 'error', stats: detEvents24h };
+  }
+  if (id === 'promptguard') {
+    const det = (store.detectorStatus && store.detectorStatus.promptguard) || {};
+    const active = store.integrations.promptguard === 'active';
+    return {
+      on: active, togglable: true,
+      onToggle: () => BulwarkStore.setIntegration('promptguard', active ? 'available' : 'active'),
+      needsAttention: det.status === 'error',
+      stats: detEvents24h,
+    };
+  }
+  if (id === 'llm_judge') {
+    const j = store.judge || {};
+    return {
+      on: !!j.enabled,
+      togglable: true,
+      onToggle: () => BulwarkStore.setJudgeEnabled(!j.enabled),
+      needsAttention: !!j.enabled && (!j.base_url || !j.model),
+      stats: detEvents24h,
+    };
+  }
+  return {
+    on: !!store.layerConfig[id],
+    togglable: true,
+    onToggle: () => BulwarkStore.toggleLayer(id),
+    needsAttention: false,
+    stats: store.events.filter(e => e.layer === id && Date.now() - e.ts < 24 * 3600 * 1000).length,
   };
+}
 
-  // Phase 1 and Phase 2 share the LLM backend — visually bracket them.
-  const isLLMStage = (id) => id === 'analyze' || id === 'execute';
-  const llmSelected = selected === 'analyze' || selected === 'execute';
-
+function PipelineFlow({ store, selected, onSelect }) {
   return (
     <div style={{position: 'relative'}}>
       <div style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '0 4px'}}>
@@ -63,40 +91,20 @@ function PipelineFlow({ store, selected, onSelect }) {
 
       <div style={{display: 'flex', flexDirection: 'column', gap: 0, position: 'relative'}}>
         <FlowEndpoint label="Untrusted content" role="in" />
-        {STAGES.map((stage, i) => {
-          const prev = STAGES[i - 1];
-          const next = STAGES[i + 1];
-          const inLLMGroup = isLLMStage(stage.id);
-          const prevInGroup = prev && isLLMStage(prev.id);
-          const nextInGroup = next && isLLMStage(next.id);
-          const grouped = inLLMGroup ? (prevInGroup ? (nextInGroup ? 'mid' : 'bot') : (nextInGroup ? 'top' : null)) : null;
-
+        {STAGES.map((stage) => {
+          const w = _stageWiring(store, stage.id);
           return (
             <React.Fragment key={stage.id}>
-              {!prevInGroup || !inLLMGroup ? (
-                <FlowConnector active={store.layerConfig[stage.id]} />
-              ) : null}
-              {grouped === 'top' && (
-                <div style={{
-                  marginBottom: -1, padding: '6px 14px 8px',
-                  background: 'var(--surface)', border: '1px solid var(--border)',
-                  borderBottom: 'none', borderRadius: '10px 10px 0 0',
-                  display: 'flex', alignItems: 'center', gap: 8,
-                }}>
-                  <span className="label" style={{fontSize: 10, color: 'var(--stage-analyze)'}}>Shared LLM backend</span>
-                  <span style={{flex: 1, height: 1, background: 'var(--hairline)'}}/>
-                  <span className="dim" style={{fontSize: 10.5}}>configures both phases</span>
-                </div>
-              )}
+              <FlowConnector active={w.on} />
               <FlowNode
                 stage={stage}
-                on={store.layerConfig[stage.id]}
+                on={w.on}
+                togglable={w.togglable}
                 isSelected={selected === stage.id}
                 onSelect={() => onSelect(stage.id)}
-                onToggle={() => BulwarkStore.toggleLayer(stage.id)}
-                stats={store.events.filter(e => e.layer === stage.id && Date.now() - e.ts < 24*3600*1000).length}
-                needsAttention={needsSetup(stage.id)}
-                grouped={grouped}
+                onToggle={w.onToggle}
+                stats={w.stats}
+                needsAttention={w.needsAttention}
               />
             </React.Fragment>
           );
@@ -132,14 +140,14 @@ function FlowConnector({ active }) {
   );
 }
 
-function FlowNode({ stage, on, isSelected, onSelect, onToggle, stats, needsAttention, grouped }) {
+function FlowNode({ stage, on, togglable, isSelected, onSelect, onToggle, stats, needsAttention }) {
   const [hover, setHover] = React.useState(false);
   return (
     <button onClick={onSelect} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{
       display: 'grid', gridTemplateColumns: 'auto auto 1fr auto auto auto',
       gap: 12, alignItems: 'center',
       padding: '14px 14px 14px 0', textAlign: 'left',
-      background: isSelected ? 'var(--surface-2)' : (hover ? 'var(--surface)' : 'var(--surface)'),
+      background: isSelected ? 'var(--surface-2)' : 'var(--surface)',
       border: '1px solid ' + (isSelected ? `color-mix(in srgb, ${stage.color} 50%, transparent)` : (hover && on ? 'var(--border-2)' : 'var(--border)')),
       borderRadius: 10,
       opacity: on ? 1 : 0.6,
@@ -147,11 +155,6 @@ function FlowNode({ stage, on, isSelected, onSelect, onToggle, stats, needsAtten
       cursor: 'pointer',
       boxShadow: isSelected ? `0 0 0 3px color-mix(in srgb, ${stage.color} 13%, transparent), inset 3px 0 0 ${stage.color}` : (hover ? 'inset 3px 0 0 var(--border-2)' : 'inset 3px 0 0 transparent'),
       position: 'relative',
-      borderTopLeftRadius: grouped === 'top' ? 10 : (grouped === 'mid' || grouped === 'bot' ? 0 : 10),
-      borderTopRightRadius: grouped === 'top' ? 10 : (grouped === 'mid' || grouped === 'bot' ? 0 : 10),
-      borderBottomLeftRadius: grouped === 'bot' ? 10 : (grouped === 'mid' || grouped === 'top' ? 0 : 10),
-      borderBottomRightRadius: grouped === 'bot' ? 10 : (grouped === 'mid' || grouped === 'top' ? 0 : 10),
-      borderTop: grouped === 'mid' || grouped === 'bot' ? '1px solid var(--hairline)' : undefined,
     }}>
       <span style={{width: 16}}/>
       <span style={{
@@ -176,38 +179,25 @@ function FlowNode({ stage, on, isSelected, onSelect, onToggle, stats, needsAtten
         transform: isSelected ? 'translateX(2px)' : (hover ? 'translateX(1px)' : 'none'),
         width: 14, textAlign: 'center',
       }}>›</span>
-      <div onClick={(e) => { e.stopPropagation(); onToggle(); }}>
-        <Toggle on={on} onClick={() => {}} size="sm" />
-      </div>
+      {togglable ? (
+        <div onClick={(e) => { e.stopPropagation(); onToggle(); }}>
+          <Toggle on={on} onClick={() => {}} size="sm" />
+        </div>
+      ) : (
+        <span className="pill" style={{fontSize: 10, padding: '2px 8px', background: 'var(--accent-soft)', color: 'var(--accent-ink)', borderRadius: 999, letterSpacing: '0.05em', textTransform: 'uppercase', fontWeight: 600}}>Required</span>
+      )}
     </button>
   );
 }
 
-// -----------------------------------------------------------------------------
-// Detail pane — context-dependent on selected stage
-// -----------------------------------------------------------------------------
 function DetailPane({ store, selected }) {
   const stage = STAGES.find(s => s.id === selected);
   if (!stage) return null;
-
-  // LLM stages use the LLM backend panel
-  if (selected === 'analyze' || selected === 'execute') {
-    return <LLMBackendPane store={store} selected={selected} stage={stage} />;
-  }
-  if (selected === 'detection') {
-    return <DetectionPane store={store} stage={stage} />;
-  }
-  if (selected === 'sanitizer') {
-    return <SanitizerPane store={store} stage={stage} />;
-  }
-  if (selected === 'bridge') {
-    return <BridgePane store={store} stage={stage} />;
-  }
-  if (selected === 'canary') {
-    return <CanaryPane store={store} stage={stage} />;
-  }
-  // Default (boundary)
-  return <GenericPane stage={stage} />;
+  if (selected === 'sanitizer')   return <SanitizerPane store={store} stage={stage} />;
+  if (selected === 'protectai')   return <DetectorPane store={store} stage={stage} id="protectai"   mandatory />;
+  if (selected === 'promptguard') return <DetectorPane store={store} stage={stage} id="promptguard" />;
+  if (selected === 'llm_judge')   return <LLMJudgePane store={store} stage={stage} />;
+  return <BoundaryPane store={store} stage={stage} />;
 }
 
 function DetailHeader({ stage, children }) {
@@ -227,10 +217,7 @@ function DetailHeader({ stage, children }) {
 
 function SubToggle({ name, desc, on, onToggle }) {
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 14,
-      padding: '12px 0', borderBottom: '1px solid var(--hairline)',
-    }}>
+    <div style={{display: 'flex', alignItems: 'center', gap: 14, padding: '12px 0', borderBottom: '1px solid var(--hairline)'}}>
       <div style={{flex: 1}}>
         <div style={{fontSize: 13, fontWeight: 500}}>{name}</div>
         <div className="dim" style={{fontSize: 12, marginTop: 2}}>{desc}</div>
@@ -259,550 +246,197 @@ function SanitizerPane({ store, stage }) {
   );
 }
 
-function BridgePane({ store, stage }) {
-  // Patterns come from store.guardPatterns (populated from /api/config.guard_patterns).
-  // Live hit counts aren't aggregated yet — we show no count rather than fake one
-  // (NG-UI-CONFIG-002).
-  const patterns = Array.isArray(store.guardPatterns) ? store.guardPatterns : [];
-  return (
-    <div className="card" style={{padding: 0}}>
-      <DetailHeader stage={stage}/>
-      <div style={{padding: '8px 24px 22px'}}>
-        <SubToggle name="Require JSON" desc="Enforce valid JSON output from Phase 1"
-          on={store.layerConfig.require_json} onToggle={() => BulwarkStore.toggleLayer('require_json')}/>
-        <div style={{padding: '14px 0'}}>
-          <div className="label" style={{marginBottom: 6}}>Block patterns <span className="mono dim" style={{marginLeft: 8, letterSpacing: 0, textTransform: 'none', fontSize: 11}}>{patterns.length}</span></div>
-          <div className="dim" style={{fontSize: 12, marginBottom: 10}}>Regex patterns that block Phase 1 output from reaching Phase 2. Configure via <span className="mono">bulwark-config.yaml</span>.</div>
-          {patterns.length === 0 ? (
-            <div className="empty-slate" style={{padding: 20, border: '1px dashed var(--border)', borderRadius: 8, fontSize: 12}}>
-              No guard patterns configured.
-            </div>
-          ) : (
-            <div style={{background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 8, padding: 4, fontFamily: 'var(--font-mono)', fontSize: 11.5, maxHeight: 260, overflow: 'auto'}}>
-              {patterns.map((p, i) => (
-                <div key={i} style={{display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderBottom: i < patterns.length - 1 ? '1px solid var(--hairline)' : 'none'}}>
-                  <span style={{flex: 1, color: 'var(--amber)', wordBreak: 'break-all'}}>{p}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+function DetectorPane({ store, stage, id, mandatory }) {
+  const meta = {
+    protectai: {
+      huggingface: 'protectai/deberta-v3-base-prompt-injection-v2',
+      latency: '~30ms', size: '180MB',
+      blurb: 'Ungated, loads on the first /v1/clean call after install. Inputs over 512 tokens are split into overlapping windows (ADR-032) so the detector sees the entire payload.',
+    },
+    promptguard: {
+      huggingface: 'meta-llama/Prompt-Guard-86M',
+      latency: '~50ms', size: '184MB',
+      blurb: 'Meta\u2019s mDeBERTa second-opinion detector. Requires HuggingFace approval; once enabled, weights download on first use and the detector runs alongside DeBERTa.',
+    },
+  }[id];
 
-// G-CANARY-011: Canary panel is a real form — add (with shape generator) and remove
-// via POST/DELETE /api/canaries. ADR-025.
-function CanaryPane({ store, stage }) {
-  const tokens = store.canaryTokens && typeof store.canaryTokens === 'object' ? store.canaryTokens : {};
-  const entries = Object.entries(tokens);
-  const [label, setLabel] = React.useState('');
-  const [shape, setShape] = React.useState('aws');
-  const [token, setToken] = React.useState('');
-  const [useLiteral, setUseLiteral] = React.useState(false);
-  const [busy, setBusy] = React.useState(false);
-  const [error, setError] = React.useState('');
-
-  async function addCanary(e) {
-    if (e) e.preventDefault();
-    setError('');
-    if (!label.trim()) { setError('Label is required.'); return; }
-    const body = { label: label.trim() };
-    if (useLiteral) {
-      if (token.length < 8) { setError('Token must be at least 8 characters.'); return; }
-      body.token = token;
-    } else {
-      body.shape = shape;
-    }
-    setBusy(true);
-    try {
-      const resp = await fetch('/api/canaries', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!resp.ok) {
-        const j = await resp.json().catch(() => ({}));
-        setError(j.error || `${resp.status} ${resp.statusText}`);
-        return;
-      }
-      setLabel(''); setToken(''); setUseLiteral(false);
-      BulwarkStore.refreshConfig();
-    } finally { setBusy(false); }
-  }
-
-  async function removeCanary(key) {
-    setBusy(true);
-    try {
-      await fetch('/api/canaries/' + encodeURIComponent(key), { method: 'DELETE' });
-      BulwarkStore.refreshConfig();
-    } finally { setBusy(false); }
-  }
-
-  const shapeHints = {
-    aws: 'AKIA + 16 uppercase alphanumeric',
-    bearer: 'tk_live_ + 32 hex chars',
-    password: '18+ chars, upper + lower + digit + symbol',
-    url: 'https://admin-xxx.infra.internal/v1/keys/…',
-    mongo: 'mongodb+srv://svc_xxx:pw@cluster…',
-  };
+  const det = (store.detectorStatus && store.detectorStatus[id]) || { status: 'available' };
+  const isActive = store.integrations[id] === 'active';
+  let pillKind = 'warn', pillLabel = 'Available';
+  if (det.status === 'loading') { pillKind = 'warn'; pillLabel = 'Loading\u2026'; }
+  else if (det.status === 'error') { pillKind = 'bad'; pillLabel = 'Error'; }
+  else if (det.status === 'ready' || isActive) { pillKind = 'ok'; pillLabel = 'Ready'; }
 
   return (
     <div className="card" style={{padding: 0}}>
-      <DetailHeader stage={stage}/>
-      <div style={{padding: '8px 24px 22px'}}>
-        <SubToggle name="Encoding-resistant variants" desc="Check base64, hex, reversed, case-insensitive"
-          on={store.layerConfig.encoding_canaries} onToggle={() => BulwarkStore.toggleLayer('encoding_canaries')}/>
-
-        <div style={{padding: '14px 0'}}>
-          <div className="label" style={{marginBottom: 10}}>
-            Active canaries
-            <span className="mono dim" style={{marginLeft: 8, letterSpacing: 0, textTransform: 'none', fontSize: 11}}>{entries.length} token{entries.length === 1 ? '' : 's'}</span>
-          </div>
-
-          {entries.length === 0 ? (
-            <div className="empty-slate" style={{padding: 20, border: '1px dashed var(--border)', borderRadius: 8, fontSize: 12, marginBottom: 14}}>
-              No canary tokens configured. Add one below.
-            </div>
-          ) : (
-            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14}}>
-              {entries.map(([src, tok]) => (
-                <div key={src} style={{padding: 12, background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 8, position: 'relative'}}>
-                  <button type="button" onClick={() => removeCanary(src)} disabled={busy}
-                    aria-label={`Remove canary ${src}`}
-                    style={{position: 'absolute', top: 6, right: 8, background: 'transparent', border: 0, color: 'var(--text-2)', cursor: 'pointer', fontSize: 14}}>×</button>
-                  <div className="label" style={{marginBottom: 4}}>{src}</div>
-                  <div className="mono" style={{fontSize: 11, color: 'var(--amber)', wordBreak: 'break-all', paddingRight: 16}}>{tok}</div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <form onSubmit={addCanary} style={{padding: 14, border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg-1)'}}>
-            <div className="label" style={{marginBottom: 10}}>Add canary</div>
-            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10}}>
-              <label style={{display: 'flex', flexDirection: 'column', gap: 4}}>
-                <span className="dim" style={{fontSize: 11}}>Label</span>
-                <input type="text" value={label} onChange={(e) => setLabel(e.target.value)}
-                  placeholder="e.g. prod_admin_url" maxLength={64}
-                  style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12}}/>
-              </label>
-              <label style={{display: 'flex', flexDirection: 'column', gap: 4}}>
-                <span className="dim" style={{fontSize: 11}}>
-                  Source <button type="button" onClick={() => setUseLiteral(v => !v)}
-                    style={{marginLeft: 6, background: 'transparent', border: 0, color: 'var(--accent-ink)', cursor: 'pointer', fontSize: 11, textDecoration: 'underline'}}>
-                    {useLiteral ? 'use generator' : 'paste literal'}
-                  </button>
-                </span>
-                {useLiteral ? (
-                  <input type="text" value={token} onChange={(e) => setToken(e.target.value)}
-                    placeholder="Paste a canary string (≥ 8 chars)"
-                    style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12}}/>
-                ) : (
-                  <select value={shape} onChange={(e) => setShape(e.target.value)}
-                    style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12}}>
-                    {Object.keys(shapeHints).map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                )}
-              </label>
-            </div>
-            {!useLiteral && (
-              <div className="dim" style={{fontSize: 11, marginBottom: 10}}>
-                Generates: {shapeHints[shape]}
-              </div>
-            )}
-            {error && (
-              <div style={{fontSize: 11, color: 'var(--red)', marginBottom: 10}}>{error}</div>
-            )}
-            <button type="submit" disabled={busy}
-              style={{padding: '6px 14px', background: 'var(--accent-ink)', color: 'var(--bg-0)', border: 0, borderRadius: 6, cursor: busy ? 'wait' : 'pointer', fontSize: 12, fontWeight: 600}}>
-              {busy ? 'Saving…' : 'Add canary'}
-            </button>
-          </form>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DetectionPane({ store, stage }) {
-  const items = [
-    { id: 'protectai', name: 'ProtectAI DeBERTa', desc: 'Prompt injection classifier. Ungated. Recommended default.', latency: '~30ms', size: '180MB' },
-    { id: 'promptguard', name: 'PromptGuard-86M', desc: "Meta's mDeBERTa classifier. Requires HuggingFace approval.", latency: '~50ms', size: '86M params' },
-  ];
-  // Sort: active first.
-  const sorted = [...items].sort((a, b) => {
-    const aOn = store.integrations[a.id] === 'active' ? 0 : 1;
-    const bOn = store.integrations[b.id] === 'active' ? 0 : 1;
-    return aOn - bOn;
-  });
-  const anyActive = sorted.some(it => store.integrations[it.id] === 'active');
-
-  return (
-    <div className="card" style={{padding: 0}}>
-      <DetailHeader stage={stage}/>
-      <div style={{padding: '14px 24px 22px'}}>
-        <div className="dim" style={{fontSize: 12.5, marginBottom: 14}}>Detection models run in parallel; any positive classification blocks the request before it reaches the LLM.</div>
-
-        <div className="label" style={{marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8}}>
-          <span>In use</span>
-          <span style={{flex: 1, height: 1, background: 'var(--hairline)'}}/>
-        </div>
-        {sorted.filter(it => store.integrations[it.id] === 'active').map(it => (
-          <DetectionCard key={it.id} item={it} active={true} onToggle={() => BulwarkStore.setIntegration(it.id, 'available')}/>
-        ))}
-        {!anyActive && (
-          <div style={{padding: 14, marginBottom: 14, background: 'var(--amber-soft)', border: '1px dashed var(--amber-line)', borderRadius: 10, fontSize: 12.5, color: 'var(--amber)'}}>
-            No detection model active — activate one below to enable this stage.
-          </div>
-        )}
-
-        <div className="label" style={{marginTop: 18, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8}}>
-          <span>Available</span>
-          <span style={{flex: 1, height: 1, background: 'var(--hairline)'}}/>
-        </div>
-        {sorted.filter(it => store.integrations[it.id] !== 'active').map(it => (
-          <DetectionCard key={it.id} item={it} active={false} onToggle={() => BulwarkStore.setIntegration(it.id, 'active')}/>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function DetectionCard({ item, active, onToggle }) {
-  return (
-    <div style={{
-      padding: 14, marginBottom: 10,
-      background: active ? 'var(--surface-2)' : 'var(--bg-2)',
-      border: '1px solid ' + (active ? 'var(--accent-line)' : 'var(--border)'),
-      borderRadius: 10,
-      display: 'grid', gridTemplateColumns: '1fr auto', gap: 14, alignItems: 'center',
-      boxShadow: active ? '0 0 0 2px var(--accent-soft)' : 'none',
-      opacity: active ? 1 : 0.85,
-    }}>
-      <div>
-        <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
-          <span style={{fontSize: 13.5, fontWeight: 600}}>{item.name}</span>
-          {active && <span className="pill ok" style={{fontSize: 10.5}}><Dot kind="green" size={5}/> Active</span>}
-        </div>
-        <div className="dim" style={{fontSize: 12, marginTop: 2, lineHeight: 1.45}}>{item.desc}</div>
-        <div className="dim mono" style={{fontSize: 11, marginTop: 6}}>{item.latency} · {item.size}</div>
-      </div>
-      <button className={'btn ' + (active ? '' : 'btn-primary')} onClick={onToggle}>
-        {active ? 'Disable' : 'Activate'}
-      </button>
-    </div>
-  );
-}
-
-function LLMBackendPane({ store, selected, stage }) {
-  const modes = [
-    { id: 'none', name: 'Sanitize only', desc: 'Deterministic layers only' },
-    { id: 'anthropic', name: 'Anthropic', desc: 'Claude via Anthropic SDK' },
-    { id: 'openai_compatible', name: 'OpenAI compatible', desc: 'Ollama, vLLM, any endpoint' },
-  ];
-
-  // Editable fields — staged locally so the user can edit without saving on every keystroke.
-  const [apiKey, setApiKey] = React.useState('');
-  const [baseUrl, setBaseUrl] = React.useState(store.llm.baseUrl || '');
-  const [analyzeModel, setAnalyzeModel] = React.useState(store.llm.analyzeModel || '');
-  const [executeModel, setExecuteModel] = React.useState(store.llm.executeModel || '');
-
-  // Sync local inputs to store on mode changes.
-  React.useEffect(() => {
-    setBaseUrl(store.llm.baseUrl || '');
-    setAnalyzeModel(store.llm.analyzeModel || '');
-    setExecuteModel(store.llm.executeModel || '');
-    setApiKey('');
-  }, [store.llm.mode, store.llm.baseUrl, store.llm.analyzeModel, store.llm.executeModel]);
-
-  // Populate model list whenever mode or base_url changes — G-UI-CONFIG-002.
-  React.useEffect(() => {
-    if (store.llm.mode !== 'none') BulwarkStore.fetchModels();
-  }, [store.llm.mode, store.llm.baseUrl]);
-
-  // An env var sets the default source for a field. The UI stays editable —
-  // users can override for the current session (in-memory), and the env value
-  // is restored on dashboard restart. save() always sends every field the user
-  // edited; the backend skips only empty-string updates to env-shadowed fields
-  // (G-ENV-012), so blanks don't clobber defaults.
-  const envOverrides = store.llm.envOverrides || {};
-  const envDefault = (field) => envOverrides[field];
-
-  const save = () => {
-    const patch = {
-      analyzeModel,
-      executeModel,
-      baseUrl,
-    };
-    if (apiKey) patch.apiKey = apiKey;
-    BulwarkStore.setLlm(patch);
-  };
-
-  // Small badge + env-var hint for fields the user can still override.
-  const EnvBadge = ({ envVar }) => (
-    <span className="pill warn" data-hint={`Default from ${envVar}. Edits override for this session.`}
-      style={{fontSize: 10, padding: '1px 7px', letterSpacing: '0.08em'}}>ENV</span>
-  );
-
-  return (
-    <div className="card" style={{padding: 0}}>
-      <div style={{padding: '22px 24px 18px', borderBottom: '1px solid var(--border)'}}>
-        <div className="label" style={{color: stage.color}}>Stage settings · Phase 1 + Phase 2</div>
-        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 6, gap: 14}}>
-          <div>
-            <h3 style={{fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em'}}>LLM backend</h3>
-            <div className="dim" style={{fontSize: 13, marginTop: 4, maxWidth: 520}}>Shared by both Phase 1 (analyze) and Phase 2 (execute). You can pick different models per phase below.</div>
-          </div>
-          {store.llm.status === 'loading' ? (
-            <span className="pill warn"><Dot kind="warn" size={6}/> Testing…</span>
-          ) : store.llm.status === 'connected' ? (
-            <span className="pill ok"><Dot kind="green" size={6}/> {store.llm.mode === 'none' ? 'Sanitize-only' : 'Connected'}</span>
-          ) : (
-            <span className="pill bad"><Dot kind="bad" size={6}/> Unreachable</span>
-          )}
-        </div>
-      </div>
-
+      <DetailHeader stage={stage}>
+        <StatusPill kind={pillKind} label={pillLabel} compact />
+      </DetailHeader>
       <div style={{padding: '18px 24px 22px'}}>
-        {/* ─── SHARED BY BOTH PHASES ─── */}
-        <div className="label" data-section="shared"
-          style={{color: 'var(--accent)', marginBottom: 12, fontSize: 10.5, letterSpacing: '0.14em'}}>
-          Shared by both phases
+        <div className="dim" style={{fontSize: 13, lineHeight: 1.5}}>{meta.blurb}</div>
+        <div style={{marginTop: 14, display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 16px', fontSize: 12}}>
+          <span className="dim">Model</span><span className="mono">{meta.huggingface}</span>
+          <span className="dim">Latency</span><span className="mono">{meta.latency}</span>
+          <span className="dim">Size</span><span className="mono">{meta.size}</span>
         </div>
-
-        <div className="label" style={{marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8}}>
-          <span>Backend</span>
-          {envDefault('mode') && <EnvBadge envVar="BULWARK_LLM_MODE"/>}
-        </div>
-        <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: envDefault('mode') ? 6 : 18}}>
-          {modes.map(m => {
-            const active = store.llm.mode === m.id;
-            return (
-              <button key={m.id}
-                onClick={() => BulwarkStore.setLlm({mode: m.id})}
-                style={{
-                  padding: 12, borderRadius: 8, textAlign: 'left',
-                  background: active ? 'var(--accent-soft)' : 'var(--bg-2)',
-                  border: '1px solid ' + (active ? 'var(--accent-line)' : 'var(--border)'),
-                  cursor: 'pointer',
-                }}>
-                <div style={{fontSize: 12.5, fontWeight: 600, color: active ? 'var(--accent)' : 'var(--text)'}}>
-                  {m.name} {active && '✓'}
-                </div>
-                <div className="dim" style={{fontSize: 11, marginTop: 2, lineHeight: 1.4}}>{m.desc}</div>
-              </button>
-            );
-          })}
-        </div>
-        {envDefault('mode') && (
-          <div className="dim" style={{fontSize: 11, marginBottom: 18}}>
-            Env default: <span className="mono">BULWARK_LLM_MODE</span>. Your selection overrides for this session.
+        {det.status === 'error' && (
+          <div style={{marginTop: 14, padding: 10, background: 'var(--red-soft)', color: 'var(--red)', borderRadius: 6, fontSize: 12}}>
+            {det.message || 'Failed to load \u2014 check the server log.'}
           </div>
         )}
-
-        {store.llm.mode !== 'none' && (
-          <>
-            {store.llm.mode === 'openai_compatible' && (
-              <div style={{marginBottom: 14}}>
-                <div className="label" style={{marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8}}>
-                  <span>Base URL</span>
-                  {envDefault('base_url') && <EnvBadge envVar="BULWARK_BASE_URL"/>}
-                </div>
-                <input className="input" value={baseUrl} onChange={e => setBaseUrl(e.target.value)}
-                  placeholder="http://localhost:1234/v1"
-                  style={{fontFamily: 'var(--font-mono)', fontSize: 12.5}}/>
-                {envDefault('base_url') && (
-                  <div className="dim" style={{fontSize: 11, marginTop: 4}}>
-                    Env default: <span className="mono">BULWARK_BASE_URL</span>. Edit to override for this session.
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div style={{marginBottom: 22}}>
-              <div className="label" style={{marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8}}>
-                <span>API Key</span>
-                {envDefault('api_key') && <EnvBadge envVar="BULWARK_API_KEY"/>}
-              </div>
-              <input className="input" type="password"
-                value={apiKey} onChange={e => setApiKey(e.target.value)}
-                placeholder={store.llm.apiKeySet ? store.llm.apiKeyPreview : 'Paste API key'}
-                style={{fontFamily: 'var(--font-mono)'}}/>
-              <div className="dim" style={{fontSize: 11, marginTop: 4}}>
-                {envDefault('api_key')
-                  ? <>Env default: <span className="mono">BULWARK_API_KEY</span> ({store.llm.apiKeyPreview || '•••'}). Type a new key to override for this session — env restores on restart.</>
-                  : <>Set <span className="mono">BULWARK_API_KEY</span> env var for persistence across restarts.</>}
-              </div>
-            </div>
-
-            {/* ─── PER PHASE ─── */}
-            <div className="label" data-section="per-phase"
-              style={{color: 'var(--stage-analyze)', marginBottom: 12, fontSize: 10.5, letterSpacing: '0.14em'}}>
-              Per phase
-            </div>
-            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 18}}>
-              <PhaseCard
-                phaseId="analyze"
-                selected={selected === 'analyze'}
-                model={analyzeModel}
-                onChangeModel={setAnalyzeModel}
-                models={store.models}
-                modelsLoading={store.modelsLoading}
-                envDefault={envDefault('analyze_model')}
-                envVar="BULWARK_ANALYZE_MODEL"
-              />
-              <PhaseCard
-                phaseId="execute"
-                selected={selected === 'execute'}
-                model={executeModel}
-                onChangeModel={setExecuteModel}
-                models={store.models}
-                modelsLoading={store.modelsLoading}
-                envDefault={envDefault('execute_model')}
-                envVar="BULWARK_EXECUTE_MODEL"
-              />
-            </div>
-
-            <div style={{display: 'flex', gap: 8, alignItems: 'center'}}>
-              {/* G-UI-CONFIG-TEST-CONNECTION: button fires testConnection()
-                  with the current in-form values (not just the saved config)
-                  so the user can validate edits before Save. Renders a
-                  spinner while in flight, a tick or cross after — see
-                  TestConnectionStatus below. */}
-              <button className="btn" onClick={() => BulwarkStore.testConnection({
-                mode: store.llm.mode,
-                base_url: baseUrl,
-                analyze_model: analyzeModel,
-                execute_model: executeModel,
-                api_key: apiKey || undefined,
-              })} disabled={store.llm.status === 'loading'}>
-                {store.llm.status === 'loading' ? (
-                  <>
-                    <span aria-hidden="true" style={{
-                      width: 10, height: 10, border: '1.5px solid var(--accent-ink-soft)',
-                      borderTopColor: 'var(--accent-ink)', borderRadius: '50%',
-                      display: 'inline-block', marginRight: 6, verticalAlign: '-2px',
-                      animation: 'spin 0.8s linear infinite',
-                    }}/>
-                    Testing…
-                  </>
-                ) : 'Test connection'}
-              </button>
-              <TestConnectionStatus status={store.llm.status} result={store.llmTestResult}/>
-              <button className="btn btn-primary" style={{marginLeft: 'auto'}}
-                onClick={save}>Save</button>
-            </div>
-          </>
+        {!mandatory && (
+          <div style={{marginTop: 18, display: 'flex', alignItems: 'center', gap: 12}}>
+            <button className="btn"
+              onClick={() => BulwarkStore.setIntegration(id, isActive ? 'available' : 'active')}
+              disabled={det.status === 'loading'}
+              style={{fontSize: 12}}>
+              {det.status === 'loading' ? 'Loading\u2026' : (isActive ? 'Disable' : 'Enable')}
+            </button>
+            <span className="dim" style={{fontSize: 11.5}}>
+              Toggling this here is the same as flipping the inline switch in the pipeline.
+            </span>
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-// One phase card — "Phase N · Verb" header + description + MODEL dropdown
-// stacked inline. Highlights via accent when selected from the pipeline flow.
-function PhaseCard({ phaseId, selected, model, onChangeModel, models, modelsLoading, envDefault, envVar }) {
-  const meta = phaseId === 'analyze'
-    ? { num: 1, verb: 'Analyze', desc: 'Reads untrusted content · no tools', token: 'var(--stage-analyze)' }
-    : { num: 2, verb: 'Execute', desc: 'Acts on analysis · never sees raw', token: 'var(--stage-execute)' };
-  return (
-    <div data-phase={phaseId} style={{
-      padding: 14,
-      background: selected ? 'var(--accent-soft)' : 'var(--bg-2)',
-      border: '1px solid ' + (selected ? 'var(--accent-line)' : 'var(--border)'),
-      borderRadius: 10,
-      transition: 'all 0.15s',
-    }}>
-      <div className="label" style={{fontSize: 10, color: meta.token, display: 'flex', alignItems: 'center', gap: 8}}>
-        <span>Phase {meta.num} · {meta.verb}</span>
-        {envDefault && <EnvBadgeStatic envVar={envVar}/>}
-      </div>
-      <div className="dim" style={{fontSize: 12, marginTop: 4, lineHeight: 1.4}}>{meta.desc}</div>
+// LLM Judge — opt-in third detector (ADR-033). Off by default. Adds 1\u20133s
+// latency per request when enabled.
+function LLMJudgePane({ store, stage }) {
+  const j = store.judge || {};
+  const [busy, setBusy] = React.useState(false);
+  const [draft, setDraft] = React.useState({
+    base_url: j.base_url || '',
+    model: j.model || '',
+    api_key: '',
+    threshold: j.threshold ?? 0.85,
+    fail_open: j.fail_open ?? true,
+    mode: j.mode || 'openai_compatible',
+  });
+  React.useEffect(() => {
+    setDraft(d => ({...d,
+      base_url: j.base_url || '',
+      model: j.model || '',
+      threshold: j.threshold ?? 0.85,
+      fail_open: j.fail_open ?? true,
+      mode: j.mode || 'openai_compatible',
+    }));
+  }, [j.base_url, j.model, j.threshold, j.fail_open, j.mode]);
 
-      <div className="label" style={{marginTop: 14, marginBottom: 6, fontSize: 10}}>Model</div>
-      <ModelDropdown
-        value={model}
-        onChange={onChangeModel}
-        models={models}
-        loading={modelsLoading}
-        phase={phaseId}
-      />
-      {envDefault && (
-        <div className="dim" style={{fontSize: 11, marginTop: 6}}>
-          Env default: <span className="mono">{envVar}</span>
+  async function save() {
+    setBusy(true);
+    try {
+      const patch = {
+        mode: draft.mode,
+        base_url: draft.base_url,
+        model: draft.model,
+        threshold: parseFloat(draft.threshold) || 0.85,
+        fail_open: !!draft.fail_open,
+      };
+      if (draft.api_key && !draft.api_key.includes('...')) patch.api_key = draft.api_key;
+      await BulwarkStore.setJudgeConfig(patch);
+      setDraft(d => ({...d, api_key: ''}));
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="card" style={{padding: 0}}>
+      <DetailHeader stage={stage}>
+        <StatusPill
+          kind={j.enabled ? 'ok' : 'warn'}
+          label={j.enabled ? 'Enabled' : 'Disabled'}
+          compact />
+      </DetailHeader>
+      <div style={{padding: '14px 24px 22px'}}>
+        <div style={{padding: 12, background: 'var(--amber-soft)', color: 'var(--amber)', border: '1px solid var(--amber-line)', borderRadius: 8, fontSize: 12.5, lineHeight: 1.5, marginBottom: 16}}>
+          <strong>High-latency option.</strong> The LLM judge adds ~1\u20133 seconds per /v1/clean request. Enable it only when DeBERTa + PromptGuard miss attacks specific to your domain. Bulwark&rsquo;s standard red-team scan (3,112 probes) achieves 100% defense without it.
         </div>
-      )}
+
+        <div className="dim" style={{fontSize: 13, lineHeight: 1.5, marginBottom: 14}}>
+          Sends sanitized input to your endpoint with a fixed classifier prompt and parses the verdict.
+          Detection only &mdash; the LLM&rsquo;s raw output never reaches /v1/clean callers (G-JUDGE-007, NG-JUDGE-004).
+          The classifier prompt is fixed in code (NG-JUDGE-003).
+        </div>
+
+        <div style={{display: 'grid', gridTemplateColumns: '1fr', gap: 10, marginBottom: 14}}>
+          <label style={{display: 'flex', flexDirection: 'column', gap: 4}}>
+            <span className="dim" style={{fontSize: 11}}>Mode</span>
+            <select value={draft.mode} onChange={e => setDraft({...draft, mode: e.target.value})}
+              style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12}}>
+              <option value="openai_compatible">OpenAI-compatible (LM Studio, Ollama, vLLM, OpenAI)</option>
+              <option value="anthropic">Anthropic Claude</option>
+            </select>
+          </label>
+          {draft.mode === 'openai_compatible' && (
+            <label style={{display: 'flex', flexDirection: 'column', gap: 4}}>
+              <span className="dim" style={{fontSize: 11}}>Base URL</span>
+              <input type="text" value={draft.base_url} onChange={e => setDraft({...draft, base_url: e.target.value})}
+                placeholder="http://192.168.1.78:1234/v1"
+                style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12, fontFamily: 'var(--font-mono)'}}/>
+            </label>
+          )}
+          <label style={{display: 'flex', flexDirection: 'column', gap: 4}}>
+            <span className="dim" style={{fontSize: 11}}>Model</span>
+            <input type="text" value={draft.model} onChange={e => setDraft({...draft, model: e.target.value})}
+              placeholder={draft.mode === 'anthropic' ? 'claude-sonnet-4-5' : 'prompt-injection-judge-8b'}
+              style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12, fontFamily: 'var(--font-mono)'}}/>
+          </label>
+          <label style={{display: 'flex', flexDirection: 'column', gap: 4}}>
+            <span className="dim" style={{fontSize: 11}}>API key {j.api_key && <span className="mono" style={{marginLeft: 6}}>({j.api_key})</span>}</span>
+            <input type="password" value={draft.api_key} onChange={e => setDraft({...draft, api_key: e.target.value})}
+              placeholder={draft.mode === 'anthropic' ? 'sk-ant-...' : '(optional for local endpoints)'}
+              style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12, fontFamily: 'var(--font-mono)'}}/>
+          </label>
+          <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10}}>
+            <label style={{display: 'flex', flexDirection: 'column', gap: 4}}>
+              <span className="dim" style={{fontSize: 11}}>Block threshold</span>
+              <input type="number" min="0" max="1" step="0.05" value={draft.threshold}
+                onChange={e => setDraft({...draft, threshold: e.target.value})}
+                style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12}}/>
+            </label>
+            <label style={{display: 'flex', alignItems: 'center', gap: 8, paddingTop: 18}}>
+              <input type="checkbox" checked={!!draft.fail_open}
+                onChange={e => setDraft({...draft, fail_open: e.target.checked})}/>
+              <span style={{fontSize: 12}}>Fail open on judge error</span>
+            </label>
+          </div>
+        </div>
+
+        <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
+          <button className="btn" onClick={save} disabled={busy} style={{fontSize: 12}}>
+            {busy ? 'Saving\u2026' : 'Save settings'}
+          </button>
+          <button className="btn"
+            onClick={() => BulwarkStore.setJudgeEnabled(!j.enabled)}
+            disabled={busy}
+            style={{fontSize: 12}}>
+            {j.enabled ? 'Disable judge' : 'Enable judge'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
-// Tiny local ENV pill for nested use inside PhaseCard (the outer one has the
-// "session-override" tooltip which is wrong inside a card-level context).
-function EnvBadgeStatic({ envVar }) {
-  return (
-    <span className="pill warn" data-hint={`Default from ${envVar}`}
-      style={{fontSize: 9, padding: '0 6px', letterSpacing: '0.08em'}}>ENV</span>
-  );
-}
-
-// Just the <select> — label + env hint live on the wrapping PhaseCard so the
-// model dropdown nests cleanly inside one unified per-phase block.
-function ModelDropdown({ value, onChange, models, loading, phase }) {
-  const options = Array.isArray(models) ? models.filter(m =>
-    !m.recommended_for || m.recommended_for.includes(phase) || m.recommended_for.includes('analyze')
-  ) : [];
-  return (
-    <select className="input" value={value} onChange={e => onChange(e.target.value)} disabled={loading}>
-      <option value="">{loading ? 'Loading models…' : (options.length ? '— pick a model —' : 'No models available')}</option>
-      {options.map(m => (
-        <option key={m.id} value={m.id}>{m.name || m.id}</option>
-      ))}
-      {/* Keep the current value visible even if it isn't in the discovered list
-          (custom model names, env-shadowed unknowns). */}
-      {value && !options.some(m => m.id === value) && (
-        <option key={value} value={value}>{value}</option>
-      )}
-    </select>
-  );
-}
-
-// G-UI-CONFIG-TEST-CONNECTION-STATUS: render the outcome of a Test
-// connection click. Idle → nothing. Loading → handled by the button
-// itself (spinner + "Testing…"). Success → green tick + diagnostic
-// (model count, etc.). Error → red cross + message.
-function TestConnectionStatus({ status, result }) {
-  if (status === 'loading' || !result) return null;
-  const ok = result.ok === true || result.connected === true || result.status === 'ok';
-  const message = result.message || result.error || (ok ? 'Connected.' : 'Connection failed.');
-  return (
-    <span role="status" aria-live="polite"
-      style={{
-        display: 'inline-flex', alignItems: 'center', gap: 6,
-        fontSize: 12,
-        color: ok ? 'var(--green)' : 'var(--red)',
-        maxWidth: 480,
-      }}>
-      <span aria-hidden="true" style={{
-        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        width: 16, height: 16, borderRadius: '50%',
-        background: ok ? 'var(--green-soft)' : 'var(--red-soft)',
-        border: '1px solid ' + (ok ? 'var(--green-line)' : 'var(--red-line)'),
-        fontSize: 10, fontWeight: 700, lineHeight: 1,
-      }}>{ok ? '✓' : '✕'}</span>
-      <span style={{overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}
-        title={message}>{message}</span>
-    </span>
-  );
-}
-
-function GenericPane({ stage }) {
+function BoundaryPane({ store, stage }) {
   return (
     <div className="card" style={{padding: 0}}>
       <DetailHeader stage={stage}/>
-      <div style={{padding: 24}}>
-        <div className="dim" style={{fontSize: 13}}>This stage has no additional settings — it's either on or off.</div>
+      <div style={{padding: '18px 24px 22px'}}>
+        <div className="dim" style={{fontSize: 13, lineHeight: 1.5}}>
+          The cleaned content is wrapped in trust-boundary tags before it
+          leaves <span className="mono">/v1/clean</span>. The <span className="mono">format</span> field on the request
+          chooses the boundary style &mdash; <span className="mono">xml</span> (default), <span className="mono">markdown</span>,
+          or <span className="mono">delimiter</span>. Pick whichever your downstream LLM follows best.
+          This is not a defense gate &mdash; it&rsquo;s how Bulwark formats safe output.
+        </div>
+        <div style={{marginTop: 14, padding: 12, background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 8, fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-dim)'}}>
+          {'<untrusted_input source="email" treat_as="data_only">'}
+          <br />&nbsp;&nbsp;&hellip;cleaned content&hellip;
+          <br />{'</untrusted_input>'}
+        </div>
       </div>
     </div>
   );
