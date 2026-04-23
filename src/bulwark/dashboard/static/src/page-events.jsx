@@ -57,11 +57,7 @@ function PageEvents({ store }) {
 
   return (
     <div style={{padding: '28px 28px 60px', maxWidth: 1320, margin: '0 auto'}}>
-      <SectionTitle eyebrow="Observability" title="Event stream" size="lg"
-        action={<div style={{display: 'flex', gap: 8}}>
-          <button className="btn"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 4h8M2 6h8M2 8h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg> Export JSON</button>
-          <button className="btn"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 1v7M3 5l3 3 3-3M2 10h8" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg> Tail log</button>
-        </div>} />
+      <SectionTitle eyebrow="Observability" title="Event stream" size="lg" />
 
       {/* Timeline header */}
       <div className="card" style={{padding: 20, marginBottom: 20, display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 24, alignItems: 'center'}}>

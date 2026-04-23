@@ -206,12 +206,11 @@ class TestNonGuarantees:
         src = _test_src()
         assert "setTimeout(() => reveal" not in src
 
-    def test_curl_is_stub(self):
-        """NG-UI-TEST-002: cURL button exists but does nothing."""
+    def test_curl_button_removed(self):
+        """NG-UI-TEST-002 (v2.3.0): cURL button removed — unwired buttons mislead users."""
         src = _test_src()
-        # cURL button is present but has no onClick handler:
-        assert ">cURL<" in src
-        # No export/copy helpers pretending to generate curl:
+        assert ">cURL<" not in src
+        # And we still don't render an actual curl snippet anywhere:
         assert "curl -X" not in src
 
 
