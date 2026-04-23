@@ -53,11 +53,13 @@ class AnalysisGuard:
         r'(?i)\bnew\s+(system\s+)?instructions?\b',
         r'(?i)\byou\s+are\s+now\b',
         r'(?i)\badmin\s+mode\b',
-        # Trust boundary escape attempts
-        r'</analysis_output>',
-        r'</untrusted_',
-        r'</?system',
-        r'</?trusted',
+        # Trust boundary escape attempts (ADR-028: case-insensitive so
+        # </ANALYSIS_OUTPUT> and mixed-case variants don't evade the guard
+        # only to be normalised by sanitize_bridge and survive into Phase 2).
+        r'(?i)</analysis_output>',
+        r'(?i)</untrusted_',
+        r'(?i)</?system',
+        r'(?i)</?trusted',
         r'(?i)^SYSTEM\s*:', r'(?i)\nSYSTEM\s*:',
         # Tool call manipulation
         r'(?i)\btool_use\b',
