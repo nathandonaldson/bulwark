@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.2.3] - 2026-04-23
+
+### Fixed
+
+- Shield "Active defense — Review ›" button now navigates to the Events page (was a dead button — no `onClick` handler).
+
 ## [2.2.2] - 2026-04-23
 
 ### Changed
