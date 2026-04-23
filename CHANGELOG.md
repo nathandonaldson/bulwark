@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.4] - 2026-04-23
+
+### Security
+- **Webhook URL host validation (M1, ADR-030, G-WEBHOOK-007)**. `webhook_url` is now validated against the same private-IP / cloud-metadata / scheme allowlist the LLM backend URL check uses. Rejected at `PUT /api/config` write time with a clear error; re-checked defensively at emit time so a stale `bulwark-config.yaml` on disk can't become an SSRF vector on restart. `localhost`, `127.0.0.1`, `host.docker.internal`, and `BULWARK_ALLOWED_HOSTS` entries stay allowed (local alert routers are legitimate).
+- **`/v1/clean` requires auth when token is set AND LLM configured (M2, ADR-030, G-AUTH-008)**. When `BULWARK_API_TOKEN` is set and `llm_backend.mode` is `anthropic` or `openai_compatible`, `/v1/clean` leaves the always-public allowlist and requires Bearer/cookie auth. Sanitize-only deployments (`mode="none"`) and token-unset deployments keep the open default. Closes the Codex finding that unauth callers could invoke LLM analyze/execute under the operator's API key.
+- **`/v1/guard` bounded canary_tokens (M5, ADR-030, G-HTTP-GUARD-009)**. `canary_tokens` is now limited to 64 entries, 64-char keys, 256-char values. FastAPI returns 422 on violations. Closes the Codex DoS where 5k tokens × 1M text ≈ 21s CPU per request.
+
+### Fixed
+- **`/api/integrations/detect` DoS (M4, ADR-030)**. The `pip install --dry-run` probe was uncached — every request spawned a 15-second subprocess. Extracted to `_check_garak_python_upgrade_needed(installed, latest)` with a (version-pair, 1-hour TTL) cache matching the paired version-lookup cache. Repeated requests are O(1) after the first miss.
+
+### Added
+- ADR-030 — Medium-severity Codex findings sweep. Covers M1, M2, M4, M5 above, plus notes M3 (pipeline honors unauth toggles — closed by endpoint removal + ADR-029) and M6 (`/api/garak/run` DoS — closed by ADR-029's loopback-only-for-mutations rule).
+
 ## [1.3.3] - 2026-04-23
 
 ### Security
