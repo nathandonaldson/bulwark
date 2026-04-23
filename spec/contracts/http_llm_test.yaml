@@ -1,5 +1,5 @@
 endpoint: POST /v1/llm/test
-version: "0.5.0"
+version: "0.6.0"
 
 guarantees:
   - id: G-HTTP-LLM-TEST-001
@@ -16,6 +16,16 @@ guarantees:
   - id: G-HTTP-LLM-TEST-006
     summary: Cloud metadata endpoints remain blocked even when listed in BULWARK_ALLOWED_HOSTS
     rationale: Defense-in-depth against typos or env-var tampering. The metadata block is not user-overridable.
+  - id: G-HTTP-LLM-TEST-007
+    summary: The server-stored API key is never forwarded to a caller-supplied base_url that differs from the configured one
+    rationale: >
+      Prevents the confused-deputy bug fixed in PR #17. A caller-supplied
+      base_url is treated as a new trust boundary; the stored key is
+      scoped to the configured backend and must not accompany a request
+      to a different origin. Explicit unmasked keys in the request body
+      are forwarded verbatim (caller owns that key). Same base_url, or
+      no base_url override, still uses the configured key. See ADR-027.
+    applies_to: [POST /v1/llm/test, POST /v1/llm/models]
 
 non_guarantees:
   - id: NG-HTTP-LLM-TEST-001
@@ -24,3 +34,10 @@ non_guarantees:
   - id: NG-HTTP-LLM-TEST-002
     summary: BULWARK_ALLOWED_HOSTS does NOT support wildcards or CIDR notation
     reason: Exact-match hostnames/IP literals only. Keeps semantics simple and auditable — no accidental over-scoping.
+  - id: NG-HTTP-LLM-TEST-003
+    summary: Does NOT perform semantic URL equivalence when comparing base_url against configured
+    reason: >
+      String comparison after rstrip("/") only. Case, explicit default
+      ports, and other normalisations count as different — callers get
+      an empty key rather than a surprise forward. Conservative by
+      design; see ADR-027.
