@@ -107,8 +107,8 @@ class TestLayerStatus:
         configure = (src / "page-configure.jsx").read_text()
         # Store exposes toggleLayer and emits on change:
         assert "toggleLayer(id)" in data and "emit()" in data
-        # Configure wires the toggle to the store:
-        assert "BulwarkStore.toggleLayer(stage.id)" in configure
+        # Configure wires the toggle to the store (v2 calls by literal id).
+        assert "BulwarkStore.toggleLayer(" in configure
 
     def test_disabled_layer_not_hidden(self):
         """NG-DASH-LAYERS-001: Disabled layers still visible, not hidden.

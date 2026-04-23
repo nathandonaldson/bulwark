@@ -110,17 +110,17 @@ class TestTokens:
         assert not re.search(r"#[0-9a-fA-F]{3,6}", body), (
             "RadialShield ring block still contains hex colors: " + body
         )
-        # Explicitly uses the per-stage tokens:
-        for stage in ("sanitizer", "boundary", "detection", "bridge", "execute"):
+        # v2 uses the four-stage token set.
+        for stage in ("sanitizer", "detection", "boundary", "canary"):
             assert f"var(--stage-{stage})" in body, f"missing --stage-{stage} token"
 
     def test_root_defines_stage_tokens(self):
-        """G-UI-TOKENS-STAGES-001: all 7 --stage-* tokens defined in :root."""
+        """G-UI-TOKENS-STAGES-001: --stage-* tokens for v2 layers in :root."""
         html = INDEX_HTML.read_text()
         root_block = re.search(r":root\s*\{.*?\n\s*\}", html, flags=re.DOTALL)
         assert root_block, ":root block not found in index.html"
         body = root_block.group(0)
-        for stage in ("sanitizer", "boundary", "detection", "analyze", "bridge", "canary", "execute"):
+        for stage in ("sanitizer", "detection", "boundary", "canary"):
             assert f"--stage-{stage}:" in body, f":root missing --stage-{stage}"
 
 
@@ -151,7 +151,7 @@ class TestShieldLayout:
         src = PAGE_SHIELD.read_text()
         # All four stats come from s24 = store.stats24h:
         assert "const s24 = store.stats24h" in src
-        for field in ("processed", "blocked", "canary", "bridge"):
+        for field in ("processed", "blocked", "canary", "detection"):
             assert f"s24.{field}" in src, f"StatTile is not reading s24.{field}"
 
     def test_layer_rows_unconditional(self):

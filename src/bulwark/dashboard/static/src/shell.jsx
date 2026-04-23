@@ -1,26 +1,18 @@
 // App shell — top-nav tabs, status pill, brand.
 // Sidebar variant removed per ADR-020.
 
-// Pure status-pill logic — exported so tests can drive it without a DOM.
-// Contract: spec/contracts/dashboard_ui.yaml G-UI-STATUS-001..006.
+// Pure status-pill logic. v2 (ADR-031): no LLM, so status tracks detector
+// readiness + user-controllable layer toggles. Contract: G-UI-STATUS-001..005.
 function computeStatusPill(store) {
-  const { layerConfig, llm } = store;
+  const { layerConfig, detectorStatus } = store;
+  const det = (detectorStatus && detectorStatus.protectai) || { status: 'loading' };
 
-  if (llm.status === 'loading') {
-    return { kind: 'warn', label: 'Connecting…' };
-  }
-  if (llm.status === 'error' && llm.mode !== 'none') {
-    return { kind: 'bad', label: 'Pipeline unreachable' };
-  }
+  if (det.status === 'loading') return { kind: 'warn', label: 'Loading detector…' };
+  if (det.status === 'error')   return { kind: 'bad',  label: 'Detector unreachable' };
 
-  // mode === 'none' is a deliberate choice (sanitize-only); analyze + execute
-  // count as virtually "on" via activeLayerCount (G-UI-STATUS-006).
-  const active = activeLayerCount(layerConfig, llm.mode);
+  const active = activeLayerCount(layerConfig);
   const total = LAYERS.length;
-
-  if (active < total) {
-    return { kind: 'warn', label: `${active} of ${total} layers active` };
-  }
+  if (active < total) return { kind: 'warn', label: `${active} of ${total} layers active` };
   return { kind: 'ok', label: 'All layers active' };
 }
 
@@ -28,10 +20,11 @@ function TopNav({ page, setPage, store }) {
   const { kind: statusKind, label: statusLabel } = computeStatusPill(store);
 
   const tabs = [
-    { id: 'shield',    label: 'Shield' },
-    { id: 'events',    label: 'Events' },
-    { id: 'configure', label: 'Configure' },
-    { id: 'test',      label: 'Test' },
+    { id: 'shield',         label: 'Shield' },
+    { id: 'events',         label: 'Events' },
+    { id: 'configure',      label: 'Configure' },
+    { id: 'leak-detection', label: 'Leak Detection' },
+    { id: 'test',           label: 'Test' },
   ];
 
   return (

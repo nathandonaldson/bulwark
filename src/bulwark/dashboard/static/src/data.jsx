@@ -1,22 +1,17 @@
-// Store wired to real Bulwark HTTP API.
-// The store shape (fields, action names, pub/sub contract) is preserved from
-// the handoff reference so the view layer does not change — only the
-// implementation below swaps mock data for live fetches. See ADR-020.
+// Store wired to the real Bulwark v2 HTTP API.
+//
+// v2.0.0 (ADR-031): Bulwark never calls an LLM. The store no longer tracks
+// analyze/execute/bridge layers, llm.mode/api_key/models, or the
+// testConnection/fetchModels helpers.
+//
+// Four logical layers remain: sanitizer → detection → boundary → canary.
+// Canary is output-side only; the Leak Detection page surfaces it. See ADR-031.
 
-// -----------------------------------------------------------------------------
-// Static metadata — display names for the 7 logical layers the dashboard shows.
-// Backend emits events with a richer layer vocabulary (trust_boundary,
-// analysis_guard, detection:protectai, …); those are normalized by
-// `_normalizeEventLayer` before landing in state.events.
-// -----------------------------------------------------------------------------
 const LAYERS = [
-  { id: 'sanitizer', name: 'Sanitizer',        desc: 'Strips hidden chars, steganography, control sequences',   events: 'events', stage: 'input' },
-  { id: 'boundary',  name: 'Trust Boundary',   desc: 'Wraps untrusted content in XML boundary tags',             events: 'events', stage: 'input' },
-  { id: 'detection', name: 'Detection',        desc: 'ProtectAI DeBERTa / PromptGuard classify injection',       events: 'events', stage: 'detect' },
-  { id: 'analyze',   name: 'Phase 1: Analyze', desc: 'LLM reads content — no tools available',                   events: 'calls',  stage: 'llm' },
-  { id: 'bridge',    name: 'Bridge Guard',     desc: 'Sanitize + guard analysis output between phases',          events: 'events', stage: 'bridge' },
-  { id: 'canary',    name: 'Canary Tokens',    desc: 'Embedded tripwires for exfiltration detection',            events: 'checks', stage: 'bridge' },
-  { id: 'execute',   name: 'Phase 2: Execute', desc: 'LLM acts on analysis — never sees raw content',            events: 'calls',  stage: 'llm' },
+  { id: 'sanitizer', name: 'Sanitizer',      desc: 'Strips hidden chars, steganography, control sequences',   events: 'events', stage: 'input'  },
+  { id: 'detection', name: 'Detection',      desc: 'DeBERTa classifies injection; chunked across windows',     events: 'events', stage: 'detect' },
+  { id: 'boundary',  name: 'Trust Boundary', desc: 'Wraps untrusted content in XML boundary tags',             events: 'events', stage: 'input'  },
+  { id: 'canary',    name: 'Canary Tokens',  desc: 'Output-side tripwires — checked via /v1/guard',            events: 'checks', stage: 'output' },
 ];
 
 const SOURCES = ['api:clean:email', 'api:clean:dashboard', 'api:clean:mcp', 'api:clean:webhook', 'api:guard', 'cli:test'];
@@ -25,10 +20,7 @@ const SOURCES = ['api:clean:email', 'api:clean:dashboard', 'api:clean:mcp', 'api
 const _LAYER_TO_CONFIG = {
   sanitizer:         'sanitizer_enabled',
   boundary:          'trust_boundary_enabled',
-  bridge:            'guard_bridge_enabled',
   canary:            'canary_enabled',
-  // sub-toggles (rendered by Configure pane; same contract — same handler):
-  require_json:      'require_json',
   encoding_canaries: 'encoding_resistant',
   emoji_smuggling:   'strip_emoji_smuggling',
   bidi_override:     'strip_bidi',
@@ -42,12 +34,8 @@ function _normalizeEventLayer(raw) {
   const direct = {
     sanitizer: 'sanitizer',
     trust_boundary: 'boundary',
-    analysis_guard: 'bridge',
+    analysis_guard: 'canary',
     canary: 'canary',
-    analyze: 'analyze',
-    execute: 'execute',
-    executor: 'analyze',
-    guard: 'bridge',
   };
   return direct[raw] || raw;
 }
@@ -71,11 +59,7 @@ function _layerConfigFromBackend(cfg) {
     sanitizer: !!cfg.sanitizer_enabled,
     boundary:  !!cfg.trust_boundary_enabled,
     detection: false, // overlaid from /api/integrations
-    analyze:   !!(cfg.llm_backend && cfg.llm_backend.mode && cfg.llm_backend.mode !== 'none'),
-    bridge:    !!cfg.guard_bridge_enabled,
     canary:    !!cfg.canary_enabled,
-    execute:   !!(cfg.llm_backend && cfg.llm_backend.mode && cfg.llm_backend.mode !== 'none'),
-    require_json:      !!cfg.require_json,
     encoding_canaries: !!cfg.encoding_resistant,
     emoji_smuggling:   !!cfg.strip_emoji_smuggling,
     bidi_override:     !!cfg.strip_bidi,
@@ -90,21 +74,6 @@ function _integrationsFromBackend(raw) {
     result[k] = info.enabled ? 'active' : 'available';
   });
   return result;
-}
-
-function _llmFromBackend(cfg) {
-  const b = cfg.llm_backend || {};
-  const envOverrides = cfg.env_overrides || {};
-  return {
-    mode: b.mode || 'none',
-    status: 'loading',
-    apiKeySet: !!(b.api_key || envOverrides.api_key),
-    envOverrides,
-    apiKeyPreview: b.api_key ? ('•••' + String(b.api_key).slice(-4)) : '',
-    baseUrl: b.base_url || '',
-    analyzeModel: b.analyze_model || '',
-    executeModel: b.execute_model || b.analyze_model || '',
-  };
 }
 
 function fmtTime(ts) {
@@ -123,34 +92,28 @@ function rand(lo, hi) { return Math.floor(lo + Math.random() * (hi - lo)); }
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
 
-// -----------------------------------------------------------------------------
-// Store singleton. Same pub/sub contract as the reference mock.
-// -----------------------------------------------------------------------------
 const BulwarkStore = (() => {
   const state = {
     events: [],
     layerConfig: {
-      sanitizer: true, boundary: true, detection: false, analyze: false,
-      bridge: true, canary: true, execute: false,
-      require_json: false, encoding_canaries: true, emoji_smuggling: true,
-      bidi_override: true, nfkc: false,
+      sanitizer: true, boundary: true, detection: false, canary: true,
+      encoding_canaries: true, emoji_smuggling: true, bidi_override: true, nfkc: false,
     },
-    llm: { mode: 'none', status: 'loading', apiKeySet: false, envOverrides: {}, apiKeyPreview: '', baseUrl: '', analyzeModel: '', executeModel: '' },
+    // detector: { protectai: {status: 'ready'|'loading'|'error', latency_ms, score}, promptguard: {...} }
+    detectorStatus: {
+      protectai: { status: 'loading' },
+      promptguard: { status: 'available' },
+    },
     integrations: {},
     presets: [],
     version: '',
-    stats24h: { processed: 0, blocked: 0, canary: 0, bridge: 0 },
+    stats24h: { processed: 0, blocked: 0, canary: 0, detection: 0 },
     sparks: Object.fromEntries(LAYERS.map(l => [l.id, new Array(14).fill(0)])),
     running: null,
-    // Configure-page state (Stage 7) — filled by _loadInitial + explicit fetchers.
-    guardPatterns: [],   // regex list from config.guard_patterns
-    canaryTokens: {},    // {source: token} from config.canary_tokens
-    models: [],          // populated by fetchModels() when LLMBackendPane mounts
-    modelsLoading: false,
-    llmTestResult: null, // last result from testConnection()
-    // Test-page state (Stage 8).
-    redteamTiers: null,   // {garak_installed, garak_version, tiers: [...]}
-    redteamReports: [],   // past reports from /api/redteam/reports
+    guardPatterns: [],
+    canaryTokens: {},
+    redteamTiers: null,
+    redteamReports: [],
   };
 
   const subs = new Set();
@@ -177,13 +140,10 @@ const BulwarkStore = (() => {
       _fetchJson('/api/metrics?hours=24'),
     ]);
 
-    if (healthzR.status === 'fulfilled') {
-      state.version = healthzR.value.version || '';
-    }
+    if (healthzR.status === 'fulfilled') state.version = healthzR.value.version || '';
 
     if (configR.status === 'fulfilled') {
       state.layerConfig = _layerConfigFromBackend(configR.value);
-      state.llm = _llmFromBackend(configR.value);
       state.guardPatterns = Array.isArray(configR.value.guard_patterns) ? configR.value.guard_patterns : [];
       state.canaryTokens = (configR.value.canary_tokens && typeof configR.value.canary_tokens === 'object') ? configR.value.canary_tokens : {};
     }
@@ -192,6 +152,11 @@ const BulwarkStore = (() => {
       state.integrations = _integrationsFromBackend(integrationsR.value);
       const anyDetection = ['protectai', 'promptguard'].some(k => state.integrations[k] === 'active');
       state.layerConfig = { ...state.layerConfig, detection: anyDetection };
+      // Seed detectorStatus from integrations.
+      state.detectorStatus = {
+        protectai:   { status: state.integrations.protectai   === 'active' ? 'ready' : 'loading' },
+        promptguard: { status: state.integrations.promptguard === 'active' ? 'ready' : 'available' },
+      };
     }
 
     if (presetsR.status === 'fulfilled') {
@@ -209,19 +174,8 @@ const BulwarkStore = (() => {
         processed: m.total || m.processed || state.events.length,
         blocked:   m.blocked   || state.events.filter(e => e.verdict === 'blocked').length,
         canary:    m.canary    || state.events.filter(e => e.layer === 'canary' && e.verdict === 'blocked').length,
-        bridge:    m.bridge    || state.events.filter(e => e.layer === 'bridge' && e.verdict === 'blocked').length,
+        detection: m.detection || state.events.filter(e => e.layer === 'detection' && e.verdict === 'blocked').length,
       };
-    }
-
-    // LLM status — `none` is a valid connected state. For other modes we assume
-    // connected after a successful config fetch; Stage 4 replaces this with a
-    // real probe endpoint.
-    if (state.llm.mode === 'none') {
-      state.llm = { ...state.llm, status: 'connected' };
-    } else if (configR.status === 'fulfilled') {
-      state.llm = { ...state.llm, status: 'connected' };
-    } else {
-      state.llm = { ...state.llm, status: 'error' };
     }
 
     _recomputeSparks();
@@ -256,18 +210,15 @@ const BulwarkStore = (() => {
             ...state.stats24h,
             processed: state.stats24h.processed + 1,
             blocked: state.stats24h.blocked + (ev.verdict === 'blocked' ? 1 : 0),
-            canary:  state.stats24h.canary  + (ev.layer === 'canary' && ev.verdict === 'blocked' ? 1 : 0),
-            bridge:  state.stats24h.bridge  + (ev.layer === 'bridge' && ev.verdict === 'blocked' ? 1 : 0),
+            canary:  state.stats24h.canary  + (ev.layer === 'canary'    && ev.verdict === 'blocked' ? 1 : 0),
+            detection: state.stats24h.detection + (ev.layer === 'detection' && ev.verdict === 'blocked' ? 1 : 0),
           };
           _recomputeSparks();
           fireEvent(ev);
           emit();
         } catch { /* malformed — skip */ }
       };
-      // EventSource auto-retries on errors; no manual handler needed.
-    } catch {
-      // SSE unavailable — UI keeps snapshot.
-    }
+    } catch { /* SSE unavailable */ }
   }
 
   function _startRunningPoll() {
@@ -299,9 +250,7 @@ const BulwarkStore = (() => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
       });
-      const prevStatus = state.llm.status;
       state.layerConfig = _layerConfigFromBackend(updated);
-      state.llm = { ..._llmFromBackend(updated), status: prevStatus };
       state.guardPatterns = Array.isArray(updated.guard_patterns) ? updated.guard_patterns : state.guardPatterns;
       state.canaryTokens = (updated.canary_tokens && typeof updated.canary_tokens === 'object') ? updated.canary_tokens : state.canaryTokens;
       const anyDetection = ['protectai', 'promptguard'].some(k => state.integrations[k] === 'active');
@@ -322,47 +271,28 @@ const BulwarkStore = (() => {
       _connectSSE();
     },
 
-    // G-CANARY-011: Canary pane calls this after POST/DELETE /api/canaries
-    // to re-pull the live config and re-render.
     async refreshConfig() {
       try {
         const cfg = await _fetchJson('/api/config');
         state.layerConfig = _layerConfigFromBackend(cfg);
-        state.llm = _llmFromBackend(cfg);
         state.guardPatterns = Array.isArray(cfg.guard_patterns) ? cfg.guard_patterns : [];
         state.canaryTokens = (cfg.canary_tokens && typeof cfg.canary_tokens === 'object') ? cfg.canary_tokens : {};
         emit();
-      } catch (e) { /* leave state as-is on failure */ }
+      } catch { /* leave state as-is */ }
     },
 
     toggleLayer(id) {
-      const current = !!state.layerConfig[id];
       if (id === 'detection') return; // aggregate — managed via Detection pane
-      if (id === 'analyze' || id === 'execute') {
-        if (current) {
-          _putConfig({ llm_backend: { mode: 'none' } });
-        }
-        return;
-      }
       const field = _LAYER_TO_CONFIG[id];
       if (!field) return;
+      const current = !!state.layerConfig[id];
       _putConfig({ [field]: !current });
-    },
-
-    setLlm(patch) {
-      const backendPatch = { llm_backend: {
-        mode:          patch.mode          ?? state.llm.mode,
-        api_key:       patch.apiKey        ?? undefined,
-        base_url:      patch.baseUrl       ?? state.llm.baseUrl,
-        analyze_model: patch.analyzeModel  ?? state.llm.analyzeModel,
-        execute_model: patch.executeModel  ?? state.llm.executeModel,
-      }};
-      if (backendPatch.llm_backend.api_key === undefined) delete backendPatch.llm_backend.api_key;
-      _putConfig(backendPatch);
     },
 
     async setIntegration(id, desired) {
       try {
+        state.detectorStatus = { ...state.detectorStatus, [id]: { ...(state.detectorStatus[id] || {}), status: desired === 'active' ? 'loading' : 'available' } };
+        emit();
         if (desired === 'active') {
           await _fetchJson(`/api/integrations/${id}/activate`, { method: 'POST' });
         } else {
@@ -376,8 +306,14 @@ const BulwarkStore = (() => {
         state.integrations = _integrationsFromBackend(raw);
         const anyDetection = ['protectai', 'promptguard'].some(k => state.integrations[k] === 'active');
         state.layerConfig = { ...state.layerConfig, detection: anyDetection };
+        state.detectorStatus = {
+          protectai:   { status: state.integrations.protectai   === 'active' ? 'ready' : 'available' },
+          promptguard: { status: state.integrations.promptguard === 'active' ? 'ready' : 'available' },
+        };
         emit();
       } catch (e) {
+        state.detectorStatus = { ...state.detectorStatus, [id]: { status: 'error', message: String(e && e.message || e) } };
+        emit();
         console.error('integration toggle failed', e);
       }
     },
@@ -393,75 +329,40 @@ const BulwarkStore = (() => {
         emit();
         _startRunningPoll();
         return r;
-      } catch (e) {
-        console.error('start run failed', e);
-      }
+      } catch (e) { console.error('start run failed', e); }
     },
 
-    stepRun() { /* no-op; backend drives progress via poll */ },
+    stepRun() { /* backend-driven */ },
 
     async stopRun() {
-      try {
-        await _fetchJson('/api/redteam/stop', { method: 'POST' });
-      } catch (e) {
-        console.error('stop run failed', e);
-      }
+      try { await _fetchJson('/api/redteam/stop', { method: 'POST' }); }
+      catch (e) { console.error('stop run failed', e); }
     },
 
-    // Stage 7: populate state.models from the backend. Safe to call repeatedly;
-    // callers typically fire it on mount + when mode/baseUrl change.
-    async fetchModels() {
-      state.modelsLoading = true;
-      emit();
-      try {
-        const body = {
-          mode: state.llm.mode,
-          // Don't forward an api_key — the backend resolves it from config/env.
-          base_url: state.llm.baseUrl || '',
-        };
-        const res = await _fetchJson('/v1/llm/models', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        state.models = Array.isArray(res.models) ? res.models : [];
-      } catch (e) {
-        state.models = [];
-      } finally {
-        state.modelsLoading = false;
-        emit();
-      }
-    },
-
-    // Stage 8: fetch dynamic red-team tier definitions from the backend.
-    // Fires once on mount; results include garak version + per-tier probe counts.
     async fetchRedteamTiers() {
       try {
         const res = await _fetchJson('/api/redteam/tiers');
         state.redteamTiers = res;
         emit();
         return res;
-      } catch (e) {
+      } catch {
         state.redteamTiers = { garak_installed: false, tiers: [] };
         emit();
       }
     },
 
-    // Stage 8: fetch past red-team reports. Called on Test page mount and after
-    // a run completes to pick up the newly saved report.
     async fetchRedteamReports() {
       try {
         const res = await _fetchJson('/api/redteam/reports');
         state.redteamReports = Array.isArray(res.reports) ? res.reports : (Array.isArray(res) ? res : []);
         emit();
         return state.redteamReports;
-      } catch (e) {
+      } catch {
         state.redteamReports = [];
         emit();
       }
     },
 
-    // Stage 8: retest the failed probes from a previous report.
     async retestReport(filename) {
       try {
         const res = await _fetchJson('/api/redteam/retest', {
@@ -481,8 +382,6 @@ const BulwarkStore = (() => {
       }
     },
 
-    // Stage 8: run a single payload through the real defense stack.
-    // Returns the full CleanResponse (or a normalized {blocked:true, trace} on 422).
     async runClean(content, source = 'dashboard') {
       try {
         const res = await fetch('/v1/clean', {
@@ -490,47 +389,11 @@ const BulwarkStore = (() => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content, source }),
         });
-        // 422 on block — body has the same shape as the 200 response but with blocked=true.
         const body = await res.json().catch(() => ({}));
         return { httpStatus: res.status, ...body };
       } catch (e) {
         return { httpStatus: 0, blocked: false, error: String(e && e.message || e), trace: [] };
       }
-    },
-
-    // Stage 7: live LLM connectivity probe used by the "Test connection" button.
-    //
-    // Accepts an optional overrides object so the caller (LLMBackendPane) can
-    // test the current *in-form* values rather than only the last-saved config
-    // (G-UI-CONFIG-TEST-CONNECTION). Fields not provided fall back to the
-    // backend's saved values via /v1/llm/test's own defaulting.
-    async testConnection(overrides = {}) {
-      state.llm = { ...state.llm, status: 'loading' };
-      state.llmTestResult = null;
-      emit();
-      const body = {
-        mode: overrides.mode !== undefined ? overrides.mode : state.llm.mode,
-      };
-      if (overrides.base_url !== undefined) body.base_url = overrides.base_url;
-      if (overrides.analyze_model !== undefined) body.analyze_model = overrides.analyze_model;
-      if (overrides.execute_model !== undefined) body.execute_model = overrides.execute_model;
-      if (overrides.api_key) body.api_key = overrides.api_key;
-      try {
-        const res = await _fetchJson('/v1/llm/test', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        const ok = res && (res.ok === true || res.connected === true || res.status === 'ok');
-        state.llm = { ...state.llm, status: ok ? 'connected' : 'error' };
-        state.llmTestResult = res;
-      } catch (e) {
-        state.llm = { ...state.llm, status: 'error' };
-        state.llmTestResult = { ok: false, message: String(e && e.message || e) };
-      } finally {
-        emit();
-      }
-      return state.llmTestResult;
     },
 
     injectEvent(layer, verdict) {
@@ -563,14 +426,9 @@ function useStore() {
   return BulwarkStore.get();
 }
 
-// Shared across shell.jsx + page-shield.jsx. STATES.md §1 / G-UI-STATUS-006:
-// analyze + execute count as virtually "on" when the user chose sanitize-only.
-function activeLayerCount(layerConfig, llmMode) {
-  const noneMode = llmMode === 'none';
-  return LAYERS.filter(l => {
-    if (noneMode && (l.id === 'analyze' || l.id === 'execute')) return true;
-    return !!layerConfig[l.id];
-  }).length;
+// activeLayerCount: how many user-controllable layers are enabled.
+function activeLayerCount(layerConfig) {
+  return LAYERS.filter(l => !!layerConfig[l.id]).length;
 }
 
 Object.assign(window, { LAYERS, SOURCES, BulwarkStore, useStore, fmtTime, fmtRelative, rand, pick, activeLayerCount });

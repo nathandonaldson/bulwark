@@ -20,10 +20,11 @@ function App() {
     <div className="app">
       <TopNav page={page} setPage={setPage} store={store} />
       <main style={{overflow: 'auto'}}>
-        {page === 'shield'    && <PageShield store={store} />}
-        {page === 'events'    && <PageEvents store={store} />}
-        {page === 'configure' && <PageConfigure store={store} />}
-        {page === 'test'      && <PageTest store={store} />}
+        {page === 'shield'         && <PageShield store={store} />}
+        {page === 'events'         && <PageEvents store={store} />}
+        {page === 'configure'      && <PageConfigure store={store} />}
+        {page === 'leak-detection' && <PageLeakDetection store={store} />}
+        {page === 'test'           && <PageTest store={store} />}
       </main>
     </div>
   );

@@ -14,7 +14,7 @@ function PageShield({ store }) {
 
 // --- shared ---
 function HeroStatus({ store, size = 'lg' }) {
-  const activeLayers = activeLayerCount(store.layerConfig, store.llm.mode);
+  const activeLayers = activeLayerCount(store.layerConfig);
   const totalLayers = LAYERS.length;
   const recentBlocked = store.events.filter(e => e.verdict === 'blocked' && Date.now() - e.ts < 30 * 60 * 1000);
   const hasIncident = hasRecentIncident(store.events);
@@ -96,7 +96,7 @@ function ShieldRadial({ store }) {
             <StatTile label="Processed / 24h" value={s24.processed.toLocaleString()} spark={store.sparks.sanitizer} />
             <StatTile label="Neutralized" value={s24.blocked} color="var(--accent)" spark={store.sparks.detection} />
             <StatTile label="Canary leaks" value={s24.canary} color={s24.canary ? 'var(--red)' : 'var(--text-2)'} />
-            <StatTile label="Bridge blocks" value={s24.bridge} color={s24.bridge ? 'var(--amber)' : 'var(--text-2)'} />
+            <StatTile label="Detection blocks" value={s24.detection} color={s24.detection ? 'var(--amber)' : 'var(--text-2)'} />
           </div>
         </div>
 
@@ -126,13 +126,12 @@ function RadialShield({ store }) {
   }), []);
 
   // Ring colors reference the per-stage tokens defined in index.html :root
-  // (--stage-sanitizer .. --stage-execute). No inline hex — G-UI-TOKENS-001.
+  // (--stage-sanitizer .. --stage-canary). v2: four rings, one per layer.
   const rings = [
-    { id: 'sanitizer', r: 148, color: 'var(--stage-sanitizer)', dash: '4 2' },
-    { id: 'boundary',  r: 122, color: 'var(--stage-boundary)',  dash: null  },
-    { id: 'detection', r: 96,  color: 'var(--stage-detection)', dash: '8 4' },
-    { id: 'bridge',    r: 70,  color: 'var(--stage-bridge)',    dash: null  },
-    { id: 'execute',   r: 44,  color: 'var(--stage-execute)',   dash: '6 3' },
+    { id: 'sanitizer', r: 140, color: 'var(--stage-sanitizer)', dash: '4 2' },
+    { id: 'detection', r: 108, color: 'var(--stage-detection)', dash: '8 4' },
+    { id: 'boundary',  r: 76,  color: 'var(--stage-boundary)',  dash: null  },
+    { id: 'canary',    r: 44,  color: 'var(--stage-canary)',    dash: '6 3' },
   ];
 
   return (
