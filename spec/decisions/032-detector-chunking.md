@@ -47,7 +47,8 @@ above the configured threshold. Concretely:
   stays under ~200 ms in practice but this is no longer O(1).
 - Memory: batched inference holds all windows in VRAM/MPS at once. The
   1 MB `CleanRequest` ceiling translates to ~500 windows worst-case. We
-  cap the batch at 32 and iterate — documented in the contract.
+  cap the batch at 64 windows per inference call (≈ 128 KB of input per
+  call) and iterate — documented in the contract.
 
 ### Neutral
 - Threshold semantics unchanged. The response `detector.score` is the

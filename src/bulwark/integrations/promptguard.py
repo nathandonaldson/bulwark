@@ -80,7 +80,7 @@ def load_detector(
 # window boundary and still land wholly inside at least one neighbour.
 _WINDOW_RESERVED_TOKENS = 2
 _WINDOW_STRIDE_TOKENS = 64
-_MAX_BATCH_WINDOWS = 32  # Cap batched inference to bound VRAM/MPS footprint.
+_MAX_BATCH_WINDOWS = 64  # Cap per-call inference: 64 × 510 tokens ≈ 128 KB of input.
 
 
 def _tokenize_windows(text: str, tokenizer, model_max: int) -> list[str]:
