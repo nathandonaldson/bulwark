@@ -224,6 +224,18 @@ class BulwarkConfig:
         if not any(proposed.values()):
             return "Cannot disable all core defense layers simultaneously. At least one of sanitizer, trust boundary, or guard bridge must stay enabled."
 
+        # G-WEBHOOK-007 / ADR-030: reject webhook_url pointing at private or
+        # metadata hosts at config-write time. Prevents the Codex SSRF finding
+        # where an attacker who can PUT /api/config (e.g. via a compromised
+        # token) points webhook_url at 169.254.169.254 and then triggers a
+        # BLOCKED event to exfiltrate cloud metadata. Same validator as the
+        # LLM base_url check for consistency.
+        if "webhook_url" in data and data["webhook_url"]:
+            from bulwark.dashboard.llm_factory import _validate_base_url
+            err = _validate_base_url(data["webhook_url"])
+            if err:
+                return f"webhook_url rejected: {err}"
+
         import os
         for key, value in data.items():
             if key == "llm_backend" and isinstance(value, dict):

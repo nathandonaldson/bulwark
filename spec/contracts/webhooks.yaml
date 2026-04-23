@@ -1,5 +1,5 @@
 feature: External webhook alerting on BLOCKED events
-version: "1.0.0"
+version: "1.1.0"
 module: bulwark.dashboard (config) + bulwark.events.WebhookEmitter (delivery)
 
 guarantees:
@@ -40,6 +40,15 @@ guarantees:
       ADR-022 env-shadowing pattern used by LLM backend fields: env
       provides the default, UI/API can override for the session, save()
       blanks env-shadowed fields so the env remains authoritative.
+  - id: G-WEBHOOK-007
+    summary: >
+      webhook_url is rejected at config-write time when it points at a
+      private, link-local, or cloud-metadata host — reusing the same
+      allowlist the LLM backend check applies (localhost,
+      host.docker.internal, BULWARK_ALLOWED_HOSTS). _fire_webhook
+      performs the same check defensively at emit time so a stale
+      config file loaded from disk cannot become an SSRF vector.
+      Closes the Codex SSRF finding from 2026-04-20. See ADR-030.
 
 non_guarantees:
   - id: NG-WEBHOOK-001
@@ -67,3 +76,11 @@ non_guarantees:
       Slack / Datadog / most SaaS webhooks authenticate via URL-embedded
       secrets. Operators needing header-based auth should front this
       with a reverse proxy. Avoids a credentials-in-config surface.
+  - id: NG-WEBHOOK-005
+    summary: Does NOT validate URL reachability at config-write time
+    reason: >
+      The config validator only rejects private/metadata hosts; it does
+      not probe the URL. An operator who sets webhook_url to a valid
+      public URL that happens to be offline gets a config-write success
+      and silent fire-and-forget failures at emit time. Matches
+      G-WEBHOOK-004's fire-and-forget contract.

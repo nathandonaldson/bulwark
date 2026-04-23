@@ -17,6 +17,11 @@ Non-guarantees documented here by absence of any conflicting test:
   NG-WEBHOOK-004 — no auth headers added. The mocked WebhookEmitter receives
                    the event unchanged; no Authorization header is asserted
                    because none is added.
+  NG-WEBHOOK-005 — no URL-reachability probe. The config validator only
+                   rejects private/metadata hosts; see
+                   TestWebhookSSRFValidation.test_config_accepts_public_https_url
+                   — a valid public URL is accepted at write time regardless
+                   of whether the endpoint is currently live.
 """
 from __future__ import annotations
 
@@ -195,3 +200,85 @@ class TestEnvShadowing:
         persisted = yaml.safe_load(out.read_text())
         assert persisted.get("webhook_url") == "", \
             f"expected blanked webhook_url when env var is set; got {persisted.get('webhook_url')!r}"
+
+
+class TestWebhookSSRFValidation:
+    """G-WEBHOOK-007 / ADR-030: webhook_url cannot target private or metadata hosts.
+
+    Config-write validation is the primary gate; _fire_webhook repeats
+    the check so a stale bulwark-config.yaml can't become an SSRF path
+    when the process restarts.
+    """
+
+    def test_config_rejects_aws_metadata_url(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "bulwark.dashboard.config.CONFIG_PATH", tmp_path / "bulwark-config.yaml"
+        )
+        from bulwark.dashboard.config import BulwarkConfig
+        cfg = BulwarkConfig()
+        err = cfg.update_from_dict({"webhook_url": "http://169.254.169.254/latest/meta-data"})
+        assert err is not None
+        assert "webhook_url rejected" in err
+        # State must not have been touched on reject.
+        assert cfg.webhook_url == ""
+
+    def test_config_rejects_gcp_metadata_host(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "bulwark.dashboard.config.CONFIG_PATH", tmp_path / "bulwark-config.yaml"
+        )
+        from bulwark.dashboard.config import BulwarkConfig
+        cfg = BulwarkConfig()
+        err = cfg.update_from_dict({"webhook_url": "http://metadata.google.internal/computeMetadata/v1/"})
+        assert err is not None
+
+    def test_config_rejects_private_ip(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "bulwark.dashboard.config.CONFIG_PATH", tmp_path / "bulwark-config.yaml"
+        )
+        from bulwark.dashboard.config import BulwarkConfig
+        cfg = BulwarkConfig()
+        err = cfg.update_from_dict({"webhook_url": "https://10.0.0.5/internal"})
+        assert err is not None
+
+    def test_config_accepts_localhost(self, tmp_path, monkeypatch):
+        """Local alert routers on 127.0.0.1 are a legitimate use case."""
+        monkeypatch.setattr(
+            "bulwark.dashboard.config.CONFIG_PATH", tmp_path / "bulwark-config.yaml"
+        )
+        from bulwark.dashboard.config import BulwarkConfig
+        cfg = BulwarkConfig()
+        err = cfg.update_from_dict({"webhook_url": "http://127.0.0.1:4000/alerts"})
+        assert err is None
+        assert cfg.webhook_url == "http://127.0.0.1:4000/alerts"
+
+    def test_config_accepts_public_https_url(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "bulwark.dashboard.config.CONFIG_PATH", tmp_path / "bulwark-config.yaml"
+        )
+        from bulwark.dashboard.config import BulwarkConfig
+        cfg = BulwarkConfig()
+        err = cfg.update_from_dict({"webhook_url": "https://hooks.slack.com/services/T0/B0/x"})
+        assert err is None
+
+    def test_fire_webhook_silently_skips_private_url(self, monkeypatch):
+        """Defense in depth: even if somehow a bad URL ends up in config, don't POST."""
+        from bulwark.dashboard import api_v1
+
+        # Track whether WebhookEmitter was constructed (it shouldn't be).
+        constructed = []
+
+        class _NoopEmitter:
+            def __init__(self, *a, **kw):
+                constructed.append((a, kw))
+            def emit(self, *a, **kw):
+                pass
+
+        import bulwark.events as events_mod
+        monkeypatch.setattr(events_mod, "WebhookEmitter", _NoopEmitter)
+
+        api_v1._fire_webhook(
+            "http://169.254.169.254/latest/meta-data",
+            {"timestamp": 0, "layer": "canary", "verdict": "blocked",
+             "source_id": "", "detail": "", "duration_ms": 0, "metadata": {}},
+        )
+        assert constructed == [], "WebhookEmitter should not be constructed for a private URL"

@@ -295,3 +295,80 @@ class TestLoopbackDetector:
         class _R:
             client = None
         assert _is_loopback_client(_R()) is False
+
+
+class TestV1CleanConditionalAuth:
+    """G-AUTH-008 / ADR-030: /v1/clean requires auth when token set + LLM configured."""
+
+    def test_sanitize_only_mode_stays_public_with_token(self, monkeypatch):
+        """Token set but mode=none → /v1/clean still open."""
+        monkeypatch.setenv("BULWARK_API_TOKEN", "ops-secret")
+        import bulwark.dashboard.app as app_mod
+        saved_mode = app_mod.config.llm_backend.mode
+        app_mod.config.llm_backend.mode = "none"
+        try:
+            client = _get_client()
+            resp = client.post("/v1/clean", json={"content": "hello", "source": "test"})
+            assert resp.status_code != 401
+            assert resp.status_code != 403
+        finally:
+            app_mod.config.llm_backend.mode = saved_mode
+
+    def test_is_llm_configured_reads_config_mode(self, monkeypatch):
+        """Helper sanity: _is_llm_configured returns True only for real LLM modes."""
+        import bulwark.dashboard.app as app_mod
+        saved_mode = app_mod.config.llm_backend.mode
+        try:
+            app_mod.config.llm_backend.mode = "none"
+            assert app_mod._is_llm_configured() is False
+
+            app_mod.config.llm_backend.mode = "anthropic"
+            assert app_mod._is_llm_configured() is True
+
+            app_mod.config.llm_backend.mode = "openai_compatible"
+            assert app_mod._is_llm_configured() is True
+        finally:
+            app_mod.config.llm_backend.mode = saved_mode
+
+    def test_llm_mode_without_token_not_auth_gated(self, monkeypatch):
+        """G-AUTH-008: no token set → /v1/clean is NOT auth-gated even when LLM configured.
+        (ADR-029's loopback-only-for-mutations rule is a separate gate.)"""
+        monkeypatch.delenv("BULWARK_API_TOKEN", raising=False)
+        import bulwark.dashboard.app as app_mod
+        monkeypatch.setattr(app_mod, "_is_llm_configured", lambda: True)
+
+        # Middleware-level check without invoking the endpoint internals.
+        from bulwark.dashboard.app import get_api_token
+        assert get_api_token() == ""
+        assert "/v1/clean" in app_mod._UNAUTH_ALL_ORIGINS
+
+    def test_llm_mode_with_token_returns_401_without_auth_header(self, monkeypatch):
+        """G-AUTH-008: token set AND LLM configured → /v1/clean returns 401 without Bearer."""
+        monkeypatch.setenv("BULWARK_API_TOKEN", "ops-secret")
+        import bulwark.dashboard.app as app_mod
+        monkeypatch.setattr(app_mod, "_is_llm_configured", lambda: True)
+
+        client = _get_client()
+        resp = client.post("/v1/clean", json={"content": "hello"})
+        assert resp.status_code == 401
+
+    def test_token_and_sanitize_only_mode_stays_public(self, monkeypatch):
+        """G-AUTH-008: token set but mode=none → /v1/clean stays open."""
+        monkeypatch.setenv("BULWARK_API_TOKEN", "ops-secret")
+        import bulwark.dashboard.app as app_mod
+        monkeypatch.setattr(app_mod, "_is_llm_configured", lambda: False)
+
+        client = _get_client()
+        resp = client.post("/v1/clean", json={"content": "hello", "source": "test"})
+        # Must not require auth — no 401. May be 200 or 422 on content, both fine.
+        assert resp.status_code != 401
+
+    def test_healthz_and_guard_stay_public_regardless(self, monkeypatch):
+        """G-AUTH-008: the conditional auth rule is scoped to /v1/clean only."""
+        monkeypatch.setenv("BULWARK_API_TOKEN", "ops-secret")
+        import bulwark.dashboard.app as app_mod
+        monkeypatch.setattr(app_mod, "_is_llm_configured", lambda: True)
+
+        client = _get_client()
+        assert client.get("/healthz").status_code == 200
+        assert client.post("/v1/guard", json={"text": "hi"}).status_code == 200

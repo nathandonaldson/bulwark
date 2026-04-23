@@ -1,5 +1,5 @@
 feature: Dashboard bearer token authentication
-version: "0.9.0"
+version: "1.0.0"
 
 guarantees:
   - id: G-AUTH-001
@@ -27,6 +27,16 @@ guarantees:
       clients disable defenses" by making the secure default the default.
       Callers wanting to toggle config from a remote client must set
       BULWARK_API_TOKEN and authenticate. See ADR-029.
+  - id: G-AUTH-008
+    summary: >
+      /v1/clean leaves the always-public allowlist when BULWARK_API_TOKEN
+      is set AND an LLM backend is configured (mode is "anthropic" or
+      "openai_compatible"). In that state it requires Bearer or cookie
+      auth like any other protected endpoint. Sanitize-only deployments
+      (mode="none") and token-unset deployments keep the open default.
+      Closes the Codex finding "Public /v1/clean now triggers LLM
+      pipeline without auth" — unauth LLM invocation with the
+      operator's API key is cost-abuse. See ADR-030.
 
 non_guarantees:
   - id: NG-AUTH-001
