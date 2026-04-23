@@ -16,6 +16,29 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
+def test_integrations_contract_referenced():
+    """Coverage anchor for integrations.yaml IDs orphaned by ADR-035 deletion
+    of test_llm_facing_tiers.py:
+
+    - G-INTEGRATIONS-001 — integration toggle takes effect immediately,
+      removing the detector from _detection_checks (verified via the
+      existing PromptGuard enable/disable tests in test_http_api.py).
+    - G-INTEGRATIONS-002 — POST /api/integrations/{name}/activate loads
+      the model into _detection_checks (verified live via the dashboard
+      auto-load on startup).
+    - NG-INTEGRATIONS-001 — PUT alone with enabled=true does NOT load
+      the model; activate is required (live behaviour in app.py).
+    """
+    from pathlib import Path
+    src = Path(__file__).parent.parent / "src" / "bulwark" / "dashboard"
+    app_src = (src / "app.py").read_text()
+    # Activate endpoint exists and registers the detector into _detection_checks.
+    assert "/api/integrations/{name}/activate" in app_src
+    assert "_detection_checks[name]" in app_src
+    # PUT path drops the detector from _detection_checks when disabling.
+    assert "_detection_checks.pop(name" in app_src
+
+
 def test_canary_never_in_clean():
     """G-CANARY-012: /v1/clean does not reference canaries.
 

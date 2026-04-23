@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.2.0] - 2026-04-23
+
+### Added
+
+- **`bulwark_falsepos` — false-positive harness** (ADR-036). New sibling CLI alongside `bulwark_bench`. Sweeps detector configurations against a curated benign corpus (`spec/falsepos_corpus.jsonl`) and reports per-config false-positive rate plus per-category breakdown. Live smoke shows DeBERTa-only blocks ~19% of the seed corpus, concentrated in `meta` (emails *about* prompt injection) and `quoted_attacks` (emails *quoting* attacker payloads) — exactly the categories users have hit in production.
+- Initial 42-entry corpus across 9 categories: `everyday`, `customer_support`, `marketing`, `technical`, `meta`, `repetitive`, `non_english`, `code_blocks`, `quoted_attacks`. Easily extensible — drop more JSONL lines and the harness picks them up.
+- `--max-fp-rate` flag on the CLI for CI gating (G-FP-008).
+- ADR-036 — false-positive harness spec.
+- `spec/contracts/bulwark_falsepos.yaml` (G-FP-001..008, NG-FP-001..003).
+
+### Changed
+
+- **Removed `llm-quick` and `llm-suite` red-team tiers** (ADR-035). They paired with `bulwark_bench`'s deleted `--bypass-detectors` model-sweep flow, which collapsed when ADR-031 removed `llm_backend`. The dashboard's red-team UI now shows three tiers — Smoke Test, Standard Scan, Full Sweep. ADR-018 marked Superseded.
+
+### Notes
+
+- The new false-positive numbers should drive your detector-config choice. Run both harnesses together: `bulwark_bench` for defense rate, `bulwark_falsepos` for false-positive rate. The right config is whichever one minimizes false positives while keeping defense rate where you need it.
+
 ## [2.1.0] - 2026-04-23
 
 ### Added

@@ -1,6 +1,6 @@
 # ADR-018: LLM-facing red-team tiers (`llm-quick`, `llm-suite`)
 
-**Status:** Accepted
+**Status:** Superseded by ADR-035 (2026-04-23)
 **Date:** 2026-04-17
 
 ## Context

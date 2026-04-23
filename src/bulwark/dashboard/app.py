@@ -634,30 +634,11 @@ def _compute_redteam_tiers(_force: bool = False) -> dict:
                 quick_count += n
                 quick_families.add(family)
 
-    # LLM-facing tiers (llm-quick / llm-suite) — curated probe classes chosen for
-    # high historical LLM-reach rate. See ADR-018.
-    from bulwark.integrations.redteam import ProductionRedTeam as _PRT
-    llm_tier_defs = []
-    for tier_id, selectors in _PRT.TIER_CLASS_SELECTORS.items():
-        families = sorted({fam for fam, _cls, _n in selectors})
-        probe_count = sum(n for _fam, _cls, n in selectors)
-        if tier_id == "llm-quick":
-            name = "LLM Quick"
-            desc = "10 probes across 10 attack families, curated to reach the analyze LLM. Pair with bulwark_bench --bypass-detectors for a guaranteed LLM benchmark."
-        elif tier_id == "llm-suite":
-            name = "LLM Suite"
-            desc = "~200 probes balanced across 16 attack families for meaningful model comparisons. Pair with bulwark_bench --bypass-detectors."
-        else:
-            name = tier_id.replace("-", " ").title()
-            desc = "LLM-facing curated tier."
-        llm_tier_defs.append({
-            "id": tier_id,
-            "name": name,
-            "description": desc,
-            "probe_count": probe_count,
-            "families": families,
-        })
-
+    # llm-quick / llm-suite tiers removed in v2.1.0 (ADR-035): they paired with
+    # the deleted bulwark_bench --bypass-detectors model-sweep flow, which
+    # collapsed when ADR-031 removed llm_backend. The standard tier already
+    # exercises every active probe, and v2 has no LLM behind the detectors
+    # for the curated LLM-reach tiers to point at.
     result = {
         "garak_installed": True,
         "garak_version": version,
@@ -669,7 +650,6 @@ def _compute_redteam_tiers(_force: bool = False) -> dict:
                 "probe_count": min(quick_count, 10),
                 "families": sorted(quick_families),
             },
-            *llm_tier_defs,
             {
                 "id": "standard",
                 "name": "Standard Scan",

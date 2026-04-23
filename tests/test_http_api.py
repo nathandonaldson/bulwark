@@ -805,9 +805,9 @@ class TestRedteamTiers:
             # Canonical tiers always present
             for expected in ("quick", "standard", "full"):
                 assert expected in tier_ids, f"missing canonical tier: {expected}"
-            # llm-* curated tiers (see ADR-018) must also be present
-            assert "llm-quick" in tier_ids
-            assert "llm-suite" in tier_ids
+            # ADR-035: llm-quick / llm-suite removed in v2.1.0.
+            assert "llm-quick" not in tier_ids
+            assert "llm-suite" not in tier_ids
 
     def test_counts_are_dynamic(self):
         """G-REDTEAM-TIERS-002: Probe counts come from garak, not hardcoded."""
