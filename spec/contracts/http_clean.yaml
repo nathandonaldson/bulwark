@@ -20,6 +20,13 @@ guarantees:
     summary: Respects dashboard layer toggles (sanitizer, trust boundary)
   - id: G-HTTP-CLEAN-009
     summary: Emits BLOCKED events on classifier blocks to dashboard EventDB + webhooks
+  - id: G-HTTP-CLEAN-010
+    summary: >
+      The detector examines the entire sanitized payload, not just the
+      first 512 tokens. Inputs larger than the model's token window are
+      split into overlapping windows (stride 64) and classified per-
+      window; the response verdict is INJECTION if any window is flagged
+      above threshold. See ADR-032.
 
 non_guarantees:
   - id: NG-HTTP-CLEAN-001
@@ -31,3 +38,10 @@ non_guarantees:
   - id: NG-HTTP-CLEAN-003
     summary: Does NOT check canaries — canaries are output-side only
     reason: Canaries are for detecting LLM exfiltration; /v1/clean processes input before any LLM runs.
+  - id: NG-HTTP-CLEAN-004
+    summary: Does NOT guarantee sub-linear detector latency for large inputs
+    reason: >
+      Chunking (ADR-032) trades O(1) detector cost for O(n) in payload
+      size. A 1 MB input needs hundreds of classifier windows. Operators
+      needing a hard upper bound should pass `max_length` on the request
+      or front the dashboard with a size-limiting proxy.

@@ -75,12 +75,44 @@ def load_detector(
     return detector
 
 
+# ADR-032: Chunking parameters. 512-token model window minus 2 reserved tokens
+# for [CLS]/[SEP]. Stride of 64 means an injection phrase can straddle a
+# window boundary and still land wholly inside at least one neighbour.
+_WINDOW_RESERVED_TOKENS = 2
+_WINDOW_STRIDE_TOKENS = 64
+_MAX_BATCH_WINDOWS = 64  # Cap per-call inference: 64 × 510 tokens ≈ 128 KB of input.
+
+
+def _tokenize_windows(text: str, tokenizer, model_max: int) -> list[str]:
+    """Split text into overlapping token windows, return decoded strings.
+
+    Returns one element when the text fits in a single window — in that
+    case the output equals the input (modulo tokenizer roundtrip).
+    """
+    window = max(8, model_max - _WINDOW_RESERVED_TOKENS)
+    stride = min(_WINDOW_STRIDE_TOKENS, window // 4)
+    # add_special_tokens=False — we decode back to a string and let the
+    # downstream pipeline add [CLS]/[SEP] per window during inference.
+    ids = tokenizer.encode(text, add_special_tokens=False, truncation=False)
+    if len(ids) <= window:
+        return [text]
+    chunks: list[str] = []
+    start = 0
+    while start < len(ids):
+        end = min(start + window, len(ids))
+        chunks.append(tokenizer.decode(ids[start:end], skip_special_tokens=True))
+        if end == len(ids):
+            break
+        start = end - stride
+    return chunks
+
+
 def create_check(
     detector: object,
     threshold: float = DEFAULT_THRESHOLD,
     injection_labels: tuple[str, ...] = ("INJECTION", "JAILBREAK"),
 ) -> Callable[[str], None]:
-    """Create an AnalysisGuard check function from a loaded detector.
+    """Create a PatternGuard-compatible check function from a loaded detector.
 
     Args:
         detector: A transformers text-classification pipeline.
@@ -90,17 +122,54 @@ def create_check(
             ProtectAI DeBERTa uses: SAFE, INJECTION.
 
     Returns:
-        A callable that raises AnalysisSuspiciousError if injection detected.
+        A callable that raises SuspiciousPatternError if injection detected.
+        Long inputs are chunked across the model's token window so nothing
+        past the first 512 tokens is silently invisible (ADR-032).
     """
+    tokenizer = getattr(detector, "tokenizer", None)
+    model_max = getattr(tokenizer, "model_max_length", None) if tokenizer else None
+    # Guard against tokenizers reporting a sentinel value (e.g. 10**30 for
+    # "effectively unbounded"). Fall back to the DeBERTa default.
+    if not isinstance(model_max, int) or model_max > 4096 or model_max < 8:
+        model_max = 512
+
+    def _classify(chunks: list[str]) -> list[dict]:
+        """Run the pipeline over chunks, capped at _MAX_BATCH_WINDOWS per call."""
+        out: list[dict] = []
+        for i in range(0, len(chunks), _MAX_BATCH_WINDOWS):
+            batch = chunks[i:i + _MAX_BATCH_WINDOWS]
+            results = detector(batch, truncation=True)
+            # pipeline returns a list for batch input, even of length 1.
+            if results and isinstance(results[0], dict):
+                out.extend(results)
+            elif results and isinstance(results[0], list):
+                out.extend(r[0] for r in results if r)
+        return out
+
     def check(analysis: str) -> None:
-        result = detector(analysis)
-        if not result:
+        if not analysis:
             return
-        top = result[0]
-        if top["label"] in injection_labels and top["score"] >= threshold:
-            raise AnalysisSuspiciousError(
-                f"Prompt injection detected ({top['score']:.3f}, {top['label']}) by {detector.model.name_or_path}"
-            )
+        if tokenizer is None:
+            # Fallback path — no tokenizer exposed. Single call, accept the
+            # pipeline's own truncation. Better than refusing to run at all.
+            result = detector(analysis)
+            if not result:
+                return
+            top = result[0]
+            if top["label"] in injection_labels and top["score"] >= threshold:
+                raise AnalysisSuspiciousError(
+                    f"Prompt injection detected ({top['score']:.3f}, {top['label']}) by {detector.model.name_or_path}"
+                )
+            return
+
+        chunks = _tokenize_windows(analysis, tokenizer, model_max)
+        results = _classify(chunks)
+        for top in results:
+            if top["label"] in injection_labels and top["score"] >= threshold:
+                raise AnalysisSuspiciousError(
+                    f"Prompt injection detected ({top['score']:.3f}, {top['label']}) by {detector.model.name_or_path}"
+                    + (f" in window {results.index(top) + 1}/{len(results)}" if len(chunks) > 1 else "")
+                )
 
     return check
 
