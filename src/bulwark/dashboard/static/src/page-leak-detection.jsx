@@ -18,7 +18,43 @@ function PageLeakDetection({ store }) {
         </div>
       </div>
 
-      <CanaryPane store={store} />
+      <div style={{display: 'flex', flexDirection: 'column', gap: 24}}>
+        <CanaryPane store={store} />
+        <GuardPatternsCard store={store} />
+      </div>
+    </div>
+  );
+}
+
+function GuardPatternsCard({ store }) {
+  const patterns = Array.isArray(store.guardPatterns) ? store.guardPatterns : [];
+  return (
+    <div className="card" style={{padding: 0}}>
+      <div style={{padding: '16px 20px', borderBottom: '1px solid var(--hairline)'}}>
+        <div className="label">Output checks</div>
+        <div style={{fontSize: 17, fontWeight: 600, marginTop: 2}}>
+          Guard patterns <span className="mono dim" style={{marginLeft: 8, fontSize: 12}}>{patterns.length}</span>
+        </div>
+        <div className="dim" style={{fontSize: 12, marginTop: 4}}>
+          Regex patterns applied by <span className="mono">/v1/guard</span> alongside canary checks.
+          Edit via <span className="mono">bulwark-config.yaml</span>.
+        </div>
+      </div>
+      <div style={{padding: '14px 20px'}}>
+        {patterns.length === 0 ? (
+          <div className="empty-slate" style={{padding: 20, border: '1px dashed var(--border)', borderRadius: 8, fontSize: 12}}>
+            No guard patterns configured.
+          </div>
+        ) : (
+          <div style={{background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 8, padding: 4, fontFamily: 'var(--font-mono)', fontSize: 11.5, maxHeight: 280, overflow: 'auto'}}>
+            {patterns.map((p, i) => (
+              <div key={i} style={{display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderBottom: i < patterns.length - 1 ? '1px solid var(--hairline)' : 'none'}}>
+                <span style={{flex: 1, color: 'var(--amber)', wordBreak: 'break-all'}}>{p}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -72,6 +72,22 @@ class IntegrationConfig:
     last_used: Optional[float] = None
 
 
+# ADR-033: opt-in third detector. Default OFF. When enabled, /v1/clean
+# sends sanitized input to the configured endpoint with a fixed classifier
+# prompt. The judge is detection-only — its raw output never reaches the
+# /v1/clean response. See spec/contracts/llm_judge.yaml.
+@dataclass
+class JudgeBackendConfig:
+    enabled: bool = False
+    mode: str = "openai_compatible"   # or "anthropic"
+    base_url: str = ""
+    api_key: str = ""
+    model: str = ""
+    threshold: float = 0.85           # confidence ≥ threshold → INJECTION block
+    fail_open: bool = True            # network/parse error → log + pass
+    timeout_s: float = 30.0
+
+
 @dataclass
 class BulwarkConfig:
     # Layer toggles
@@ -97,8 +113,22 @@ class BulwarkConfig:
     # Integrations
     integrations: dict[str, IntegrationConfig] = field(default_factory=dict)
 
+    # ADR-033: opt-in LLM judge as a third detector.
+    judge_backend: JudgeBackendConfig = field(default_factory=JudgeBackendConfig)
+
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        # Mask the judge API key in /api/config responses.
+        jb = d.get("judge_backend") or {}
+        if jb.get("api_key"):
+            jb["api_key"] = self._mask(jb["api_key"])
+        return d
+
+    @staticmethod
+    def _mask(key: str) -> str:
+        if not key or len(key) <= 12:
+            return "***" if key else ""
+        return key[:7] + "..." + key[-4:]
 
     def save(self, path: str = None):
         p = Path(path) if path else CONFIG_PATH
@@ -136,7 +166,10 @@ class BulwarkConfig:
                     integrations[k] = IntegrationConfig(**v)
                 else:
                     integrations[k] = IntegrationConfig()
-            cfg = cls(integrations=integrations, **{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+            judge_data = data.pop("judge_backend", {}) or {}
+            judge_backend = JudgeBackendConfig(**judge_data) if isinstance(judge_data, dict) else JudgeBackendConfig()
+            cfg = cls(integrations=integrations, judge_backend=judge_backend,
+                      **{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
             cls._apply_env_vars(cfg)
             return cfg
         except Exception:
@@ -162,7 +195,24 @@ class BulwarkConfig:
             if err:
                 return f"webhook_url rejected: {err}"
 
+        # G-JUDGE-006: reject private-host judge URLs (same allowlist).
+        if "judge_backend" in data and isinstance(data["judge_backend"], dict):
+            new_url = data["judge_backend"].get("base_url", "")
+            if new_url:
+                from bulwark.dashboard.url_validator import validate_external_url
+                err = validate_external_url(new_url)
+                if err:
+                    return f"judge_backend.base_url rejected: {err}"
+
         for key, value in data.items():
+            if key == "judge_backend" and isinstance(value, dict):
+                for k, v in value.items():
+                    if hasattr(self.judge_backend, k):
+                        # Don't overwrite a real key with a masked one.
+                        if k == "api_key" and isinstance(v, str) and "..." in v:
+                            continue
+                        setattr(self.judge_backend, k, v)
+                continue
             if key == "integrations":
                 for int_name, int_data in value.items():
                     if isinstance(int_data, dict):

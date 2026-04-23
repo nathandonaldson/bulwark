@@ -112,6 +112,10 @@ const BulwarkStore = (() => {
     running: null,
     guardPatterns: [],
     canaryTokens: {},
+    judge: {            // ADR-033 — opt-in LLM judge config
+      enabled: false, mode: 'openai_compatible', base_url: '',
+      api_key: '', model: '', threshold: 0.85, fail_open: true,
+    },
     redteamTiers: null,
     redteamReports: [],
   };
@@ -146,6 +150,9 @@ const BulwarkStore = (() => {
       state.layerConfig = _layerConfigFromBackend(configR.value);
       state.guardPatterns = Array.isArray(configR.value.guard_patterns) ? configR.value.guard_patterns : [];
       state.canaryTokens = (configR.value.canary_tokens && typeof configR.value.canary_tokens === 'object') ? configR.value.canary_tokens : {};
+      if (configR.value.judge_backend && typeof configR.value.judge_backend === 'object') {
+        state.judge = { ...state.judge, ...configR.value.judge_backend };
+      }
     }
 
     if (integrationsR.status === 'fulfilled') {
@@ -253,6 +260,9 @@ const BulwarkStore = (() => {
       state.layerConfig = _layerConfigFromBackend(updated);
       state.guardPatterns = Array.isArray(updated.guard_patterns) ? updated.guard_patterns : state.guardPatterns;
       state.canaryTokens = (updated.canary_tokens && typeof updated.canary_tokens === 'object') ? updated.canary_tokens : state.canaryTokens;
+      if (updated.judge_backend && typeof updated.judge_backend === 'object') {
+        state.judge = { ...state.judge, ...updated.judge_backend };
+      }
       const anyDetection = ['protectai', 'promptguard'].some(k => state.integrations[k] === 'active');
       state.layerConfig.detection = anyDetection;
       emit();
@@ -277,8 +287,19 @@ const BulwarkStore = (() => {
         state.layerConfig = _layerConfigFromBackend(cfg);
         state.guardPatterns = Array.isArray(cfg.guard_patterns) ? cfg.guard_patterns : [];
         state.canaryTokens = (cfg.canary_tokens && typeof cfg.canary_tokens === 'object') ? cfg.canary_tokens : {};
+        if (cfg.judge_backend && typeof cfg.judge_backend === 'object') {
+          state.judge = { ...state.judge, ...cfg.judge_backend };
+        }
         emit();
       } catch { /* leave state as-is */ }
+    },
+
+    // ADR-033 — judge config setters routed through PUT /api/config.
+    async setJudgeEnabled(enabled) {
+      await _putConfig({ judge_backend: { enabled: !!enabled } });
+    },
+    async setJudgeConfig(patch) {
+      await _putConfig({ judge_backend: patch });
     },
 
     toggleLayer(id) {

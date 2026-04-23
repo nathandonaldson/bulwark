@@ -264,10 +264,15 @@ def test_ui_guarantees_pr_b():
     cfg = (src / "page-configure.jsx").read_text()
     leak = (src / "page-leak-detection.jsx").read_text()
 
-    # Configure page sections
-    assert "PipelineLayersCard" in cfg
-    assert "DetectorCard" in cfg and "PromptGuard (optional" in cfg
-    assert "GuardPatternsCard" in cfg
+    # Configure page (v2.x): pipeline-flow visualization with split detectors.
+    assert "PipelineFlow" in cfg and "DetailPane" in cfg
+    assert "SanitizerPane" in cfg and "DetectorPane" in cfg and "BoundaryPane" in cfg
+    # DeBERTa, PromptGuard, and LLM Judge are all separate pipeline stages.
+    assert "'protectai'" in cfg and "'promptguard'" in cfg and "'llm_judge'" in cfg
+    assert "LLMJudgePane" in cfg
+    # Guard patterns moved to Leak Detection page (output-side check).
+    assert "GuardPatternsCard" in leak
+    assert "GuardPatternsCard" not in cfg
     # No LLM UI in v2 Config
     assert "LLMBackendPane" not in cfg
     assert "llm_backend" not in cfg

@@ -1,22 +1,21 @@
-"""JSON + Markdown report rendering.
+"""JSON + Markdown report rendering (v2.0.0, ADR-034).
 
-G-BENCH-007 / G-BENCH-008.
+G-BENCH-007 / G-BENCH-008. Cost column dropped (NG-BENCH-002 v2):
+detector configs don't have a meaningful per-config dollar cost.
 """
 from __future__ import annotations
 
 import datetime as _dt
-import json
 from typing import Any
 
 
-def render_json(results: list[dict[str, Any]], tier: str, *, pricing_version: str = "") -> dict[str, Any]:
-    """Machine-readable report. Preserves input order for diffing against prior runs."""
+def render_json(results: list[dict[str, Any]], tier: str) -> dict[str, Any]:
+    """Machine-readable report. Preserves input order for diffing across runs."""
     return {
-        "schema": "bulwark_bench/v1",
+        "schema": "bulwark_bench/v2",
         "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
         "tier": tier,
-        "pricing_table_version": pricing_version,
-        "results": list(results),
+        "configurations": list(results),
     }
 
 
@@ -37,22 +36,18 @@ def _fmt_latency(s: float) -> str:
     return f"{s:.2f}s"
 
 
-def _fmt_cost(cost: float) -> str:
-    if cost == 0:
-        return "$0.00"
-    if cost < 0.01:
-        return f"${cost:.4f}"
-    return f"${cost:.2f}"
-
-
-def render_markdown(results: list[dict[str, Any]], tier: str, *, title: str = "Bulwark model benchmark") -> str:
+def render_markdown(
+    results: list[dict[str, Any]], tier: str,
+    *, title: str = "Bulwark detector-config benchmark",
+) -> str:
     """Human-readable table sorted by defense_rate desc, then avg_latency asc (G-BENCH-008)."""
     errored = [r for r in results if r.get("error")]
     ok = [r for r in results if not r.get("error")]
 
     ordered = sorted(
         ok,
-        key=lambda r: (-float(r.get("defense_rate", 0) or 0), float(r.get("avg_latency_s", 1e9) or 1e9)),
+        key=lambda r: (-float(r.get("defense_rate", 0) or 0),
+                        float(r.get("avg_latency_s", 1e9) or 1e9)),
     )
 
     lines: list[str] = []
@@ -61,43 +56,44 @@ def render_markdown(results: list[dict[str, Any]], tier: str, *, title: str = "B
     lines.append(f"- tier: **{tier}**")
     if ordered:
         total_probes = ordered[0].get("total_probes", "?")
-        lines.append(f"- probes per model: **{total_probes}**")
+        lines.append(f"- probes per configuration: **{total_probes}**")
     lines.append(f"- generated: {_dt.datetime.now(_dt.timezone.utc).isoformat(timespec='seconds')}")
     lines.append("")
     lines.append("## Results")
     lines.append("")
-    lines.append("| rank | model | defense | hijacks | avg latency | sample tokens (in/out) | est cost |")
-    lines.append("|-----:|:------|--------:|--------:|------------:|:----------------------:|---------:|")
+    lines.append("| rank | configuration | defense | hijacks | avg latency |")
+    lines.append("|-----:|:--------------|--------:|--------:|------------:|")
     for i, r in enumerate(ordered, start=1):
-        model = r.get("model", "?")
+        name = r.get("config_name") or r.get("config_slug", "?")
         rate = float(r.get("defense_rate", 0) or 0)
         hijacked = int(r.get("hijacked", 0) or 0)
         latency = float(r.get("avg_latency_s", 0) or 0)
-        tin = int(r.get("tokens_in_sample", 0) or 0)
-        tout = int(r.get("tokens_out_sample", 0) or 0)
-        cost = float(r.get("cost_usd", 0) or 0)
         lines.append(
-            f"| {i} | `{model}` | {_fmt_pct(rate, hijacked)} | {hijacked} | {_fmt_latency(latency)} | "
-            f"{tin} / {tout} | {_fmt_cost(cost)} |"
+            f"| {i} | {name} | {_fmt_pct(rate, hijacked)} | {hijacked} | "
+            f"{_fmt_latency(latency)} |"
         )
 
     if errored:
         lines.append("")
         lines.append("## Errored runs")
         lines.append("")
-        lines.append("| model | error |")
-        lines.append("|:------|:------|")
+        lines.append("| configuration | error |")
+        lines.append("|:--------------|:------|")
         for r in errored:
-            lines.append(f"| `{r.get('model', '?')}` | {r.get('error', 'unknown')} |")
+            lines.append(
+                f"| {r.get('config_name') or r.get('config_slug', '?')} | "
+                f"{r.get('error', 'unknown')} |"
+            )
 
-    # Family breakdown — only when the first OK result has one (standard tier).
     if ordered and ordered[0].get("by_family"):
         families = sorted({fam for r in ordered for fam in (r.get("by_family") or {}).keys()})
         if families:
             lines.append("")
             lines.append("## By probe family — defense rate")
             lines.append("")
-            header = "| family | " + " | ".join(f"`{r['model']}`" for r in ordered) + " |"
+            header = "| family | " + " | ".join(
+                f"{r.get('config_name') or r.get('config_slug', '?')}" for r in ordered
+            ) + " |"
             sep = "|:-------|" + "|".join(["-" * 10] * len(ordered)) + "|"
             lines.append(header)
             lines.append(sep)
@@ -116,7 +112,6 @@ def render_markdown(results: list[dict[str, Any]], tier: str, *, title: str = "B
                 lines.append(f"| {fam} | " + " | ".join(cells) + " |")
 
     lines.append("")
-    lines.append("_Ranking: defense rate descending, then avg latency ascending (G-BENCH-008). "
-                 "Costs from the versioned pricing table (NG-BENCH-002); local inference is $0._")
+    lines.append("_Ranking: defense rate descending, then avg latency ascending (G-BENCH-008)._")
     lines.append("")
     return "\n".join(lines)

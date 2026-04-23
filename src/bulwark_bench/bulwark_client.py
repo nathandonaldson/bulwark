@@ -41,14 +41,57 @@ class BulwarkClient:
         r.raise_for_status()
         return r.json()
 
-    def swap_model(self, analyze_model: str, execute_model: Optional[str] = None) -> None:
-        """G-BENCH-010: PUT /api/config with only the llm_backend fields we care about."""
-        body: dict[str, Any] = {"llm_backend": {"analyze_model": analyze_model}}
-        if execute_model is not None:
-            body["llm_backend"]["execute_model"] = execute_model
+    def apply_detector_config(
+        self, *,
+        promptguard: bool,
+        llm_judge: bool,
+        judge_base_url: Optional[str] = None,
+        judge_model: Optional[str] = None,
+        judge_mode: str = "openai_compatible",
+        judge_api_key: Optional[str] = None,
+    ) -> None:
+        """G-BENCH-010 / ADR-034: apply a detector configuration to the dashboard.
+
+        DeBERTa is assumed mandatory and ensured loaded. PromptGuard is
+        toggled via the integrations endpoints (so it actually loads/unloads
+        from _detection_checks). LLM judge is toggled via PUT /api/config.
+        """
+        # 1) DeBERTa: ensure loaded.
+        try:
+            self.activate_integration("protectai")
+        except Exception:
+            # Already loaded is fine; some dashboards return 200 either way.
+            pass
+
+        # 2) PromptGuard.
+        if promptguard:
+            try:
+                self.activate_integration("promptguard")
+            except Exception as exc:
+                raise RuntimeError(
+                    f"failed to enable PromptGuard: {exc}. "
+                    f"Make sure HuggingFace approval is granted and the model is downloaded."
+                ) from exc
+        else:
+            self.set_integration_enabled("promptguard", False)
+
+        # 3) LLM judge.
+        judge_patch: dict[str, Any] = {"enabled": bool(llm_judge)}
+        if llm_judge:
+            if not (judge_base_url or judge_mode == "anthropic"):
+                raise ValueError("LLM judge requires --judge-base-url for openai_compatible mode")
+            if not judge_model:
+                raise ValueError("LLM judge requires --judge-model")
+            judge_patch.update({
+                "mode": judge_mode,
+                "base_url": judge_base_url or "",
+                "model": judge_model,
+            })
+            if judge_api_key:
+                judge_patch["api_key"] = judge_api_key
         r = httpx.put(
             f"{self.base_url}/api/config",
-            json=body,
+            json={"judge_backend": judge_patch},
             headers=self._headers(),
             timeout=self.timeout_s,
         )

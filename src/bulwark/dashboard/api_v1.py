@@ -170,6 +170,82 @@ async def api_clean(req: CleanRequest):
                     },
                 )
 
+    # Step 2b: LLM judge (opt-in, runs after DeBERTa/PromptGuard so faster
+    # detectors short-circuit it). G-JUDGE-001..008.
+    if config.judge_backend.enabled and cleaned:
+        from bulwark.detectors.llm_judge import classify
+        jcfg = config.judge_backend
+        step += 1
+        v = classify(jcfg, cleaned)
+        trace_layer = "detection:llm_judge"
+        if v.verdict == "INJECTION" and v.confidence >= jcfg.threshold:
+            trace.append({
+                "step": step, "layer": trace_layer, "verdict": "blocked",
+                "detail": f"LLM judge: INJECTION ({v.confidence:.2f}) — {v.reason} ({v.latency_ms:.0f}ms)",
+                "detection_model": "llm_judge",
+                "duration_ms": round(v.latency_ms, 1),
+            })
+            total_ms = (time.time() - t0) * 1000
+            _emit_event(
+                layer="detection", verdict="blocked",
+                source_id=f"api:clean:{source}",
+                detail=f"Blocked by llm_judge: {v.reason}",
+                duration_ms=round(total_ms, 1),
+            )
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "blocked": True,
+                    "block_reason": f"Detector llm_judge: INJECTION ({v.confidence:.2f})",
+                    "blocked_at": "detection:llm_judge",
+                    "trace": trace,
+                    "content_length": len(content),
+                    "modified": modified,
+                },
+            )
+        if v.verdict == "ERROR":
+            if not jcfg.fail_open:
+                trace.append({
+                    "step": step, "layer": trace_layer, "verdict": "blocked",
+                    "detail": f"LLM judge unreachable (fail-closed): {v.reason}",
+                    "detection_model": "llm_judge",
+                    "duration_ms": round(v.latency_ms, 1),
+                })
+                total_ms = (time.time() - t0) * 1000
+                _emit_event(
+                    layer="detection", verdict="blocked",
+                    source_id=f"api:clean:{source}",
+                    detail=f"Blocked by llm_judge (fail-closed): {v.reason}",
+                    duration_ms=round(total_ms, 1),
+                )
+                return JSONResponse(
+                    status_code=422,
+                    content={
+                        "blocked": True,
+                        "block_reason": f"Detector llm_judge unreachable: {v.reason}",
+                        "blocked_at": "detection:llm_judge",
+                        "trace": trace,
+                        "content_length": len(content),
+                        "modified": modified,
+                    },
+                )
+            # fail-open
+            trace.append({
+                "step": step, "layer": trace_layer, "verdict": "passed",
+                "detail": f"LLM judge unreachable (fail-open): {v.reason} ({v.latency_ms:.0f}ms)",
+                "detection_model": "llm_judge",
+                "duration_ms": round(v.latency_ms, 1),
+            })
+        else:
+            # SAFE or UNPARSEABLE → pass through
+            trace.append({
+                "step": step, "layer": trace_layer, "verdict": "passed",
+                "detail": f"LLM judge: {v.verdict} ({v.confidence:.2f}) ({v.latency_ms:.0f}ms)",
+                "detection_model": "llm_judge",
+                "duration_ms": round(v.latency_ms, 1),
+            })
+            detector_verdict = {"label": v.verdict, "score": v.confidence}
+
     # Step 3: trust boundary wrap
     tagged = cleaned
     if trust_boundary:
