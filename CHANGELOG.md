@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.3.3] - 2026-04-23
+
+### Security
+- **Bridge trust-boundary escape closed** (Codex finding, ADR-028, G-EXECUTOR-014). An attacker-influenced Phase-1 LLM output of the form `</analysis\u200b_output>` evaded `AnalysisGuard`'s literal regex, got zero-width-normalised by `_BRIDGE_SANITIZER` into a real `</analysis_output>`, and then closed `SECURE_EXECUTE_TEMPLATE`'s wrapper early in the Phase-2 prompt — letting attacker instructions sit outside the trust boundary. Fix: `_BRIDGE_SANITIZER` now has `strip_html=True`, so any normalised tag is stripped entirely; `AnalysisGuard.DEFAULT_PATTERNS` boundary regexes are now `(?i)` case-insensitive so `</ANALYSIS_OUTPUT>` variants also block. `TwoPhaseExecutor.run()` was never vulnerable (its bridge uses `Sanitizer()` defaults which already strip HTML).
+- **Loopback-only mutations when no token is set** (Codex finding, ADR-029, G-AUTH-007). Before this change, `BearerAuthMiddleware` passed every request through when `BULWARK_API_TOKEN` was unset — combined with Docker's default `0.0.0.0:3000` bind, any network-reachable client could `PUT /api/config` and disable core defenses. The token-unset branch now requires mutating methods (POST/PUT/DELETE/PATCH) on non-public endpoints to come from the loopback interface (`127.0.0.0/8` or `::1`, plus the FastAPI TestClient sentinel). GETs and public endpoints (`/healthz`, `/v1/clean`, `/v1/guard`, `/api/auth/login`, `/api/presets`, `/`, `/static/*`) stay open; operators running behind a reverse proxy must set `BULWARK_API_TOKEN` (we do not trust `X-Forwarded-For` — NG-AUTH-003).
+- **LLM key never leaves its configured origin** (Codex finding, ADR-027, G-HTTP-LLM-TEST-007). `/v1/llm/test` and `/v1/llm/models` previously forwarded the server-stored API key to any caller-supplied `base_url`. `_resolve_llm_api_key()` now returns the stored key only when the request's `base_url` matches the configured one (after `rstrip("/")`); an explicit caller-supplied key is always forwarded verbatim; any other combination returns an empty string.
+
+### Added
+- ADR-027, ADR-028, ADR-029 — one per security finding, each naming the invariant and explaining why the fix cannot be silently undone by a refactor.
+- Contract bumps: `executor.yaml` v1.1.0, `http_auth.yaml` v0.9.0, `http_llm_test.yaml` v0.6.0.
+- 20 new tests pinning both the exploit paths and the legitimate flows (four new tests from PR #19 and PR #17 combined for Finding 3; two for Finding 1; fifteen for Finding 2 split across `TestLoopbackOnlyMutations` and `TestLoopbackDetector`).
+
+### Fixed
+- **Test connection button actually tests and shows the result** (PR #18). The `testConnection()` store method now forwards the in-form values (`base_url`, `analyze_model`, `execute_model`, optional `api_key`) to `/v1/llm/test` instead of only `mode`. A new `TestConnectionStatus` component renders a spinning icon while the probe is in flight, then a green tick + diagnostic (`"Connected to …. 14 model(s) available."`) on success or a red cross + error message on failure. `role="status"` + `aria-live="polite"` so screen readers announce the outcome.
+
 ## [1.3.2] - 2026-04-20
 
 ### Added
