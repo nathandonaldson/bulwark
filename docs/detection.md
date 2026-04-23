@@ -1,105 +1,88 @@
-# Detection Plugins
+# Detectors
 
-Bulwark's architecture handles structural defense. For detection, plug any classifier into the `AnalysisGuard` at the bridge layer. The architecture holds even when every detector fails. Detection is the alarm system on top of the vault.
+Bulwark v2 ships with three detector slots. They run in order on every
+`/v1/clean` request; each can independently block.
 
-## Built-in integration module
+| Slot | Detector              | Status     | Latency    | Notes                                        |
+|------|-----------------------|------------|-----------|---------------------------------------------|
+| 1    | DeBERTa (ProtectAI)   | Mandatory  | ~30 ms    | Auto-loads on first request. Always on.     |
+| 2    | PromptGuard-86M (Meta) | Optional  | ~50 ms    | Second-opinion. Requires HuggingFace approval. |
+| 3    | LLM Judge             | Optional  | 1–3 s     | Detection-only — Bulwark never runs a generative LLM. ADR-033. |
 
-The fastest path. One import, model downloads automatically.
+The detection chain runs *after* the sanitizer (cheap, deterministic) and
+*before* the trust boundary wrap. A blocking verdict from any detector
+returns HTTP 422; otherwise the cleaned content gets wrapped and returned 200.
 
-```python
-from bulwark.integrations.promptguard import detect_and_create
-from bulwark import Pipeline, AnalysisGuard
+## DeBERTa (mandatory)
 
-guard = AnalysisGuard(custom_checks=[detect_and_create()])
-pipeline = Pipeline.default(analyze_fn=my_fn)
-pipeline.analysis_guard = guard
-```
+`protectai/deberta-v3-base-prompt-injection-v2` — ungated, ~180 MB. Loaded on
+the first `/v1/clean` request after server start. Inputs over 512 tokens are
+chunked into overlapping windows so the detector sees the entire payload
+(ADR-032).
 
-This loads the ProtectAI DeBERTa model (ungated, no approval needed, 99.99% accuracy on injection detection). ~30ms per check, ~180MB RAM.
+The dashboard's Configure tab shows DeBERTa's status (Loading / Ready /
+Error) on its pipeline stage card.
 
-## Available models
+## PromptGuard (optional)
 
-| Model | Key | Gated | Latency | Accuracy |
-|---|---|---|---|---|
-| ProtectAI DeBERTa v3 | `protectai` | No | ~30ms | 99.99% |
-| Meta PromptGuard-86M | `promptguard` | Yes (HF approval) | ~50ms | High |
+`meta-llama/Prompt-Guard-86M` — Meta's mDeBERTa second-opinion classifier.
+Requires HuggingFace approval before download.
 
-```python
-# ProtectAI (default, recommended)
-check = detect_and_create("protectai")
+Enable from the dashboard:
 
-# PromptGuard-86M (requires huggingface-cli login + Meta approval)
-check = detect_and_create("promptguard")
-```
+1. Configure → click the "PromptGuard (optional)" stage card
+2. Click **Enable PromptGuard** in the detail pane
+3. The model downloads and registers in `_detection_checks`
 
-## Dashboard activation
+When enabled, PromptGuard runs alongside DeBERTa on every `/v1/clean` request
+and can independently block.
 
-In the dashboard Configure tab, click "Activate" on any detection model. The model downloads and loads into memory. Once active, it runs on every payload tested in the Test tab. The model stays loaded while the dashboard service is running.
+## LLM Judge (optional, ADR-033)
 
-## Manual integration
+A detector that delegates classification to an LLM. **Detection only** — the
+LLM's raw output never reaches `/v1/clean` callers (NG-JUDGE-004). Bulwark
+sends the sanitized input plus a fixed classifier prompt and parses the
+verdict only.
 
-If you want more control, load the model and create the check function separately:
+Enable from the dashboard:
 
-```python
-from bulwark.integrations.promptguard import load_detector, create_check
+1. Configure → click the "LLM Judge (optional)" stage card
+2. Set mode (`openai_compatible` or `anthropic`), base URL, and model
+3. Click **Save settings** then **Enable judge**
 
-detector = load_detector("protectai")
-check_fn = create_check(detector, threshold=0.9)
+Default failure mode is **fail-open**: a judge timeout or unreachable
+endpoint logs the error and lets the request continue. Set `fail_open: false`
+in `bulwark-config.yaml` to fail-closed (return 422 on judge error).
 
-guard = AnalysisGuard(custom_checks=[check_fn])
-```
+The classifier prompt is fixed in code (NG-JUDGE-003). Editing it would
+re-open the v1 jailbreak surface ADR-031 closed.
 
-Adjust `threshold` to control sensitivity. Lower = more aggressive (catches more, more false positives). Higher = more conservative.
+## Measuring detector quality
 
-## Custom detectors
+Two harnesses ship for measuring detector behaviour against your traffic:
 
-Any function that takes a string and raises `AnalysisSuspiciousError` works:
+- **Red-team scan** (Test page → Smoke / Standard / Full Sweep) — measures
+  defense rate against Garak's attack probes.
+- **False-positive scan** (Test page → False Positives) — measures false-positive
+  rate against the curated benign corpus at `spec/falsepos_corpus.jsonl`.
 
-```python
-from bulwark import AnalysisGuard, AnalysisSuspiciousError
+Pick the detector configuration that maximises defense rate while keeping
+false positives in your acceptable range. The Standard tier achieves 100%
+defense on `deberta-only` as of v2.1.0.
 
-def my_detector(analysis: str) -> None:
-    if looks_suspicious(analysis):
-        raise AnalysisSuspiciousError("Custom check failed")
+## Adding a custom detector
 
-guard = AnalysisGuard(custom_checks=[my_detector])
-```
-
-## LLM Guard
-
-ProtectAI's broader scanner suite. Covers PII, toxicity, and prompt injection.
-
-```python
-from llm_guard.input_scanners import PromptInjection
-from bulwark import AnalysisGuard, AnalysisSuspiciousError
-
-scanner = PromptInjection()
-
-def llm_guard_check(analysis: str) -> None:
-    sanitized, is_valid, score = scanner.scan(analysis)
-    if not is_valid:
-        raise AnalysisSuspiciousError(f"LLM Guard: {score:.3f}")
-
-guard = AnalysisGuard(custom_checks=[llm_guard_check])
-```
-
-## Stack multiple detectors
-
-Each runs on the bridge output. If any raises, the pipeline blocks.
+Any callable that raises `bulwark.guard.SuspiciousPatternError` on a block
+can be registered as a detector. The dashboard's `_detection_checks` dict
+maps integration name → check function:
 
 ```python
-guard = AnalysisGuard(custom_checks=[
-    detect_and_create("protectai"),  # fast model-based
-    llm_guard_check,                  # broader coverage
-    my_custom_check,                  # domain-specific rules
-])
+from bulwark.guard import SuspiciousPatternError
+
+def my_check(text: str) -> None:
+    if "boom" in text:
+        raise SuspiciousPatternError("custom detector flagged 'boom'")
 ```
 
-## Why pluggable?
-
-Detection is an arms race. New attacks bypass old classifiers. By keeping detection pluggable:
-
-- Swap classifiers without changing your pipeline
-- Add new detectors as they're released
-- Stack multiple for defense in depth
-- The architecture holds even when every detector fails
+Wire it into the dashboard via the integration loader. See
+`src/bulwark/integrations/promptguard.py` for the canonical example.

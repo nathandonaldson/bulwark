@@ -1,6 +1,6 @@
 # ADR-003: Convenience API Tiers
 
-**Status:** Accepted
+**Status:** Superseded by ADR-031 (2026-04-23)
 **Date:** 2026-04-14
 
 ## Context

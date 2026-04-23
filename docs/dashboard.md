@@ -1,75 +1,81 @@
 # Dashboard
 
-Interactive observability dashboard with real-time event streaming, attack testing, production red teaming, and detection model management.
+The Bulwark dashboard runs at `http://localhost:3001` and ships in the same
+Docker image as the HTTP API. Five tabs.
 
-## Setup
+## Shield
 
-**Docker (recommended):**
+Live status. Shows the radial defense visualisation, layer activity (sanitizer,
+detection, boundary, canary), 24-hour stats, and a recent-activity feed.
+"Active defense — N attacks blocked" appears as a banner whenever a block
+happened in the last 30 minutes; click **Review ›** to jump to the Events
+page filtered to the recent block.
 
-```bash
-docker run -p 3000:3000 nathandonaldson/bulwark
-```
+## Events
 
-**From source:**
+Live-updating event log. Filter by verdict (passed / blocked / modified),
+by layer, or full-text search across detail/source. Each row expands to a
+diff pane (for modified events) or a "Replay in Test" button (for blocked
+events).
 
-```bash
-pip install bulwark-shield[dashboard]
-PYTHONPATH=src python -m bulwark.dashboard --port 3000
-```
+## Configure
 
-Binds to `127.0.0.1` (localhost only) by default. `--host 0.0.0.0` to expose on the network (no auth, be careful). In Docker, binds to `0.0.0.0` by default.
+Pipeline visualisation with five stages, top to bottom:
 
-Open http://localhost:3000.
+1. **Sanitizer** — strip hidden chars, steganography, emoji smuggling
+2. **DeBERTa (mandatory)** — `protectai/deberta-v3-base-prompt-injection-v2`
+3. **PromptGuard (optional)** — Meta mDeBERTa second-opinion detector
+4. **LLM Judge (optional)** — opt-in third detector, off by default (ADR-033)
+5. **Trust Boundary** — output formatter (XML / markdown / delimiter)
 
-## Pages
+Click any stage to open its settings pane on the right. The Sanitizer pane
+toggles emoji-smuggling / bidi-override / NFKC sub-options. Detector panes
+show model name, latency, size, and an Enable button (PromptGuard / LLM
+Judge only — DeBERTa is mandatory). The LLM Judge pane carries a
+high-latency warning since enabling it adds 1–3 s per request.
 
-**Shield** — concentric ring visualization of the full pipeline. Outer ring = first layer, inner ring = last. Status banner, 24h totals (items processed, attacks neutralized, canary leaks, bridge blocks), sparkline trend, and a recent activity feed.
+## Leak Detection
 
-**Events** — filterable stream of every layer event (sanitizer hits, detection verdicts, bridge blocks, canary leaks). Filter by layer, severity, source, or free-text search. Export as JSON.
+Output-side detection. Two cards:
 
-**Configure** — click any pipeline stage (Sanitizer, Trust Boundary, Detection, Phase 1 Analyze, Bridge Guard, Canary Tokens, Phase 2 Execute) to open its settings on the right. Toggle the switch next to a stage to drop it from the pipeline.
-- *Sanitizer:* emoji smuggling defense, bidirectional override stripping, NFKC normalization
-- *Detection:* activate ProtectAI DeBERTa or PromptGuard-86M. First activation downloads the model (~180MB).
-- *Bridge Guard:* view, add, remove AnalysisGuard regex patterns
-- *LLM backend:* Anthropic, OpenAI-compatible (Ollama / llama.cpp / vLLM / LM Studio), or sanitize-only
-- *Canary Tokens:* view embedded tripwires and their sources
+- **Canary tokens** — add tokens by literal value or by shape (aws / bearer /
+  password / url / mongo). The token gets generated, stored in
+  `bulwark-config.yaml`, and watched by `/v1/guard` on caller LLM output.
+- **Guard patterns** — read-only list of regex patterns also applied by
+  `/v1/guard`. Edit via `bulwark-config.yaml`.
 
-**Test** — two sections:
-- *Manual testing:* paste any payload (or select from 8 presets), hit "Run through pipeline," watch the pipeline trace. If detection models are active, they run at the bridge. A "cURL" button copies the exact request for scripting.
-- *Red teaming:* sends Garak attack probes through the real production Bulwark+LLM pipeline. Five tiers — Smoke Test (10), LLM Quick (10 curated), LLM Suite (~200 balanced), Standard Scan (~4k), Full Sweep (~33k) — with counts pulled dynamically from your installed garak version. Reports are saved to `reports/` and downloadable as JSON with defense score, layer breakdown, and vulnerability details.
+Neither check runs on `/v1/clean` input — both are output-side only.
 
-## Detection models
+## Test
 
-In the Configure tab, click "Activate" on a detection model. The model downloads (~180MB first time) and loads into memory. Once active:
+Top half: send a payload through `/v1/clean` and see the live trace step by
+step. Pick from the curated attack-preset library (sourced from
+`spec/presets.yaml`) or paste your own.
 
-- It runs on every payload tested in the Test tab
-- It appears as a custom check in the AnalysisGuard bridge
-- It stays loaded while the dashboard service is running (~200MB RAM)
+Bottom: red-team scans. Four tier cards:
 
-Available models:
-- **ProtectAI DeBERTa** (recommended) — ungated, works immediately, 99.99% accuracy, ~30ms
-- **PromptGuard-86M** — gated (requires HuggingFace approval from Meta), ~50ms
+- **Smoke Test** — 10 probes across core families, verifies the pipeline.
+- **Standard Scan** — every active probe (~3,000), comprehensive defense check.
+- **Full Sweep** — every probe including extended payload variants, slowest.
+- **False Positives** — sends the curated benign corpus from
+  `spec/falsepos_corpus.jsonl` through `/v1/clean` and inverts the metric so
+  a low number is bad. Reports save with a `redteam-falsepos-*.json` filename
+  and appear in the same Past Reports list as red-team scans.
 
-## Connecting your pipeline
+Past Reports lists every saved scan with a download (JSON) and Retest button
+(re-runs only the non-defended probes from the original).
 
-Use `WebhookEmitter` to send events to the dashboard:
+## Auth
 
-```python
-from bulwark import Pipeline
-from bulwark.events import WebhookEmitter
+Set `BULWARK_API_TOKEN` to require Bearer auth on mutating endpoints
+(POST/PUT/DELETE) and on the dashboard's `/api/*` reads. With the token unset,
+mutations require a loopback client (ADR-029) — public dashboards must always
+set the token.
 
-pipeline = Pipeline.default(
-    analyze_fn=my_fn,
-    emitter=WebhookEmitter("http://localhost:3000/api/events"),
-)
-```
+## Source of truth
 
-Other emitters: `StdoutJsonEmitter`, `CollectorEmitter`, `CallbackEmitter`, `MultiEmitter`.
+UI source: `src/bulwark/dashboard/static/src/*.jsx` — Babel-compiled in the
+browser. The store contract is in `data.jsx`; pages are `page-*.jsx`.
 
-## Persistent service (macOS, non-Docker)
-
-```bash
-bash src/bulwark/dashboard/install-service.sh install
-```
-
-Installs as a launchd service that starts on boot. For Docker, use `docker compose up -d` with `restart: unless-stopped` instead.
+The shipped UI is opinionated and minimal. Variants and the ⌘K palette are
+intentionally not shipped (NG-UI-SHELL-001/002 in `spec/contracts/dashboard_ui.yaml`).

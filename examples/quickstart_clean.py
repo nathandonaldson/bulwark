@@ -1,8 +1,9 @@
 """Minimal Bulwark integration: sanitize untrusted input before any LLM call.
 
-bulwark.clean() provides input sanitization + trust boundary tagging.
-For full architectural defense (two-phase execution where the LLM that reads
-untrusted content cannot act), use Pipeline instead.
+bulwark.clean() provides input sanitization + trust boundary tagging in
+one library call — no HTTP sidecar required. For the full v2 detection
+chain (DeBERTa + optional PromptGuard / LLM judge), call /v1/clean on
+the running dashboard instead. See quickstart_generic.py.
 """
 import bulwark
 

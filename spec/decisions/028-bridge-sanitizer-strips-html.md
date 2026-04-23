@@ -1,6 +1,6 @@
 # ADR-028: Bridge sanitizer strips HTML tags, not just hidden characters
 
-**Status:** Accepted
+**Status:** Superseded by ADR-031 (2026-04-23) — bridge sanitizer no longer exists in v2
 **Date:** 2026-04-23
 
 ## Context

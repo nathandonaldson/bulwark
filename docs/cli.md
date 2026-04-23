@@ -90,12 +90,27 @@ Exit code 1 if tokens found. Useful in CI for post-run verification when the das
 
 ## bulwark_bench
 
-Sibling CLI for LLM bake-offs — sweeps Garak probes across multiple models and prints efficacy × latency × cost.
+Sibling CLI for **detector-config** bake-offs (ADR-034). Sweeps Garak probes across detector configurations and prints defense rate × latency.
 
 ```bash
-bulwark_bench --models claude-haiku-4-5,gpt-4o-mini --tier llm-quick
-bulwark_bench --models claude-sonnet-4-6,claude-haiku-4-5 --tier llm-suite
-bulwark_bench --models ollama/llama3 --tier llm-quick --bypass-detectors
+# Compare detector configs against the standard tier:
+PYTHONPATH=src python3 -m bulwark_bench \
+  --configs deberta-only,deberta+promptguard,deberta+llm-judge \
+  --tier standard \
+  --judge-base-url http://192.168.1.78:1234/v1 \
+  --judge-model prompt-injection-judge-8b
 ```
 
-Reads pricing from `src/bulwark_bench/pricing.py`. Use `--bypass-detectors` to guarantee every probe reaches the analyze LLM (recommended when comparing model defense quality). See also the `/bulwark-bench` Claude Code skill for an interactive picker.
+Available presets: `deberta-only`, `deberta+promptguard`, `deberta+llm-judge`, `all`. DeBERTa is mandatory in v2 — every preset includes it. The judge presets require `--judge-model` (and `--judge-base-url` for openai_compatible mode).
+
+## bulwark_falsepos
+
+Sibling CLI for false-positive measurement (ADR-036). Sweeps the same detector configs against a curated benign corpus.
+
+```bash
+PYTHONPATH=src python3 -m bulwark_falsepos \
+  --configs deberta-only,deberta+promptguard,deberta+llm-judge \
+  --max-fp-rate 0.05      # CI gate: exit 1 if any config exceeds 5%
+```
+
+Corpus lives at `spec/falsepos_corpus.jsonl` — drop more JSONL lines and the harness picks them up. Same scan also surfaces in the dashboard as the "False Positives" red-team tier.
