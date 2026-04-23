@@ -1,344 +1,243 @@
 <img src="docs/images/banner.svg" alt="Bulwark" height="32"/>
 
-Prompt injection defense through architecture, not detection. Zero core dependencies.
+**Prompt-injection defense as a sidecar.** Bulwark sanitizes untrusted input,
+runs it through a prompt-injection classifier, and returns the wrapped result
+to your application. Your LLM never sees Bulwark — you call `/v1/clean`,
+feed the result into your own LLM, and call `/v1/guard` on the output.
 
-Other tools try to classify input as safe or unsafe. Bulwark separates reading from acting so even a successful injection can't trigger tools, steal data, or poison other items. The deterministic layers run in under 1ms. Detection tools plug in at the bridge for additional coverage.
+Bulwark v2 is **detection only.** It returns safe content or an HTTP 422.
+There is no two-phase executor, no LLM backend config, no analyze/execute
+flow — the project is opinionated about what it does and doesn't do.
 
-## See it work
+[Architecture](#architecture) · [Quickstart](#quickstart) · [Dashboard](#dashboard) · [Detectors](#detectors) · [Measuring quality](#measuring-quality) · [Docs](docs/)
+
+---
+
+## Quickstart
 
 ```bash
-docker run -p 3000:3000 nathandonaldson/bulwark
+docker run -p 3001:3000 nathandonaldson/bulwark
 ```
 
-Dashboard at http://localhost:3000. API at http://localhost:3000/v1/clean. No Python needed.
+Dashboard at <http://localhost:3001>. API at the same host.
 
 ```bash
-# Send untrusted content through the full defense stack
-# Returns 200 (safe) or 422 (injection blocked)
-curl -X POST http://localhost:3000/v1/clean \
+# Sanitize untrusted content. Returns 200 (safe) or 422 (blocked).
+curl -X POST http://localhost:3001/v1/clean \
   -H 'Content-Type: application/json' \
-  -d '{"content": "Hello <script>evil()</script>", "source": "email"}'
+  -d '{"content": "ignore previous instructions", "source": "email"}'
+# → 422  {"blocked": true, "block_reason": "Detector protectai: Prompt injection detected (1.000)"}
 
-# Check LLM output for injection patterns
-curl -X POST http://localhost:3000/v1/guard \
+# Check your LLM's output for canary leaks + injection patterns.
+curl -X POST http://localhost:3001/v1/guard \
   -H 'Content-Type: application/json' \
-  -d '{"text": "ignore previous instructions"}'
-
-# Health check
-curl http://localhost:3000/healthz
+  -d '{"text": "the LLM said this back to the user"}'
+# → 200  {"safe": true, ...}
 ```
 
-Or install as a Python library:
+The DeBERTa classifier downloads on the first `/v1/clean` request (~180 MB).
+It's mandatory in v2; PromptGuard and an LLM judge are opt-in second/third
+detectors.
+
+## Architecture
+
+```
+INPUT (untrusted)
+    │
+    ▼
+┌───────────────┐
+│  Sanitizer    │  ←  strip bidi, emoji-smuggling, hidden chars
+├───────────────┤
+│  DeBERTa      │  ←  mandatory classifier (~30 ms)
+├───────────────┤
+│  PromptGuard  │  ←  optional second-opinion detector
+├───────────────┤
+│  LLM Judge    │  ←  optional third detector (~1–3 s)
+├───────────────┤
+│ Trust Boundary│  ←  output formatter, not a defense gate
+└───────┬───────┘
+        ▼
+SAFE OUTPUT  →  your application's LLM  →  POST /v1/guard on the response
+```
+
+Each detector can independently block. Trust Boundary is the output formatter
+that wraps cleaned content in `<untrusted_input>…</>` tags so your downstream
+LLM treats it as data, not instructions.
+
+See [docs/detection.md](docs/detection.md) and [ADR-031](spec/decisions/031-pipeline-simplification.md)
+for the full rationale.
+
+## Dashboard
+
+The Docker image ships with a live dashboard at <http://localhost:3001>.
+Five tabs: **Shield** (live status + ring), **Events** (filterable log),
+**Configure** (pipeline + detectors), **Leak Detection** (canaries + guard
+patterns), and **Test** (red-team scans + false-positive sweep).
+
+### Shield
+
+<img src="docs/images/shield.png" alt="Shield page" />
+
+Live status, 24-hour stats, recent activity. The Active-defense banner
+appears when something blocked in the last 30 minutes; click **Review ›**
+to jump to the Events page.
+
+### Configure
+
+<img src="docs/images/configure.png" alt="Configure page" />
+
+Pipeline visualisation. Click any stage to open its settings pane on the
+right. DeBERTa is mandatory ("REQUIRED" pill), PromptGuard and the LLM Judge
+are opt-in toggles. Trust Boundary is shown as the output formatter, not a
+defense gate.
+
+### LLM Judge (opt-in)
+
+<img src="docs/images/configure-judge.png" alt="LLM Judge configuration" />
+
+Bring your own classifier LLM (LM Studio, Ollama, vLLM, OpenAI, Anthropic).
+Detection only — Bulwark sends the sanitized input with a fixed classifier
+prompt and reads only the verdict. The LLM's raw output never reaches
+`/v1/clean` callers (NG-JUDGE-004). Default fail-open so a judge outage
+doesn't take down `/v1/clean`. Adds 1–3 s per request when enabled, so it's
+off by default.
+
+### Leak Detection
+
+<img src="docs/images/leak-detection.png" alt="Leak Detection page" />
+
+Output-side checks — canary tokens you embed in your LLM's system prompt
+plus regex patterns that match exfiltration markers. Both are checked by
+`/v1/guard` against the caller's LLM output, never on input to `/v1/clean`.
+
+### Test
+
+<img src="docs/images/test.png" alt="Test page with all four red-team tier cards" />
+
+Top half: send a payload through `/v1/clean` and watch the live trace.
+Bottom: four scan tiers — **Smoke Test**, **Standard Scan**, **Full Sweep**,
+and **False Positives** (sends curated benign emails through the same
+pipeline so you can measure both halves of detector quality).
+
+### Events
+
+<img src="docs/images/events.png" alt="Events page" />
+
+Live event log with verdict / layer / search filtering and per-row diff
+panes for modified events.
+
+## Detectors
+
+| Detector              | Status     | Latency    | Notes                                          |
+|-----------------------|------------|-----------|-----------------------------------------------|
+| Sanitizer             | Always on  | < 1 ms    | bidi, emoji smuggling, NFKC normalisation.    |
+| DeBERTa (ProtectAI)   | Mandatory  | ~30 ms    | `protectai/deberta-v3-base-prompt-injection-v2`. Loads on first request. |
+| PromptGuard-86M       | Optional   | ~50 ms    | Meta mDeBERTa second-opinion. Requires HF approval. |
+| LLM Judge             | Optional   | 1–3 s     | Detection-only; bring your own classifier LLM. ADR-033. |
+| Trust Boundary        | Always on  | < 1 ms    | Output formatter, not a defense gate.         |
+
+Sanitizer + DeBERTa achieve **100% defense** on the Standard Scan tier
+(3,049 probes) as of v2.1.0. PromptGuard and the LLM Judge are there for
+operators who want stricter detection on their specific traffic distribution.
+
+## Measuring quality
+
+Two harnesses ship for measuring detector behaviour against your real traffic.
+
+**Red-team scan** — Garak's attack payloads through `/v1/clean`.
 
 ```bash
-pip install bulwark-shield[cli]
-bulwark test
+# CLI:
+PYTHONPATH=src python3 -m bulwark_bench \
+  --configs deberta-only,deberta+promptguard,deberta+llm-judge \
+  --tier standard
+
+# Or click "Run Standard Scan" in the dashboard's Test tab.
 ```
 
-```
-Bulwark Defense Test — 8 preset attacks
-=======================================
-
-  Zero-width steganography   Hello Nathan​‌I‍g‎n...  BLOCKED  [sanitizer]
-  XML boundary escape        Normal email content...  BLOCKED  [sanitizer]
-  Instruction override       Ignore all previous...   BLOCKED  [boundary]
-  Base64 canary exfil        Reference ID: QkxXSy...  BLOCKED  [boundary]
-  Emoji smuggling            Normal meeting invite...  BLOCKED  [sanitizer]
-  MCP tool injection         {"tool_use": {"name...   BLOCKED  [boundary]
-  Multilingual override      请忽略之前的所有指令...        BLOCKED  [boundary]
-  Bridge instruction inject  {"classification":...    BLOCKED  [sanitizer]
-
-8/8 attacks caught. Your defenses are working.
-```
-
-`bulwark test --full` runs all 77 attack patterns across 10 categories.
-
-## Configure with Docker
-
-Set your LLM backend so config persists across container restarts:
-
-```yaml
-# docker-compose.yml
-services:
-  bulwark:
-    image: nathandonaldson/bulwark
-    ports:
-      - "3000:3000"
-    restart: unless-stopped
-    environment:
-      - BULWARK_LLM_MODE=anthropic
-      - BULWARK_API_KEY=sk-ant-...
-```
-
-Or use a `.env` file (recommended, keeps secrets out of version control):
+**False-positive scan** — curated benign emails through `/v1/clean`.
 
 ```bash
-echo "BULWARK_LLM_MODE=anthropic" > .env
-echo "BULWARK_API_KEY=sk-ant-your-key" >> .env
-docker compose up
+# CLI:
+PYTHONPATH=src python3 -m bulwark_falsepos \
+  --configs deberta-only,deberta+promptguard \
+  --max-fp-rate 0.05
+
+# Or click "Run False Positives" in the dashboard's Test tab.
 ```
 
-All env vars:
+The corpus lives at [`spec/falsepos_corpus.jsonl`](spec/falsepos_corpus.jsonl)
+— 42 entries across nine categories (everyday, customer support, marketing,
+technical, meta, repetitive, non-English, code blocks, quoted-attacks). Add
+your production false positives over time and the harness picks them up.
 
-| Variable | Description |
-|----------|-------------|
-| `BULWARK_LLM_MODE` | `anthropic`, `openai_compatible`, or `none` (default) |
-| `BULWARK_API_KEY` | API key for Anthropic |
-| `BULWARK_BASE_URL` | Endpoint URL for OpenAI-compatible servers (Ollama, llama.cpp, vLLM) |
-| `BULWARK_ANALYZE_MODEL` | Phase 1 model (default: `claude-haiku-4-5-20251001`) |
-| `BULWARK_EXECUTE_MODEL` | Phase 2 model (default: `claude-sonnet-4-6`) |
-| `BULWARK_WEBHOOK_URL` | POST URL for BLOCKED-event alerts (Slack, PagerDuty, etc.). See ADR-026. |
+Pick the detector configuration that maximises defense rate while keeping
+false positives in your acceptable range. See [docs/red-teaming.md](docs/red-teaming.md).
 
-You can also configure everything in the dashboard UI, but those changes are lost on container restart. Env vars are the persistent config mechanism for Docker.
+## Configuration
 
-## How it works
+Mostly env-var driven for Docker:
 
-```
-Untrusted content
-      ↓
-[Sanitizer]        Strip hidden chars, steganography, encoding tricks (<1ms)
-      ↓
-[Trust Boundary]   Mark content as data, not instructions
-      ↓
-[Detection]        ProtectAI DeBERTa + PromptGuard-86M classify input (optional, ~30-50ms)
-      ↓
-[Phase 1: Analyze] LLM reads content — no tools available
-      ↓
-[Bridge]           Sanitize + guard + canary check on analysis output
-      ↓
-[Phase 2: Execute] LLM acts on analysis — never sees raw content
+```bash
+BULWARK_API_TOKEN=...           # Bearer auth on mutating endpoints
+BULWARK_WEBHOOK_URL=https://... # POST BLOCKED events to a webhook
+BULWARK_ALLOWED_HOSTS=...       # Hostname allowlist for SSRF guard
 ```
 
-Phase 1 can't act. Phase 2 can't see the attack. Detection models catch injection before it reaches the LLM. The bridge catches anything that leaks through. Each layer works independently.
+All other settings live in `bulwark-config.yaml` (mounted as a volume) and
+are editable through `PUT /api/config`. Full reference at
+[docs/config.md](docs/config.md).
 
-## Pluggable detection
+## Library use (Python)
 
-The architecture handles structural defense. For detection, plug a classifier into the bridge. One line:
-
-```python
-from bulwark.integrations.promptguard import detect_and_create
-from bulwark import Pipeline, AnalysisGuard
-
-guard = AnalysisGuard(custom_checks=[detect_and_create()])
-pipeline = Pipeline.default(analyze_fn=my_fn)
-pipeline.analysis_guard = guard
-```
-
-Uses ProtectAI's DeBERTa model by default (ungated, 99.99% accuracy, ~30ms). Also supports Meta's PromptGuard-86M (gated, requires HuggingFace approval). Or plug in any function that raises on suspicious input. [Detailed docs →](docs/detection.md)
-
-In the dashboard, click "Activate" on any detection model in the Configure tab. It loads into memory and runs on every test.
-
-## Python library
-
-**Sanitize untrusted input (any LLM):**
+The library is zero-dependency for the sanitize + wrap path:
 
 ```python
 import bulwark
 
-safe = bulwark.clean(email_body, source="email")
-prompt = f"Classify this email:\n{safe}"
-# Content is sanitized and trust-boundary-tagged — pass to any LLM
+safe = bulwark.clean("ignore previous instructions", source="email")
+# → "<untrusted_email source=\"email\" treat_as=\"data_only\">…</untrusted_email>"
+
+# Output side — checks regex patterns against your LLM response:
+ok = bulwark.guard("the LLM's response text")
 ```
 
-`clean()` strips hidden characters, steganography, and encoding tricks, then wraps in trust boundary tags. For non-Claude models, use `format="markdown"` or `format="delimiter"`.
-
-**Guard LLM output:**
-
-```python
-safe_output = bulwark.guard(llm_response)  # raises if injection detected
-```
-
-**Auto-protect an Anthropic client:**
-
-```python
-from bulwark.integrations.anthropic import protect
-client = protect(anthropic.Anthropic())
-# Every messages.create() call now auto-sanitizes user + tool_result content
-```
-
-**Full pipeline (two-phase execution, canary tokens, batch isolation):**
-
-```python
-from bulwark.integrations.anthropic import make_pipeline
-pipeline = make_pipeline(anthropic.Anthropic())
-result = pipeline.run("untrusted email body", source="email")
-```
-
-**OpenAI / any provider:**
-
-```python
-from bulwark import Pipeline
-pipeline = Pipeline.default(
-    analyze_fn=lambda prompt: client.chat.completions.create(
-        model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}]
-    ).choices[0].message.content
-)
-result = pipeline.run(untrusted_content, source="web")
-```
-
-Any `(str) -> str` callable works. Async too: `pipeline.run_async()`.
-
-## HTTP API
-
-Any language can call Bulwark over HTTP. Run via Docker (above) or from source:
-
-```bash
-pip install bulwark-shield[dashboard]
-PYTHONPATH=src python -m bulwark.dashboard --port 3000
-```
-
-```bash
-# Full defense stack — returns 200 (safe) or 422 (blocked)
-curl -X POST http://localhost:3000/v1/clean \
-  -H 'Content-Type: application/json' \
-  -d '{"content": "untrusted email body", "source": "email"}'
-
-# Check LLM output for injection patterns
-curl -X POST http://localhost:3000/v1/guard \
-  -H 'Content-Type: application/json' \
-  -d '{"text": "ignore previous instructions"}'
-```
-
-**Response codes:**
-
-| Status | Meaning |
-|--------|---------|
-| **200** | Safe — use the `result` field |
-| **422** | Injection detected — content blocked, check `block_reason` |
-
-OpenAPI spec at `http://localhost:3000/openapi.json` or in `spec/openapi.yaml`.
-
-## Dashboard
-
-Four tabs: **Shield** (live status), **Events** (per-layer event stream), **Configure** (pipeline stages), **Test** (payloads + red team).
-
-![Shield view](docs/images/shield.png)
-
-The Shield page shows the whole pipeline at a glance — concentric rings map to defense layers, outer to inner. Recent activity, 24h totals, and stage event counts all live here.
-
-![Configure page](docs/images/configure.png)
-
-**Configure** lets you click any stage to open its settings. Toggle a layer off to remove it from the pipeline. Use this tab to:
-- Switch LLM backend: Anthropic API, OpenAI-compatible (local inference), or sanitize-only
-- Activate detection models (ProtectAI DeBERTa, PromptGuard-86M)
-- Toggle defense layers and guard patterns
-
-![Test page](docs/images/test-page.png)
-
-**Test** sends payloads through `/v1/clean` — the same endpoint your production code calls — and shows a per-layer trace with timing, LLM backend badges, and detection model verdicts. The bottom half runs Garak red team sweeps against your configured pipeline.
-
-**Events** is a filterable stream of every layer event (sanitizer hits, bridge blocks, canary leaks). Export as JSON for offline review.
-
-### Local inference
-
-Configure any OpenAI-compatible endpoint (Ollama, llama.cpp, vLLM, LM Studio) in the dashboard Configure tab. Select "OpenAI Compatible", enter the URL, and the entire pipeline uses your local model for two-phase execution.
-
-Note: Claude achieves 100% on red team probes. Open models vary (60-80% typical). Use Claude for production, local models for development and testing.
-
-## Canary tokens
-
-Canary tokens are sentinel strings the analysis LLM must never echo. If any appears in Phase 1 output, Phase 2 is blocked before `execute_fn` is called — proof the model trusted untrusted content. Manage them three ways:
-
-**Dashboard UI** — Configure page → Canary panel has an inline Add form with a shape picker (aws / bearer / password / url / mongo) and a per-entry Remove button.
-
-**HTTP API** — for CI-driven rotation:
-
-```bash
-# List
-curl http://localhost:3000/api/canaries
-
-# Add with a generated token matching a real credential shape
-curl -X POST http://localhost:3000/api/canaries \
-  -H 'Content-Type: application/json' \
-  -d '{"label": "prod_db_url", "shape": "mongo"}'
-
-# Rotate (POST with same label replaces the token)
-curl -X POST http://localhost:3000/api/canaries \
-  -H 'Content-Type: application/json' \
-  -d '{"label": "prod_db_url", "shape": "mongo"}'
-
-# Remove
-curl -X DELETE http://localhost:3000/api/canaries/prod_db_url
-```
-
-**CLI** — `bulwark canary {list, add, remove, generate}`:
-
-```bash
-bulwark canary add prod_aws --shape aws
-bulwark canary list
-bulwark canary generate --shape bearer    # preview only, no network
-bulwark canary remove prod_aws
-```
-
-Five shapes ship: `aws` (AKIA…), `bearer` (`tk_live_…`), `password`, `url` (internal admin URL), `mongo`. Each emits a unique value per call.
-
-**Alert on leaks** — set `BULWARK_WEBHOOK_URL` (or `webhook_url` in `bulwark-config.yaml`) to any `https://` URL. Every BLOCKED event — canary leak, guard-pattern match, detection-model block — fires a fire-and-forget POST with `{"events": [{layer, verdict, detail, source_id, timestamp, duration_ms, metadata}]}`. Wire it at Slack / PagerDuty / Datadog / an internal alert router. See [ADR-026](spec/decisions/026-external-webhook-on-blocked-events.md).
-
-Still deferred: rotation grace period, overlap detection (see ADR-025).
-
-## Red teaming
-
-Built-in attack suite:
-
-```bash
-bulwark test                    # 8 preset attacks, 2 seconds
-bulwark test --full             # All 77 attacks, 10 seconds
-bulwark test -c steganography   # Filter by category
-```
-
-Production red team (in the dashboard): sends Garak probe payloads through `/v1/clean` — the same endpoint production uses — and evaluates whether the LLM followed its instructions or the injection hijacked it. Five tiers — Smoke Test (10 probes), LLM Quick (10 curated), LLM Suite (~200 balanced), Standard Scan (~4k), Full Sweep (~33k) — with counts pulled dynamically from your installed garak version. Requires `pip install garak`.
-
-For model bake-offs (efficacy × latency × cost), use the `bulwark_bench` CLI — a sibling tool that sweeps the same probe tiers across multiple LLMs and prints a comparison table.
-
-## Integrations
-
-**OpenClaw** — Drop-in prompt injection defense for [OpenClaw](https://openclaw.ai) agents. A Docker sidecar + plugin hooks into OpenClaw's message pipeline at infrastructure level — the agent cannot bypass sanitization. Three hooks: `message:received`, `tool_result_persist`, `before_message_write`.
-
-```bash
-cd integrations/openclaw && ./install.sh
-```
-
-See [integrations/openclaw/README.md](integrations/openclaw/README.md).
-
-**Wintermute** — Personal agent that runs Bulwark as a local Docker sidecar on `localhost:3000` and calls `POST /v1/clean` before feeding any external content (emails, documents, web pages) to its LLM. See [docs/integrations/wintermute.md](docs/integrations/wintermute.md) for the full integration guide — request/response shape, canary handling, auth, health checks, and failure modes.
-
-**Any HTTP client** — the `/v1/clean` endpoint is language-agnostic. Run Bulwark once via `docker compose up -d`, point your agent at `http://localhost:3000/v1/clean`, check `response.blocked` before acting on content. [HTTP API reference](docs/api-reference.md).
-
-## Development
-
-Bulwark follows spec-driven development. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full process.
-
-Short version: write the spec first (`spec/openapi.yaml` for HTTP endpoints, `spec/contracts/*.yaml` for function guarantees), then write tests referencing guarantee IDs, then implement. CI enforces that specs and tests stay in sync.
-
-Architecture decisions are recorded in `spec/decisions/`. Contract specs define what each function guarantees and, critically, what it does NOT guarantee.
-
-## Install
-
-```bash
-# Docker (recommended)
-docker run -p 3000:3000 nathandonaldson/bulwark
-
-# Python
-pip install bulwark-shield              # Core (zero deps)
-pip install bulwark-shield[cli]         # CLI tools
-pip install bulwark-shield[anthropic]   # Anthropic SDK
-pip install bulwark-shield[dashboard]   # Dashboard
-pip install bulwark-shield[testing]     # Garak red teaming
-pip install bulwark-shield[all]         # Everything
-```
-
-Python 3.11+. [Detailed docs →](docs/)
-
-## Limitations
-
-- **AnalysisGuard is regex-based by default.** Plug in PromptGuard-86M for paraphrased attacks.
-- **Canary tokens catch encoding tricks** (base64, hex, reversed) **but not semantic paraphrasing.**
-- **Trust boundaries depend on LLM training.** Claude respects XML tags well. Other models vary.
-- **The bridge is a residual risk.** Sanitized and guarded, but sophisticated attacks could craft benign-looking analysis.
-- **English-focused.** Multilingual attacks may have lower detection rates.
-
-Not a silver bullet. Raises the cost of successful injection from trivial to very hard.
+For full v2 detection (DeBERTa, PromptGuard, LLM judge), call the running
+dashboard via HTTP — that's where the detector models live. See examples in
+[`examples/quickstart_generic.py`](examples/quickstart_generic.py).
+
+## Project structure
+
+| Path                  | Contents                                                  |
+|-----------------------|-----------------------------------------------------------|
+| `src/bulwark/`        | Core library (sanitizer, trust boundary, canary, guard).  |
+| `src/bulwark/dashboard/` | FastAPI app + dashboard React UI.                     |
+| `src/bulwark/detectors/` | DeBERTa loader + LLM judge.                            |
+| `src/bulwark_bench/`  | Detector-config sweep CLI.                                |
+| `src/bulwark_falsepos/` | False-positive sweep CLI.                                |
+| `spec/openapi.yaml`   | HTTP API contract — source of truth.                       |
+| `spec/contracts/`     | Function-level guarantees + non-guarantees.                |
+| `spec/decisions/`     | Architecture Decision Records.                             |
+| `spec/falsepos_corpus.jsonl` | Curated benign-email corpus for the FP harness.     |
+| `tests/`              | 848 tests including spec-compliance enforcement.           |
+
+## Spec-driven development
+
+Every new feature follows: spec → contract → tests → code. See
+[CONTRIBUTING.md](CONTRIBUTING.md). The
+[`tests/test_spec_compliance.py`](tests/test_spec_compliance.py) meta-test
+enforces that every guarantee ID has at least one matching test reference.
+
+## Versions
+
+- **PyPI**: `bulwark-shield` (`bulwark` is taken on PyPI)
+- **Docker**: `nathandonaldson/bulwark`
+- **Import**: `import bulwark`
+- **Current**: v2.2.3
+
+The v1 → v2 break is documented in [ADR-031](spec/decisions/031-pipeline-simplification.md).
+The full release history lives in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-MIT
+MIT.

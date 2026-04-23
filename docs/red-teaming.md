@@ -15,7 +15,6 @@ Prove your defenses work. Run attacks, not just tests.
 | data_exfiltration | 8 | Canary extraction, credential leaks |
 | cross_contamination | 6 | Cross-item injection, multi-email poisoning |
 | delimiter_escape | 6 | XML tag injection, boundary escapes |
-| bridge_exploitation | 6 | Analysis-to-execution bridge attacks |
 | tool_manipulation | 6 | Tool parameter injection, unauthorized calls |
 | multi_turn | 5 | Multi-message injection chains |
 
@@ -28,16 +27,16 @@ bulwark test -c steganography # Filter by category
 
 ## Production red team
 
-The dashboard's Test tab includes a production red team runner. This is not a simulation. It sends Garak's attack payloads through your actual pipeline: Sanitizer, TrustBoundary, detection models, real LLM call (via your configured backend), canary check. Then evaluates whether the LLM followed its instructions or the injection hijacked it.
+The dashboard's Test tab includes a production red-team runner. Not a simulation — it sends Garak's attack payloads through your actual `/v1/clean` pipeline (Sanitizer → DeBERTa → optional PromptGuard / LLM Judge → Trust Boundary) and records what each layer did.
 
-Five tiers (probe counts pulled dynamically from your installed garak version):
+Four tiers (probe counts pulled dynamically from your installed garak version):
+
 - **Smoke Test** (10 probes) — quick check that the pipeline is working
-- **LLM Quick** (10 curated) — bypasses detectors so every probe reaches the analyze LLM; ideal for fast model bake-offs
-- **LLM Suite** (~200 balanced) — ~200 probes across 16 attack families, detectors bypassed, tuned for `bulwark_bench` model comparisons
-- **Standard Scan** (~4k probes) — all active garak probes across injection, encoding, exfiltration, jailbreaks, content safety
-- **Full Sweep** (~33k probes) — every probe including extended payload variants
+- **Standard Scan** (~3k probes) — all active garak probes across injection, encoding, exfiltration, jailbreaks, content safety
+- **Full Sweep** (~10k+ probes) — every probe including extended payload variants
+- **False Positives** — sends the curated benign corpus from `spec/falsepos_corpus.jsonl` through `/v1/clean` and inverts the metric so the displayed "defense" rate captures benign-pass rate (ADR-036)
 
-For cross-model comparisons (efficacy × speed × cost), run `bulwark_bench` — a sibling CLI that sweeps the `llm-quick` or `llm-suite` tiers across multiple LLMs and prints a markdown comparison table.
+For detector-config comparisons (DeBERTa vs DeBERTa+PromptGuard vs DeBERTa+LLM-Judge), run `bulwark_bench` — a sibling CLI that sweeps the named presets and prints a markdown comparison table (ADR-034).
 
 Reports are automatically saved to `reports/` as JSON and downloadable from the dashboard for gap analysis.
 

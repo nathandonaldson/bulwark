@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.3.0] - 2026-04-23
+
+### Changed
+
+- **Documentation reset for v2.** Rewrote `docs/api-reference.md`, `docs/detection.md`, `docs/async.md`, `docs/batch.md`, `docs/config.md`, `docs/dashboard.md`, and `docs/integrations/wintermute.md` for the v2 detection-only architecture. Removed all references to v1 concepts (TwoPhaseExecutor, AnalysisGuard, analyze_fn/execute_fn, llm_backend env vars, /v1/llm/*, Phase 1/Phase 2, bridge guard, sanitize_bridge).
+- **README rewritten** with fresh screenshots of every dashboard page (Shield, Configure, LLM Judge configuration, Leak Detection, Test with all four red-team tier cards, Events) and a v2 architecture diagram.
+- **Examples retargeted at v2.** Rewrote `quickstart_anthropic.py`, `quickstart_openai.py`, and `quickstart_generic.py` for the HTTP `/v1/clean` flow (with the Anthropic SDK's `protect()` proxy as a no-sidecar alternative).
+- ADR-002 (two-phase execution), ADR-003 (convenience API tiers), ADR-028 (bridge sanitizer strips HTML) marked **Superseded by ADR-031**.
+
+### Removed
+
+- `docs/two-phase.md` — the doc was entirely about TwoPhaseExecutor (removed in v2.0.0).
+- `examples/email_triage.py`, `examples/llm_guard_integration.py`, `examples/promptguard_integration.py`, `examples/garak_testing.py` — all relied on the deleted TwoPhaseExecutor / AnalysisGuard surface and didn't import in v2.
+- `dashboard-mockup.html` — pre-v1 design artifact, replaced by the live React UI in `src/bulwark/dashboard/static/`.
+- `bulwark-sentry-design-handoff/` directory + `Bulwark-sentry-handoff.zip` — Sentry design handoff scratch from an earlier phase, no longer referenced.
+
 ## [2.2.3] - 2026-04-23
 
 ### Fixed
