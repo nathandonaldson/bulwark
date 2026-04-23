@@ -1,5 +1,5 @@
 feature: Two-phase analyze/execute with bridge guards
-version: "1.0.0"
+version: "1.1.0"
 module: bulwark.executor
 
 guarantees:
@@ -55,9 +55,12 @@ guarantees:
   - id: G-EXECUTOR-010
     summary: >
       When sanitize_bridge=True (default), the Phase 1 output is run
-      through Sanitizer().clean() before being templated into the
-      Phase 2 prompt, stripping zero-width chars and encoding-layer
-      payloads the analysis model might have echoed back.
+      through a Sanitizer before being templated into the Phase 2
+      prompt. The bridge Sanitizer strips zero-width characters,
+      control characters, bidi overrides, emoji-smuggling selectors,
+      AND HTML tags (including anything matching a trust-boundary
+      close such as </analysis_output>). See ADR-028 for why HTML
+      stripping is mandatory at the bridge.
   - id: G-EXECUTOR-011
     summary: >
       TwoPhaseExecutor.analyze_only(prompt) runs Phase 1 only and
@@ -77,6 +80,16 @@ guarantees:
       (if enabled) → guard_bridge / AnalysisGuard.check() (if enabled)
       → sanitize_bridge (if enabled) → canary leak check (if
       configured) → Phase 2.
+  - id: G-EXECUTOR-014
+    summary: >
+      Obfuscated trust-boundary closing tags cannot bypass the bridge.
+      An attacker-influenced Phase 1 output of the form
+      </analysis\u200b_output> evades AnalysisGuard's literal regex,
+      gets zero-width-normalised to </analysis_output> by the
+      sanitizer, and must then be stripped by the bridge's HTML
+      removal so it cannot escape SECURE_EXECUTE_TEMPLATE's wrapper
+      in Phase 2. See ADR-028. Applies symmetrically to
+      </untrusted_*>, <system>, and <trusted> tag shapes.
 
 non_guarantees:
   - id: NG-EXECUTOR-001
@@ -99,3 +112,11 @@ non_guarantees:
       if the attacker echoes configured canary tokens; other covert
       channels (e.g., plain restatement of secrets already in context)
       are outside scope.
+  - id: NG-EXECUTOR-004
+    summary: Bridge does not preserve structured markup between phases
+    reason: >
+      Bridge HTML stripping (G-EXECUTOR-014) is indiscriminate; any
+      <tag> in Phase 1 output is removed, not only boundary closers.
+      Applications that need to forward structured markup from analysis
+      to execution should do so via a JSON field or a delimiter-based
+      envelope, not inline HTML. See ADR-028.

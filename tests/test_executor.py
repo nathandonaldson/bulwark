@@ -1,6 +1,6 @@
 """Comprehensive tests for the two-phase executor.
 
-Contract: spec/contracts/executor.yaml (G-EXECUTOR-001..013).
+Contract: spec/contracts/executor.yaml (G-EXECUTOR-001..014).
 
 Non-guarantees:
   NG-EXECUTOR-001 — analyze_fn vs execute_fn capability split is the caller's
@@ -8,6 +8,9 @@ Non-guarantees:
   NG-EXECUTOR-002 — AnalysisGuard patterns are heuristic (see TestAnalysisGuard).
   NG-EXECUTOR-003 — canary is the only covert-channel defense in Phase 1 output
                     (see TestCanaryChecking).
+  NG-EXECUTOR-004 — bridge HTML stripping (G-EXECUTOR-014, ADR-028) is
+                    indiscriminate; callers wanting structured markup across
+                    the bridge must use JSON/delimiter envelopes.
 """
 import json
 import pytest

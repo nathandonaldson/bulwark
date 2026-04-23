@@ -18,9 +18,19 @@ from bulwark.executor import (
 # Module-level thread pool for sync run() inside async contexts (e.g. FastAPI)
 _SYNC_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
-# Pre-built bridge sanitizer (strips zero-width/control chars only, no HTML/CSS)
+# _BRIDGE_SANITIZER: cleans Phase-1 analysis output before it is templated
+# into the Phase-2 prompt (G-EXECUTOR-010, G-EXECUTOR-014, ADR-028).
+#
+# HTML stripping is intentionally ON. A Phase-1 LLM can be prompt-injected
+# into emitting a closing trust-boundary tag with a zero-width character
+# wedged in — e.g. </analysis\u200b_output>. AnalysisGuard's regex will
+# not match that raw form, but the sanitizer's default strip_zero_width
+# then normalises it back into a real </analysis_output>. Without
+# strip_html=True here, that normalised tag would survive into the
+# Phase-2 prompt and break out of SECURE_EXECUTE_TEMPLATE's
+# <analysis_output> wrapper.
 _BRIDGE_SANITIZER = Sanitizer(
-    strip_html=False, strip_scripts=False,
+    strip_html=True, strip_scripts=False,
     strip_css_hidden=False, collapse_whitespace=False, max_length=None,
 )
 from bulwark.events import EventEmitter
