@@ -10,10 +10,10 @@ from __future__ import annotations
 from bulwark.sanitizer import Sanitizer
 from bulwark.trust_boundary import TrustBoundary
 from bulwark.canary import CanarySystem, CanaryLeakError
-from bulwark.executor import (
-    TwoPhaseExecutor, ExecutorResult, LLMCallFn,
-    AnalysisGuard, AnalysisSuspiciousError, SECURE_EXECUTE_TEMPLATE,
-)
+from bulwark.guard import PatternGuard, SuspiciousPatternError
+# Back-compat aliases for pre-v2 callers:
+AnalysisGuard = PatternGuard
+AnalysisSuspiciousError = SuspiciousPatternError
 from bulwark.isolator import MapReduceIsolator, IsolatorResult, ItemResult
 from bulwark.events import (
     BulwarkEvent, Layer, Verdict, EventEmitter,
@@ -34,12 +34,10 @@ __all__ = [
     "Sanitizer",
     "TrustBoundary",
     "CanarySystem",
-    "TwoPhaseExecutor",
-    "ExecutorResult",
-    "LLMCallFn",
-    "AnalysisGuard",
-    "AnalysisSuspiciousError",
-    "SECURE_EXECUTE_TEMPLATE",
+    "PatternGuard",
+    "SuspiciousPatternError",
+    "AnalysisGuard",  # back-compat alias
+    "AnalysisSuspiciousError",  # back-compat alias
     "MapReduceIsolator",
     "IsolatorResult",
     "ItemResult",

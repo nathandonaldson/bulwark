@@ -1,14 +1,20 @@
 openapi: "3.1.0"
 info:
   title: Bulwark API
-  version: "1.0.0"
+  version: "2.0.0"
   description: |
     Language-agnostic HTTP API for Bulwark prompt injection defense.
 
-    /v1/clean is the primary endpoint — runs the full defense stack (sanitize,
-    detect, LLM two-phase execution, bridge guard, canary check). Returns 200
-    when safe, 422 when injection detected. /v1/guard checks LLM output
-    for injection patterns.
+    v2.0.0 (ADR-031) — Bulwark is a detection-only service. It returns
+    safe, cleaned content or an error. It never calls an LLM. The caller
+    owns the LLM.
+
+    /v1/clean is the primary endpoint — runs sanitizer + DeBERTa classifier
+    + trust-boundary wrap. Returns 200 with cleaned content when safe,
+    422 when injection detected.
+
+    /v1/guard is the output-side endpoint — called by the user on their
+    own LLM's output to check for injection patterns and canary leaks.
   license:
     name: MIT
 
@@ -46,18 +52,17 @@ paths:
   /v1/clean:
     post:
       operationId: clean
-      summary: Run untrusted content through the full Bulwark defense stack
+      summary: Sanitize, classify, and wrap untrusted content
       description: |
-        The primary Bulwark endpoint. Runs the complete defense pipeline:
-        sanitizer, trust boundary, detection models, LLM two-phase execution
-        (if configured), bridge guard, and canary check.
+        The primary Bulwark endpoint. Pipeline:
+          1. Sanitizer — strip bidi, emoji smuggling, unicode tricks.
+          2. DeBERTa classifier — HIGH-confidence injection → 422.
+          3. Trust boundary wrap — content returned in <untrusted_input>…</>.
 
-        Returns 200 with the safe result when content passes all checks.
-        Returns 422 when injection is detected — content does not pass through.
+        Returns 200 with the cleaned, wrapped content when safe. The caller
+        feeds `result` into their own LLM.
 
-        Without an LLM configured, runs sanitizer + detection + guard (fast path).
-        Detection models run BEFORE the LLM — if they catch injection, the LLM
-        call is skipped and 422 is returned immediately.
+        Returns 422 when the classifier blocks. No LLM is invoked by Bulwark.
       requestBody:
         required: true
         content:
@@ -77,11 +82,16 @@ paths:
   /v1/guard:
     post:
       operationId: guard
-      summary: Check LLM output for injection patterns and canary leaks
+      summary: Check caller's own LLM output for injection patterns and canary leaks
       description: |
-        Maps to bulwark.guard(). Checks text against regex-based injection
-        patterns and optional canary token leaks. Always returns 200 with
-        safe=true/false. The request succeeded; the analysis result may be "unsafe."
+        The output-side endpoint. The caller runs their own LLM on the
+        cleaned content returned by /v1/clean, then calls /v1/guard on
+        the LLM's output to check for injection patterns (the LLM was
+        tricked into echoing attacker instructions) and canary leaks
+        (the LLM exfiltrated a sentinel string).
+
+        Always returns 200 with safe=true/false. The request succeeded;
+        the analysis result may be "unsafe."
       requestBody:
         required: true
         content:
@@ -97,97 +107,6 @@ paths:
                 $ref: "#/components/schemas/GuardResponse"
         "422":
           description: Validation error (missing required fields, wrong types)
-
-  # /v1/pipeline — REMOVED in v1.0.0 (ADR-014). Use /v1/clean instead.
-
-  /v1/llm/test:
-    post:
-      operationId: testLlmConnection
-      summary: Test the configured LLM backend connection
-      description: |
-        Sends a minimal test prompt to the configured LLM backend and returns
-        whether the connection succeeded. Used by the dashboard Configure tab.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                mode:
-                  type: string
-                  enum: ["none", "anthropic", "openai_compatible"]
-                api_key:
-                  type: string
-                base_url:
-                  type: string
-                  description: Base URL for OpenAI-compatible endpoints. Must not target internal/private networks.
-                analyze_model:
-                  type: string
-                execute_model:
-                  type: string
-      responses:
-        "200":
-          description: Connection test result
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                  message:
-                    type: string
-                  model:
-                    type: string
-
-  /v1/llm/models:
-    post:
-      operationId: listLlmModels
-      summary: List available models for the configured LLM backend
-      description: |
-        Returns models available for the given backend configuration.
-        For Anthropic: returns the supported model family aliases.
-        For OpenAI-compatible: queries the endpoint's /models API.
-        Used by the dashboard Configure tab to populate model dropdowns.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                mode:
-                  type: string
-                  enum: ["none", "anthropic", "openai_compatible"]
-                api_key:
-                  type: string
-                base_url:
-                  type: string
-      responses:
-        "200":
-          description: Available models
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  models:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                        name:
-                          type: string
-                        description:
-                          type: string
-                        recommended_for:
-                          type: array
-                          items:
-                            type: string
-                            enum: ["analyze", "execute"]
 
   /api/presets:
     get:
@@ -225,7 +144,7 @@ paths:
                           description: Display name.
                         family:
                           type: string
-                          enum: ["sanitizer", "boundary", "bridge", "detection", "canary"]
+                          enum: ["sanitizer", "boundary", "detection", "canary"]
                           description: Pipeline stage expected to block this preset.
                         payload:
                           type: string
@@ -240,8 +159,9 @@ paths:
       summary: List configured canary tokens
       description: |
         Returns every canary currently configured in bulwark-config.yaml.
-        Canaries are sentinel strings the executor watches for in Phase 1
-        LLM output; if any appears, Phase 2 is blocked (ADR-025).
+        Canaries are sentinel strings the caller watches for in their own
+        LLM output via /v1/guard (ADR-025, ADR-031). Canaries are never
+        checked on input to /v1/clean.
       responses:
         "200":
           description: Canary list
@@ -265,7 +185,7 @@ paths:
                           description: Source identifier (e.g. "aws_access_key").
                         token:
                           type: string
-                          description: The sentinel string the LLM must never echo.
+                          description: The sentinel string to watch for in LLM output.
     post:
       operationId: upsertCanary
       summary: Create or rotate a canary token
@@ -344,8 +264,6 @@ paths:
       description: |
         Returns the three scan tiers (Quick Scan, Standard Scan, Full Sweep)
         with probe counts pulled dynamically from the installed garak version.
-        Counts reflect probe classes, not individual payloads (payloads load lazily).
-        Used by the dashboard red team UI to render tier selection cards.
       responses:
         "200":
           description: Tier definitions with counts
@@ -381,12 +299,10 @@ paths:
                           type: string
                         probe_count:
                           type: integer
-                          description: Number of probe classes in this tier (from garak)
                         families:
                           type: array
                           items:
                             type: string
-                          description: Garak probe family names included in this tier
 
   /api/redteam/reports:
     get:
@@ -394,8 +310,6 @@ paths:
       summary: List saved red team reports
       description: |
         Returns metadata for all persisted red team reports, sorted newest first.
-        Reports are saved automatically when a scan completes. Each entry includes
-        the tier, timestamp, probe count, defense rate, and filename for download.
       responses:
         "200":
           description: List of saved reports
@@ -437,8 +351,7 @@ paths:
       summary: Download a saved red team report as JSON
       description: |
         Returns the full red team report JSON for the given filename.
-        Filenames are validated to prevent path traversal — only files matching
-        the pattern redteam-*.json in the reports directory are served.
+        Filenames are validated to prevent path traversal.
       parameters:
         - name: filename
           in: path
@@ -459,10 +372,6 @@ paths:
     post:
       operationId: retestRedteam
       summary: Re-run only the non-defended probes from a previous report
-      description: |
-        Accepts a report filename from /api/redteam/reports and re-runs only
-        the probes that were not defended (hijacked or format_failure).
-        Uses the same pipeline path as a normal scan. Saves results as a new report.
       requestBody:
         required: true
         content:
@@ -474,7 +383,6 @@ paths:
               properties:
                 filename:
                   type: string
-                  description: Filename of the report to retest (from /api/redteam/reports)
       responses:
         "200":
           description: Retest started
@@ -523,8 +431,7 @@ components:
           default: xml
           description: |
             Trust boundary format. "xml" (default, best for Claude),
-            "markdown", or "delimiter". Non-Claude models may work better
-            with "markdown" or "delimiter".
+            "markdown", or "delimiter".
 
     CleanResponse:
       type: object
@@ -554,6 +461,17 @@ components:
         modified:
           type: boolean
           description: True if the sanitizer modified the content (stripped characters).
+        detector:
+          type: object
+          nullable: true
+          description: DeBERTa classifier verdict, if the model was loaded.
+          properties:
+            label:
+              type: string
+              description: Classifier output label (SAFE or INJECTION).
+            score:
+              type: number
+              description: Classifier confidence score.
 
     GuardRequest:
       type: object
@@ -571,7 +489,7 @@ components:
             type: string
           description: |
             Optional map of source_name to canary token string for leak detection.
-            If null, canary check is skipped.
+            If null, the server uses canaries configured in bulwark-config.yaml.
 
     GuardResponse:
       type: object
@@ -599,69 +517,3 @@ components:
             - null
           default: null
           description: Which check triggered the block, if any.
-
-    PipelineResponse:
-      type: object
-      required:
-        - blocked
-        - trace
-      properties:
-        blocked:
-          type: boolean
-          description: True if any layer blocked the content.
-        blocked_at:
-          type: string
-          nullable: true
-          description: Which layer blocked the content, if any.
-        block_reason:
-          type: string
-          nullable: true
-          description: Human-readable reason for blocking, if any.
-        analysis:
-          type: string
-          nullable: true
-          description: LLM Phase 1 analysis output, if LLM was configured and ran.
-        execution:
-          type: string
-          nullable: true
-          description: LLM Phase 2 execution output, if LLM was configured and ran.
-        payload_length:
-          type: integer
-          description: Length of the original input content.
-        neutralized:
-          type: boolean
-          description: True if the sanitizer modified the content.
-        neutralized_by:
-          type: string
-          nullable: true
-          description: Which sanitization step modified the content, if any.
-        llm_mode:
-          type: string
-          nullable: true
-          description: Which LLM backend mode was used (none, anthropic, openai_compatible).
-        trace:
-          type: array
-          description: Per-layer trace entries with step number, layer name, verdict, detail, and timing.
-          items:
-            type: object
-            properties:
-              step:
-                type: integer
-              layer:
-                type: string
-              verdict:
-                type: string
-                enum: ["passed", "blocked", "modified"]
-              detail:
-                type: string
-              duration_ms:
-                type: number
-              detection_model:
-                type: string
-                description: Name of the detection model, if this is a detection layer entry.
-              backend:
-                type: string
-                description: LLM backend type, if this is an analyze/execute layer entry.
-              model:
-                type: string
-                description: Model identifier used, if this is an analyze/execute layer entry.

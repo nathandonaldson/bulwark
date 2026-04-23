@@ -7,7 +7,7 @@ from bulwark.events import CollectorEmitter, Layer, Verdict, BulwarkEvent
 from bulwark.sanitizer import Sanitizer
 from bulwark.trust_boundary import TrustBoundary
 from bulwark.canary import CanarySystem
-from bulwark.executor import AnalysisGuard, AnalysisSuspiciousError, TwoPhaseExecutor
+from bulwark.guard import PatternGuard as AnalysisGuard, SuspiciousPatternError as AnalysisSuspiciousError
 from bulwark.isolator import MapReduceIsolator
 
 
@@ -127,83 +127,6 @@ class TestAnalysisGuardEvents:
     def test_no_events_without_emitter(self):
         guard = AnalysisGuard()
         guard.check("normal analysis output")  # no errors
-
-
-# ---------------------------------------------------------------------------
-# TwoPhaseExecutor events
-# ---------------------------------------------------------------------------
-
-class TestExecutorEvents:
-    def test_emits_on_successful_run(self):
-        collector = CollectorEmitter()
-        executor = TwoPhaseExecutor(
-            analyze_fn=lambda p: '{"class": "fyi"}',
-            execute_fn=lambda p: "done",
-            emitter=collector,
-            guard_bridge=False,
-            sanitize_bridge=False,
-        )
-        executor.run("test")
-        assert any(e.layer == Layer.EXECUTOR for e in collector.events)
-        executor_event = [e for e in collector.events if e.layer == Layer.EXECUTOR][0]
-        assert executor_event.verdict == Verdict.PASSED
-        assert "Phase 1 -> Phase 2 complete" in executor_event.detail
-
-    def test_emits_on_analysis_only(self):
-        collector = CollectorEmitter()
-        executor = TwoPhaseExecutor(
-            analyze_fn=lambda p: '{"class": "fyi"}',
-            execute_fn=None,
-            emitter=collector,
-            guard_bridge=False,
-            sanitize_bridge=False,
-        )
-        executor.run("test")
-        assert any(e.layer == Layer.EXECUTOR for e in collector.events)
-        executor_event = [e for e in collector.events if e.layer == Layer.EXECUTOR][0]
-        assert "analysis only" in executor_event.detail
-
-    def test_emits_blocked_on_canary_leak(self):
-        canary = CanarySystem()
-        token = canary.generate("secret")
-        collector = CollectorEmitter()
-        executor = TwoPhaseExecutor(
-            analyze_fn=lambda p: f"leaked {token}",
-            execute_fn=lambda p: "done",
-            canary=canary,
-            emitter=collector,
-            guard_bridge=False,
-            sanitize_bridge=False,
-        )
-        result = executor.run("test")
-        assert result.blocked
-        assert any(
-            e.layer == Layer.EXECUTOR and e.verdict == Verdict.BLOCKED
-            for e in collector.events
-        )
-
-    def test_duration_is_tracked(self):
-        collector = CollectorEmitter()
-        executor = TwoPhaseExecutor(
-            analyze_fn=lambda p: "ok",
-            execute_fn=lambda p: "done",
-            emitter=collector,
-            guard_bridge=False,
-            sanitize_bridge=False,
-        )
-        executor.run("test")
-        executor_event = [e for e in collector.events if e.layer == Layer.EXECUTOR][0]
-        assert executor_event.duration_ms >= 0
-
-    def test_no_events_without_emitter(self):
-        executor = TwoPhaseExecutor(
-            analyze_fn=lambda p: "ok",
-            execute_fn=lambda p: "done",
-            guard_bridge=False,
-            sanitize_bridge=False,
-        )
-        result = executor.run("test")
-        assert result.execution == "done"
 
 
 # ---------------------------------------------------------------------------

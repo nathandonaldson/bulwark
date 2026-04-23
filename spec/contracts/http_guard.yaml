@@ -1,5 +1,5 @@
 endpoint: POST /v1/guard
-version: "0.4.0"
+version: "1.0.0"
 
 guarantees:
   - id: G-HTTP-GUARD-001
@@ -11,9 +11,11 @@ guarantees:
   - id: G-HTTP-GUARD-004
     summary: Returns 422 when required text field is missing
   - id: G-HTTP-GUARD-005
-    summary: Canary check skipped when canary_tokens is null
+    summary: When canary_tokens is null, falls back to server-configured canaries from bulwark-config.yaml
   - id: G-HTTP-GUARD-006
     summary: Text field in response is always the exact input text, unchanged
+  - id: G-HTTP-GUARD-010
+    summary: This is the caller-side output-check endpoint — intended for LLM output the caller produced, never for input to /v1/clean
 
   - id: G-HTTP-GUARD-007
     summary: Emits a BulwarkEvent to the dashboard EventDB and SSE subscribers

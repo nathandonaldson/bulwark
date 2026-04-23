@@ -1,15 +1,16 @@
 endpoint: GET /api/config, PUT /api/config
-version: "0.6.0"
+version: "2.0.0"
+
+# v2.0.0 (ADR-031): LLM backend fields removed from config. No more API key
+# masking — there is no API key.
 
 guarantees:
-  - id: G-HTTP-CONFIG-001
-    summary: GET /api/config masks the API key (shows first 7 + last 4 chars only)
   - id: G-HTTP-CONFIG-002
     summary: PUT /api/config rejects updates that disable all core defense layers simultaneously
-  - id: G-HTTP-CONFIG-003
-    summary: PUT /api/config does not overwrite a real API key with a masked value
+  - id: G-HTTP-CONFIG-004
+    summary: GET /api/config returns only the v2 field set (layer toggles, guard patterns, canaries, webhook_url) — no llm_backend block
 
 non_guarantees:
   - id: NG-HTTP-CONFIG-001
-    summary: Does NOT provide authentication on config endpoints
-    reason: Dashboard is designed for localhost. Network-level access control is the user's responsibility.
+    summary: Does NOT provide authentication when BULWARK_API_TOKEN is unset
+    reason: Dashboard is designed for localhost. When the token is set, mutating routes require Bearer auth (ADR-029).

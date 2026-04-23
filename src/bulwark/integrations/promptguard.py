@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Optional, Callable
 
-from bulwark.executor import AnalysisSuspiciousError
+from bulwark.guard import SuspiciousPatternError as AnalysisSuspiciousError
 
 
 # Available models (name -> HuggingFace model ID)

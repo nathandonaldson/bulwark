@@ -1,5 +1,5 @@
 endpoint: POST /v1/clean
-version: "1.0.0"
+version: "2.0.0"
 
 guarantees:
   - id: G-HTTP-CLEAN-001
@@ -7,24 +7,27 @@ guarantees:
   - id: G-HTTP-CLEAN-002
     summary: Returns 422 when required content field is missing
   - id: G-HTTP-CLEAN-003
-    summary: Returns 422 when injection is detected (content does not pass through)
+    summary: Returns 422 when DeBERTa classifier flags injection at HIGH confidence
   - id: G-HTTP-CLEAN-004
-    summary: Runs detection models (when active) before LLM call
+    summary: Pipeline order is sanitize → classify → wrap
   - id: G-HTTP-CLEAN-005
-    summary: Runs full pipeline (sanitize, detect, LLM analyze, bridge guard, LLM execute, canary) when LLM configured
+    summary: Bulwark never invokes an LLM — no outbound LLM calls from /v1/clean
   - id: G-HTTP-CLEAN-006
-    summary: Without LLM configured, runs sanitize + detect + guard (fast path)
+    summary: DeBERTa classifier runs on sanitized content, not raw input
   - id: G-HTTP-CLEAN-007
-    summary: Response includes trace array with per-layer step, verdict, and detail
+    summary: Response includes detector verdict (label + score) when the model is loaded
   - id: G-HTTP-CLEAN-008
-    summary: Respects dashboard layer toggles (sanitizer, trust boundary, guard bridge, canary)
+    summary: Respects dashboard layer toggles (sanitizer, trust boundary)
   - id: G-HTTP-CLEAN-009
-    summary: Emits events to dashboard EventDB and SSE subscribers
+    summary: Emits BLOCKED events on classifier blocks to dashboard EventDB + webhooks
 
 non_guarantees:
   - id: NG-HTTP-CLEAN-001
-    summary: Does NOT guarantee LLM quality or accuracy
-    reason: LLM behavior depends on the model. Bulwark orchestrates defense layers.
+    summary: Does NOT guarantee the caller's downstream LLM is safe
+    reason: Bulwark returns cleaned content; output-side safety is the caller's job via /v1/guard.
   - id: NG-HTTP-CLEAN-002
     summary: Exact trust boundary tag format is not guaranteed across versions
     reason: Tag naming is an implementation detail. Clients should not parse the result string.
+  - id: NG-HTTP-CLEAN-003
+    summary: Does NOT check canaries — canaries are output-side only
+    reason: Canaries are for detecting LLM exfiltration; /v1/clean processes input before any LLM runs.

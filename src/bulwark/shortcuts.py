@@ -21,7 +21,7 @@ from typing import Optional
 
 from bulwark.sanitizer import Sanitizer
 from bulwark.trust_boundary import TrustBoundary, BoundaryFormat
-from bulwark.executor import AnalysisGuard
+from bulwark.guard import PatternGuard as AnalysisGuard
 from bulwark.canary import CanarySystem, CanaryLeakError
 
 # Module-level singletons — created once, reused across all calls.

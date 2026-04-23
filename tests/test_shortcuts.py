@@ -3,7 +3,7 @@ import pytest
 
 import bulwark
 from bulwark.shortcuts import clean, guard
-from bulwark.executor import AnalysisSuspiciousError
+from bulwark.guard import SuspiciousPatternError as AnalysisSuspiciousError
 from bulwark.canary import CanarySystem, CanaryLeakError
 
 

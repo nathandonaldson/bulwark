@@ -12,7 +12,7 @@ import pytest
 from bulwark.sanitizer import Sanitizer
 from bulwark.trust_boundary import TrustBoundary, BoundaryFormat
 from bulwark.canary import CanarySystem
-from bulwark.executor import AnalysisGuard, AnalysisSuspiciousError
+from bulwark.guard import PatternGuard as AnalysisGuard, SuspiciousPatternError as AnalysisSuspiciousError
 from bulwark.events import WebhookEmitter
 
 
