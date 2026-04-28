@@ -179,9 +179,11 @@ async def api_clean(req: CleanRequest):
         v = classify(jcfg, cleaned)
         trace_layer = "detection:llm_judge"
         if v.verdict == "INJECTION" and v.confidence >= jcfg.threshold:
+            # NG-JUDGE-004 / ADR-037: do NOT include v.reason in trace detail.
+            # Generative judge text never reaches /v1/clean callers.
             trace.append({
                 "step": step, "layer": trace_layer, "verdict": "blocked",
-                "detail": f"LLM judge: INJECTION ({v.confidence:.2f}) — {v.reason} ({v.latency_ms:.0f}ms)",
+                "detail": f"LLM judge: INJECTION ({v.confidence:.2f}) ({v.latency_ms:.0f}ms)",
                 "detection_model": "llm_judge",
                 "duration_ms": round(v.latency_ms, 1),
             })
@@ -189,7 +191,7 @@ async def api_clean(req: CleanRequest):
             _emit_event(
                 layer="detection", verdict="blocked",
                 source_id=f"api:clean:{source}",
-                detail=f"Blocked by llm_judge: {v.reason}",
+                detail=f"Blocked by llm_judge (confidence={v.confidence:.2f})",
                 duration_ms=round(total_ms, 1),
             )
             return JSONResponse(
@@ -203,11 +205,17 @@ async def api_clean(req: CleanRequest):
                     "modified": modified,
                 },
             )
-        if v.verdict == "ERROR":
+        # ADR-037 / G-JUDGE-005: UNPARSEABLE follows the same path as ERROR.
+        # Strict mode (fail_open=False) blocks them; permissive mode lets
+        # them pass with a trace annotation. UNPARSEABLE never short-
+        # circuits as SAFE. Generative judge text (v.reason) is never
+        # included in trace details (NG-JUDGE-004).
+        if v.verdict in ("ERROR", "UNPARSEABLE"):
+            label = "unreachable" if v.verdict == "ERROR" else "unparseable response"
             if not jcfg.fail_open:
                 trace.append({
                     "step": step, "layer": trace_layer, "verdict": "blocked",
-                    "detail": f"LLM judge unreachable (fail-closed): {v.reason}",
+                    "detail": f"LLM judge {label} (fail-closed)",
                     "detection_model": "llm_judge",
                     "duration_ms": round(v.latency_ms, 1),
                 })
@@ -215,14 +223,14 @@ async def api_clean(req: CleanRequest):
                 _emit_event(
                     layer="detection", verdict="blocked",
                     source_id=f"api:clean:{source}",
-                    detail=f"Blocked by llm_judge (fail-closed): {v.reason}",
+                    detail=f"Blocked by llm_judge ({label}, fail-closed)",
                     duration_ms=round(total_ms, 1),
                 )
                 return JSONResponse(
                     status_code=422,
                     content={
                         "blocked": True,
-                        "block_reason": f"Detector llm_judge unreachable: {v.reason}",
+                        "block_reason": f"Detector llm_judge {label}",
                         "blocked_at": "detection:llm_judge",
                         "trace": trace,
                         "content_length": len(content),
@@ -232,12 +240,12 @@ async def api_clean(req: CleanRequest):
             # fail-open
             trace.append({
                 "step": step, "layer": trace_layer, "verdict": "passed",
-                "detail": f"LLM judge unreachable (fail-open): {v.reason} ({v.latency_ms:.0f}ms)",
+                "detail": f"LLM judge {label} (fail-open) ({v.latency_ms:.0f}ms)",
                 "detection_model": "llm_judge",
                 "duration_ms": round(v.latency_ms, 1),
             })
         else:
-            # SAFE or UNPARSEABLE → pass through
+            # SAFE → pass through
             trace.append({
                 "step": step, "layer": trace_layer, "verdict": "passed",
                 "detail": f"LLM judge: {v.verdict} ({v.confidence:.2f}) ({v.latency_ms:.0f}ms)",

@@ -297,22 +297,93 @@ class TestLoopbackDetector:
         assert _is_loopback_client(_R()) is False
 
 
-class TestV1CleanAlwaysPublic:
-    """v2.0.0 (ADR-031): Bulwark never calls an LLM, so /v1/clean is always
-    on the public allowlist. The conditional-auth rule from G-AUTH-008 no
-    longer fires — _is_llm_configured() is a stub that always returns False.
+class TestV1CleanAuthOnJudgeEnabled:
+    """G-AUTH-008 / ADR-037: /v1/clean leaves the public allowlist when
+    judge_backend.enabled=True AND BULWARK_API_TOKEN is set. Any other
+    combination (sanitize-only, no token) keeps the open default.
     """
 
-    def test_clean_stays_public_with_token_set(self, monkeypatch):
-        monkeypatch.setenv("BULWARK_API_TOKEN", "ops-secret")
-        client = _get_client()
-        resp = client.post("/v1/clean", json={"content": "hello", "source": "test"})
-        assert resp.status_code != 401
-        assert resp.status_code != 403
-
-    def test_is_llm_configured_is_stub(self):
+    def _swap_config(self, *, judge_enabled: bool):
         import bulwark.dashboard.app as app_mod
-        assert app_mod._is_llm_configured() is False
+        from bulwark.dashboard.config import BulwarkConfig, JudgeBackendConfig
+        saved = app_mod.config
+        cfg = BulwarkConfig()
+        if judge_enabled:
+            cfg.judge_backend = JudgeBackendConfig(
+                enabled=True, base_url="http://x/v1", model="m",
+                threshold=0.85, fail_open=True,
+            )
+        app_mod.config = cfg
+        return app_mod, saved
+
+    def test_judge_disabled_with_token_set_clean_stays_public(self, monkeypatch):
+        """Sanitize-only deployments keep /v1/clean open even with token set."""
+        monkeypatch.setenv("BULWARK_API_TOKEN", "ops-secret")
+        app_mod, saved = self._swap_config(judge_enabled=False)
+        try:
+            client = _get_client()
+            resp = client.post("/v1/clean", json={"content": "hello", "source": "test"})
+            assert resp.status_code not in (401, 403)
+        finally:
+            app_mod.config = saved
+
+    def test_judge_enabled_no_token_clean_stays_public(self, monkeypatch):
+        """No token means no auth wall — judge alone doesn't trigger auth."""
+        monkeypatch.delenv("BULWARK_API_TOKEN", raising=False)
+        app_mod, saved = self._swap_config(judge_enabled=True)
+        try:
+            client = _get_client()
+            resp = client.post("/v1/clean", json={"content": "hello", "source": "test"})
+            assert resp.status_code not in (401, 403)
+        finally:
+            app_mod.config = saved
+
+    def test_judge_enabled_with_token_clean_requires_auth(self, monkeypatch):
+        """G-AUTH-008: judge + token together flip /v1/clean off the public list."""
+        monkeypatch.setenv("BULWARK_API_TOKEN", "ops-secret")
+        app_mod, saved = self._swap_config(judge_enabled=True)
+        try:
+            client = _get_client()
+            resp = client.post("/v1/clean", json={"content": "hello", "source": "test"})
+            assert resp.status_code == 401, \
+                "judge+token must force auth on /v1/clean to prevent quota burn"
+        finally:
+            app_mod.config = saved
+
+    def test_judge_enabled_with_valid_token_passes(self, monkeypatch):
+        """G-AUTH-008: with valid Bearer auth, judge+token deployments work."""
+        monkeypatch.setenv("BULWARK_API_TOKEN", "ops-secret")
+        # Mock the judge so the request actually completes.
+        monkeypatch.setattr(
+            "bulwark.detectors.llm_judge._call_openai_compatible",
+            lambda *a, **kw: '{"verdict":"SAFE","confidence":0.99,"reason":"ok"}',
+        )
+        app_mod, saved = self._swap_config(judge_enabled=True)
+        try:
+            client = _get_client()
+            resp = client.post(
+                "/v1/clean",
+                json={"content": "hello", "source": "test"},
+                headers={"Authorization": "Bearer ops-secret"},
+            )
+            assert resp.status_code == 200
+        finally:
+            app_mod.config = saved
+
+    def test_is_llm_configured_reflects_judge_state(self, monkeypatch):
+        """ADR-037: _is_llm_configured() returns config.judge_backend.enabled."""
+        import bulwark.dashboard.app as app_mod
+        app_mod_, saved = self._swap_config(judge_enabled=False)
+        try:
+            assert app_mod.config.judge_backend.enabled is False
+            assert app_mod._is_llm_configured() is False
+        finally:
+            app_mod_.config = saved
+        app_mod_, saved = self._swap_config(judge_enabled=True)
+        try:
+            assert app_mod._is_llm_configured() is True
+        finally:
+            app_mod_.config = saved
 
     def test_healthz_and_guard_stay_public(self, monkeypatch):
         monkeypatch.setenv("BULWARK_API_TOKEN", "ops-secret")

@@ -30,6 +30,9 @@ guarantees:
       response logs the error to trace and lets the request continue to
       trust-boundary wrap (HTTP 200 with detector="error" annotation).
       judge_backend.fail_open=false flips this to fail-closed (HTTP 422).
+      UNPARSEABLE responses follow the same path as ERROR (ADR-037) —
+      strict mode blocks them; permissive mode lets them pass with a
+      trace annotation. UNPARSEABLE never short-circuits as SAFE.
   - id: G-JUDGE-006
     summary: >
       judge_backend.base_url is validated against the same SSRF allowlist
@@ -76,6 +79,9 @@ non_guarantees:
     summary: Does NOT expose the judge's raw response to /v1/clean callers
     reason: >
       Only the parsed verdict + confidence + latency reach the trace and
-      response. Returning the raw model output would leak whatever the
-      judge said, which a clever attacker could shape into an exfiltration
-      side channel. Trace records the verdict label; that's it.
+      response. The judge's `reason` field, raw response body, and any
+      generative text it emits are server-side log data only — never
+      embedded in the HTTP response trace. Returning generative text
+      would leak whatever the judge said, which a clever attacker could
+      shape into an exfiltration side channel. ADR-037 closed a regression
+      where `reason` was being interpolated into trace `detail` strings.
