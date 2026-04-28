@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.3.3] - 2026-04-29
+
+### Security (P1 fixes from `/codex challenge` adversarial review — see ADR-037)
+
+- **Auth bypass when LLM judge is enabled.** `_is_llm_configured()` was a stub that always returned `False`, leaving `/v1/clean` on the always-public allowlist even when `judge_backend.enabled=True` AND `BULWARK_API_TOKEN` was set. Any unauthenticated remote caller could burn the operator's judge quota. Replaced with a real check on `config.judge_backend.enabled`. Updated G-AUTH-008 to reflect the v2 trigger (judge enabled + token set, not legacy `mode in {"anthropic","openai_compatible"}`). New tests in `TestV1CleanAuthOnJudgeEnabled` cover all four state combinations.
+- **Judge `reason` text leaked via `/v1/clean` trace.** `JudgeVerdict.reason` is generative LLM output parsed from the judge's JSON response. It was being interpolated into the trace `detail` strings on both INJECTION blocks and ERROR/UNPARSEABLE paths, then returned to callers in the 422 body. Direct violation of NG-JUDGE-004 ("Does NOT expose the judge's raw response to /v1/clean callers"). Stripped `reason` from all trace details and event emissions. Replaced the broken `test_clean_response_does_not_include_judge_raw` (which had `or True` neutralizing its assertion) with two sentinel-token tests covering SAFE and INJECTION paths.
+- **`UNPARSEABLE` judge response bypassed `fail_open=false`.** The handler treated `SAFE` and `UNPARSEABLE` identically as pass-through; only `ERROR` was caught by strict mode. An attacker who induced the judge to emit prose or refuse got `UNPARSEABLE` and slipped past. `UNPARSEABLE` now follows the same path as `ERROR` — strict mode blocks (422), permissive mode passes with a trace annotation. Strengthened G-JUDGE-005 to make this explicit.
+
 ## [2.3.2] - 2026-04-23
 
 ### Fixed

@@ -11,7 +11,13 @@ guarantees:
   - id: G-HTTP-CLEAN-004
     summary: Pipeline order is sanitize → classify → wrap
   - id: G-HTTP-CLEAN-005
-    summary: Bulwark never invokes an LLM — no outbound LLM calls from /v1/clean
+    summary: >
+      Bulwark may call the LLM judge endpoint as a classifier when
+      judge_backend.enabled=true (ADR-033). The judge's generative
+      response text never reaches /v1/clean callers — only verdict +
+      confidence + latency are recorded. Sanitize-only and judge-
+      disabled deployments perform zero outbound LLM calls. See
+      ADR-037 / NG-JUDGE-004.
   - id: G-HTTP-CLEAN-006
     summary: DeBERTa classifier runs on sanitized content, not raw input
   - id: G-HTTP-CLEAN-007

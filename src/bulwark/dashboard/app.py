@@ -50,12 +50,16 @@ _UNAUTH_ALL_ORIGINS = frozenset({
 
 
 def _is_llm_configured() -> bool:
-    """Deprecated in v2.0.0 — Bulwark never calls an LLM. Always returns False.
+    """Return True when the LLM judge is enabled (ADR-033 / G-AUTH-008 / ADR-037).
 
-    Kept as a stub so the middleware keeps compiling; the conditional-auth
-    path it once powered now simply never triggers.
+    When this returns True AND BULWARK_API_TOKEN is set, /v1/clean leaves
+    the public allowlist and requires Bearer or cookie auth. Sanitize-only
+    and judge-disabled deployments keep the open default.
     """
-    return False
+    try:
+        return bool(config.judge_backend.enabled)
+    except AttributeError:
+        return False
 
 
 def _is_loopback_client(request: Request) -> bool:

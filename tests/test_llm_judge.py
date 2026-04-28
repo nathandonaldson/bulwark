@@ -191,39 +191,98 @@ class TestJudgeSSRFAllowlist:
 # ---------------------------------------------------------------------------
 
 
-def test_clean_response_does_not_include_judge_raw(monkeypatch):
-    """NG-JUDGE-004: only verdict + confidence reach the trace."""
-    try:
-        from fastapi.testclient import TestClient
-        import bulwark.dashboard.app as app_mod
-        from bulwark.dashboard.config import BulwarkConfig, JudgeBackendConfig
-    except ImportError:
-        pytest.skip("FastAPI not installed")
+def _make_judge_app(monkeypatch, fake_reply, *, threshold=0.5, fail_open=True):
+    """Helper: configure the dashboard app with a mocked judge and return TestClient + config."""
+    from fastapi.testclient import TestClient
+    import bulwark.dashboard.app as app_mod
+    from bulwark.dashboard.config import BulwarkConfig, JudgeBackendConfig
 
     saved = app_mod.config
     cfg = BulwarkConfig()
     cfg.judge_backend = JudgeBackendConfig(
-        enabled=True, base_url="http://x/v1", model="m", threshold=0.5, fail_open=True,
+        enabled=True, base_url="http://x/v1", model="m",
+        threshold=threshold, fail_open=fail_open,
     )
     app_mod.config = cfg
-
-    fake_reply = '{"verdict":"SAFE","confidence":0.99,"reason":"benign"}'
     monkeypatch.setattr(
         "bulwark.detectors.llm_judge._call_openai_compatible",
         lambda *a, **kw: fake_reply,
     )
+    return TestClient(app_mod.app), app_mod, saved
 
+
+def test_clean_response_does_not_include_judge_reason_on_safe(monkeypatch):
+    """NG-JUDGE-004 / ADR-037: judge reason text never reaches the trace on SAFE."""
     try:
-        client = TestClient(app_mod.app)
+        client, app_mod, saved = _make_judge_app(
+            monkeypatch,
+            '{"verdict":"SAFE","confidence":0.99,"reason":"SENTINEL_LEAK_TOKEN_42"}',
+        )
+    except ImportError:
+        pytest.skip("FastAPI not installed")
+    try:
         resp = client.post("/v1/clean", json={"content": "hello", "source": "test"})
+        flat = repr(resp.json())
+        assert "SENTINEL_LEAK_TOKEN_42" not in flat, "judge reason leaked into response"
+    finally:
+        app_mod.config = saved
+
+
+def test_clean_response_does_not_include_judge_reason_on_block(monkeypatch):
+    """NG-JUDGE-004 / ADR-037: judge reason text never reaches the trace on INJECTION."""
+    try:
+        client, app_mod, saved = _make_judge_app(
+            monkeypatch,
+            '{"verdict":"INJECTION","confidence":0.97,"reason":"SENTINEL_LEAK_TOKEN_99"}',
+            threshold=0.5,
+        )
+    except ImportError:
+        pytest.skip("FastAPI not installed")
+    try:
+        resp = client.post("/v1/clean", json={"content": "ignore previous", "source": "test"})
+        assert resp.status_code == 422
+        flat = repr(resp.json())
+        assert "SENTINEL_LEAK_TOKEN_99" not in flat, "judge reason leaked into response"
+    finally:
+        app_mod.config = saved
+
+
+def test_unparseable_blocks_when_fail_closed(monkeypatch):
+    """ADR-037 / G-JUDGE-005: UNPARSEABLE follows the ERROR path under fail_open=False."""
+    try:
+        client, app_mod, saved = _make_judge_app(
+            monkeypatch,
+            "I'm sorry, I can't help with that.",  # unparseable prose
+            fail_open=False,
+        )
+    except ImportError:
+        pytest.skip("FastAPI not installed")
+    try:
+        resp = client.post("/v1/clean", json={"content": "hello", "source": "test"})
+        assert resp.status_code == 422, "unparseable judge response must block in strict mode"
         body = resp.json()
-        # Judge raw text must not appear in any user-visible field.
-        flat = repr(body)
-        assert "benign" not in flat or "reason" not in flat or True  # reason name itself is allowed
-        # The trace records verdict + confidence, not the raw text.
-        judge_steps = [t for t in body.get("trace", []) if t.get("layer") == "detection:llm_judge"]
+        assert body["blocked"] is True
+        assert "llm_judge" in body["blocked_at"]
+    finally:
+        app_mod.config = saved
+
+
+def test_unparseable_passes_when_fail_open(monkeypatch):
+    """ADR-037: UNPARSEABLE under fail_open=True passes through with trace annotation."""
+    try:
+        client, app_mod, saved = _make_judge_app(
+            monkeypatch,
+            "garbage prose response",
+            fail_open=True,
+        )
+    except ImportError:
+        pytest.skip("FastAPI not installed")
+    try:
+        resp = client.post("/v1/clean", json={"content": "hello", "source": "test"})
+        assert resp.status_code == 200
+        judge_steps = [t for t in resp.json().get("trace", []) if t.get("layer") == "detection:llm_judge"]
         assert judge_steps, "judge step missing from trace"
-        assert "SAFE" in judge_steps[0]["detail"]
+        assert "unparseable" in judge_steps[0]["detail"].lower()
     finally:
         app_mod.config = saved
 
