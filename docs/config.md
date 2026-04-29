@@ -7,6 +7,8 @@ and from environment variables that override file values.
 
 ```bash
 # Auth — set this when exposing the dashboard outside loopback.
+# Once set, /v1/clean from non-loopback callers requires Bearer auth
+# regardless of judge state (ADR-041).
 BULWARK_API_TOKEN=<random-string>
 
 # Optional external alerting on BLOCKED events.
@@ -15,10 +17,24 @@ BULWARK_WEBHOOK_URL=https://hooks.slack.com/services/...
 # SSRF allowlist — comma-separated hostnames that should be permitted
 # as webhook + judge endpoints despite living in the private IP space.
 BULWARK_ALLOWED_HOSTS=internal-router.example
+
+# Byte cap on /v1/clean.content and /v1/guard.text (ADR-042).
+# Default: 262144 (256 KiB). Over-cap requests get HTTP 413.
+BULWARK_MAX_CONTENT_SIZE=262144
+
+# Opt into sanitizer-only mode when zero ML detectors are loaded.
+# Default behaviour is HTTP 503 from /v1/clean (ADR-040). With this set,
+# /v1/clean returns 200 and the response carries mode: "degraded-explicit".
+BULWARK_ALLOW_NO_DETECTORS=0
+
+# Opt into a "degraded-explicit" /healthz when no detectors load (ADR-038).
+# Default behaviour is /healthz reporting status=degraded.
+BULWARK_ALLOW_SANITIZE_ONLY=0
 ```
 
-There is no `BULWARK_LLM_*` env var in v2 — Bulwark never invokes a
-generative LLM (ADR-031).
+The canonical list lives in `spec/contracts/env_config.yaml`. There is no
+`BULWARK_LLM_*` env var in v2 — Bulwark never invokes a generative LLM
+(ADR-031).
 
 ## bulwark-config.yaml
 

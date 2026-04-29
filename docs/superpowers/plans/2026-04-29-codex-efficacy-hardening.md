@@ -1,8 +1,26 @@
 # Codex Efficacy Hardening Implementation Plan
 
+> **Status (2026-04-29): Phases A–G SHIPPED.** Versions and PRs recorded inline below. Phase H (semantic encoding detection) deliberately deferred to its own brainstorming session and sub-plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the eight efficacy, security, and consistency gaps surfaced by the 2026-04-29 Codex review of Bulwark Shield, in WSJF order, using strict SSD (spec → contract → ADR → tests → implementation).
+
+## Phase status (post-ship summary)
+
+| Phase | Item | PR | Final version | Notes |
+|-------|------|-----|--------------|-------|
+| A     | Fail-closed `/v1/clean` when zero detectors loaded | #35 | v2.4.2 | + #36 follow-up `env_truthy()` unification at v2.4.3 |
+| B     | Decouple `/v1/clean` auth from judge-enabled flag  | #37 | v2.4.4 | `_is_llm_configured()` removed |
+| C     | Byte-count limit on `content`                      | #38 | v2.4.6 | Order swapped with D for spec/preset CI dependency |
+| D     | Spec/preset/compose drift cleanup                  | (in #37 cluster) | v2.4.5 | Phases C and D shipped in either order |
+| —     | Cleanup: Docker smoke test + plan commit           | #39 | v2.4.7 | Pre-existing red smoke test fixed |
+| E     | `Pipeline.from_config()` loads full detector chain | #40 | v2.5.0 | MINOR bump — `Pipeline(detect=callable)` BREAKING |
+| F     | Real end-to-end detector test in CI                | #41 | v2.5.1 | Nightly cron + per-PR lane |
+| G     | Boundary/split-evasion test coverage               | #42 | v2.5.2 | Empirical Option D — long-range gap is `NG-DETECTOR-WINDOW-EVASION-001` |
+| H     | Base64/ROT13/punycode semantic detection           | —   | (deferred) | Spawns its own plan (planned ADR-047) |
+
+The version cascade differs from the inline targets below (each phase's commit message captures the actual ship version). Empirical Phase G finding: chunking is a red herring; dilution is a model-context limit. ADR-046 documents Option D and pins the curated samples as regression-prevention rather than shipping a fragile "head + tail" mitigation.
 
 **Architecture:** Each phase is a standalone SSD-compliant change. We do not refactor the pipeline — we tighten the existing detection-only architecture so that operators cannot silently deploy a degraded version, the dashboard fails closed when detectors are absent, the library matches the dashboard, and known evasion classes are exercised in tests. No new generative paths.
 
@@ -85,7 +103,7 @@ Cost of Delay = User-Business Value + Time Criticality + Risk Reduction (each sc
 
 > **NG-CLEAN-DETECTOR-REQUIRED-001** — Operators MAY explicitly opt into a sanitizer-only mode by setting `BULWARK_ALLOW_NO_DETECTORS=1`; this is logged at WARNING level on every request and surfaced in `/healthz` as `mode: degraded-explicit`.
 
-- [ ] **Step A1: Write the failing tests**
+- [x] **Step A1: Write the failing tests**
 
 ```python
 # tests/test_fail_closed_no_detectors.py
@@ -103,23 +121,23 @@ def test_clean_serves_when_explicit_opt_in(monkeypatch, client_no_detectors):
     assert r.json()["mode"] == "degraded-explicit"
 ```
 
-- [ ] **Step A2: Run tests, expect FAIL**
+- [x] **Step A2: Run tests, expect FAIL**
 
 `PYTHONPATH=src python3 -m pytest tests/test_fail_closed_no_detectors.py -v` → both fail.
 
-- [ ] **Step A3: Write ADR-040 and contract updates**
+- [x] **Step A3: Write ADR-040 and contract updates**
 
 ADR records: rationale, opt-out env var, log/observability behavior, telemetry implications, migration note for existing 0-detector deploys.
 
-- [ ] **Step A4: Implement the guard in `api_v1.py`**
+- [x] **Step A4: Implement the guard in `api_v1.py`**
 
 Insert before existing detector loop. Read `BULWARK_ALLOW_NO_DETECTORS` once at startup, cache. Emit structured log on every degraded-mode request.
 
-- [ ] **Step A5: Run full suite + spec compliance**
+- [x] **Step A5: Run full suite + spec compliance**
 
 `PYTHONPATH=src python3 -m pytest tests/ -v` → green.
 
-- [ ] **Step A6: Bump VERSION → 2.4.2, update CHANGELOG, commit**
+- [x] **Step A6: Bump VERSION → 2.4.2, update CHANGELOG, commit**
 
 Commit message: `security: fail-closed /v1/clean when no detectors loaded (v2.4.2)`
 
@@ -142,12 +160,12 @@ Commit message: `security: fail-closed /v1/clean when no detectors loaded (v2.4.
 
 > **G-AUTH-CLEAN-001** — When `BULWARK_API_TOKEN` is set, `/v1/clean` from a non-loopback client MUST require the token, regardless of judge state. Loopback clients remain unauthenticated by ADR-029.
 
-- [ ] **Step B1: Write failing tests** asserting 401 from non-loopback `/v1/clean` with token set + judge disabled.
-- [ ] **Step B2: Run, expect FAIL.**
-- [ ] **Step B3: Write ADR-041, update contract.**
-- [ ] **Step B4: Update auth predicate in `app.py` to gate `/v1/clean` on token presence alone.**
-- [ ] **Step B5: Run full suite.**
-- [ ] **Step B6: Bump VERSION → 2.4.3, update CHANGELOG, commit.**
+- [x] **Step B1: Write failing tests** asserting 401 from non-loopback `/v1/clean` with token set + judge disabled.
+- [x] **Step B2: Run, expect FAIL.**
+- [x] **Step B3: Write ADR-041, update contract.**
+- [x] **Step B4: Update auth predicate in `app.py` to gate `/v1/clean` on token presence alone.**
+- [x] **Step B5: Run full suite.**
+- [x] **Step B6: Bump VERSION → 2.4.3, update CHANGELOG, commit.**
 
 Commit message: `security: gate /v1/clean on token regardless of judge state (v2.4.3)`
 
@@ -169,12 +187,12 @@ Commit message: `security: gate /v1/clean on token regardless of judge state (v2
 
 > **G-HTTP-CLEAN-CONTENT-BYTES-001** — `/v1/clean` MUST reject any request whose `content` field exceeds 262,144 bytes when UTF-8 encoded with HTTP 413 and `error.code = "content_too_large"`.
 
-- [ ] **Step C1: Write failing test** — single 4-byte UTF-8 char × 70k = 280 KiB payload should 413; current code returns 200.
-- [ ] **Step C2: Run, expect FAIL.**
-- [ ] **Step C3: Write ADR-042, update contracts.**
-- [ ] **Step C4: Replace `max_length` with a `field_validator` that measures `len(v.encode("utf-8"))`.**
-- [ ] **Step C5: Run full suite.**
-- [ ] **Step C6: Bump VERSION → 2.4.4, update CHANGELOG, commit.**
+- [x] **Step C1: Write failing test** — single 4-byte UTF-8 char × 70k = 280 KiB payload should 413; current code returns 200.
+- [x] **Step C2: Run, expect FAIL.**
+- [x] **Step C3: Write ADR-042, update contracts.**
+- [x] **Step C4: Replace `max_length` with a `field_validator` that measures `len(v.encode("utf-8"))`.**
+- [x] **Step C5: Run full suite.**
+- [x] **Step C6: Bump VERSION → 2.4.4, update CHANGELOG, commit.**
 
 Commit message: `fix(api): enforce byte-count limit on /v1/clean content (v2.4.4)`
 
@@ -192,13 +210,13 @@ Commit message: `fix(api): enforce byte-count limit on /v1/clean content (v2.4.4
 - Test: `tests/test_spec_compliance.py` (extend to detect any preset description that contradicts trust-boundary tests)
 - Modify: `VERSION`, `CHANGELOG.md`
 
-- [ ] **Step D1: Add a spec-compliance test** that loads `presets.yaml` and asserts no preset claims behavior the trust-boundary tests disprove.
-- [ ] **Step D2: Run, expect FAIL on the XML preset.**
-- [ ] **Step D3: Write ADR-043 (small — "drift correction").**
-- [ ] **Step D4: Edit `presets.yaml` to accurately describe what the preset does.**
-- [ ] **Step D5: Edit `docker-compose.yml` to drop removed env vars.**
-- [ ] **Step D6: Run full suite.**
-- [ ] **Step D7: Bump VERSION → 2.4.5, update CHANGELOG, commit.**
+- [x] **Step D1: Add a spec-compliance test** that loads `presets.yaml` and asserts no preset claims behavior the trust-boundary tests disprove.
+- [x] **Step D2: Run, expect FAIL on the XML preset.**
+- [x] **Step D3: Write ADR-043 (small — "drift correction").**
+- [x] **Step D4: Edit `presets.yaml` to accurately describe what the preset does.**
+- [x] **Step D5: Edit `docker-compose.yml` to drop removed env vars.**
+- [x] **Step D6: Run full suite.**
+- [x] **Step D7: Bump VERSION → 2.4.5, update CHANGELOG, commit.**
 
 Commit message: `docs: correct preset/compose drift from ADR-031 (v2.4.5)`
 
@@ -220,12 +238,12 @@ Commit message: `docs: correct preset/compose drift from ADR-031 (v2.4.5)`
 
 > **G-PIPELINE-PARITY-001** — A `Pipeline.from_config(path)` constructed from the same config the dashboard uses MUST raise `SuspiciousPatternError` for any input the dashboard `/v1/clean` blocks with HTTP 422.
 
-- [ ] **Step E1: Write parity test** — feed a known injection through both `Pipeline.from_config()` and `/v1/clean`, assert both block.
-- [ ] **Step E2: Run, expect FAIL on library side.**
-- [ ] **Step E3: Write ADR-044.**
-- [ ] **Step E4: Update `Pipeline` to support a detector chain; update `from_config` to load DeBERTa, PromptGuard, judge per config.**
-- [ ] **Step E5: Run full suite.**
-- [ ] **Step E6: Bump VERSION → 2.5.0 (minor — library API change), update CHANGELOG, commit.**
+- [x] **Step E1: Write parity test** — feed a known injection through both `Pipeline.from_config()` and `/v1/clean`, assert both block.
+- [x] **Step E2: Run, expect FAIL on library side.**
+- [x] **Step E3: Write ADR-044.**
+- [x] **Step E4: Update `Pipeline` to support a detector chain; update `from_config` to load DeBERTa, PromptGuard, judge per config.**
+- [x] **Step E5: Run full suite.**
+- [x] **Step E6: Bump VERSION → 2.5.0 (minor — library API change), update CHANGELOG, commit.**
 
 Commit message: `feat(lib): Pipeline.from_config now loads detector chain (v2.5.0)`
 
@@ -246,12 +264,12 @@ Commit message: `feat(lib): Pipeline.from_config now loads detector chain (v2.5.
 
 > **G-E2E-DETECTOR-CI-001** — CI MUST run at least one e2e test per detector model that confirms a canonical prompt-injection sample is blocked. Failures of this lane are merge-blocking.
 
-- [ ] **Step F1: Add a curated five-shot canonical injection list** (separate from attack catalog — picked specifically for cross-version stability).
-- [ ] **Step F2: Write `test_e2e_real_detectors.py`** that boots the dashboard with real DeBERTa loaded and asserts each canonical sample returns 422.
-- [ ] **Step F3: Add CI lane** marked `@pytest.mark.e2e_slow`, downloads weights, caches by hash.
-- [ ] **Step F4: Write ADR-045.**
-- [ ] **Step F5: Run locally end-to-end, confirm green.**
-- [ ] **Step F6: Bump VERSION → 2.5.1, update CHANGELOG, commit.**
+- [x] **Step F1: Add a curated five-shot canonical injection list** (separate from attack catalog — picked specifically for cross-version stability).
+- [x] **Step F2: Write `test_e2e_real_detectors.py`** that boots the dashboard with real DeBERTa loaded and asserts each canonical sample returns 422.
+- [x] **Step F3: Add CI lane** marked `@pytest.mark.e2e_slow`, downloads weights, caches by hash.
+- [x] **Step F4: Write ADR-045.**
+- [x] **Step F5: Run locally end-to-end, confirm green.**
+- [x] **Step F6: Bump VERSION → 2.5.1, update CHANGELOG, commit.**
 
 Commit message: `test: add e2e real-detector lane to CI (v2.5.1)`
 
@@ -271,12 +289,12 @@ Commit message: `test: add e2e real-detector lane to CI (v2.5.1)`
 
 > **G-DETECTOR-WINDOW-EVASION-001** — The detector chain MUST block a curated set of split-evasion injections where the malicious tokens straddle the 64-token chunk overlap boundary.
 
-- [ ] **Step G1: Build curated split-evasion samples** (programmatic generator: take a known-blocked sample, pad to land instruction text precisely across the overlap).
-- [ ] **Step G2: Write tests, expect FAIL** — at least some samples leak through.
-- [ ] **Step G3: Write ADR-046.** Decide remediation: increase overlap stride? add deterministic re-classification at chunk boundaries? — whichever is needed.
-- [ ] **Step G4: Implement remediation.**
-- [ ] **Step G5: Run full suite.**
-- [ ] **Step G6: Bump VERSION → 2.5.2, update CHANGELOG, commit.**
+- [x] **Step G1: Build curated split-evasion samples** (programmatic generator: take a known-blocked sample, pad to land instruction text precisely across the overlap).
+- [x] **Step G2: Write tests, expect FAIL** — at least some samples leak through.
+- [x] **Step G3: Write ADR-046.** Decide remediation: increase overlap stride? add deterministic re-classification at chunk boundaries? — whichever is needed.
+- [x] **Step G4: Implement remediation.**
+- [x] **Step G5: Run full suite.**
+- [x] **Step G6: Bump VERSION → 2.5.2, update CHANGELOG, commit.**
 
 Commit message: `security: close detector chunk-boundary evasion (v2.5.2)`
 

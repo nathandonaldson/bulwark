@@ -74,11 +74,19 @@ PYTHONPATH=src python3 -m pytest tests/test_spec_compliance.py -v
 
 ## Architecture
 
-See `spec/decisions/` for ADRs explaining key design choices. The main ones:
+See `spec/decisions/` for ADRs explaining key design choices. The main ones
+for v2:
 
 - **ADR-001**: Spec-driven development (this process)
-- **ADR-002**: Two-phase execution architecture
-- **ADR-003**: Convenience API tiers (clean/guard -> protect -> Pipeline)
-- **ADR-007**: HTTP API response codes (always 200 for completed analysis)
 - **ADR-008**: Docker distribution
 - **ADR-009**: Package rename to bulwark-shield
+- **ADR-029**: Loopback-only mutations when token unset
+- **ADR-031**: Pipeline simplification (v1 → v2 detection-only break)
+- **ADR-032**: Detector chunking (510-token windows + 64-token overlap)
+- **ADR-033**: LLM Judge as a third detector (detection-only)
+- **ADR-040**: Fail-closed `/v1/clean` when no detectors loaded
+- **ADR-041**: `/v1/clean` auth decoupled from judge state
+- **ADR-042**: Byte-count limit on content
+- **ADR-044**: Library/dashboard pipeline parity (`Pipeline.from_config()`)
+- **ADR-045**: End-to-end real-detector CI lane
+- **ADR-046**: Split-evasion test coverage

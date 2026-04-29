@@ -140,6 +140,12 @@ Sanitizer + DeBERTa achieve **100% defense** on the Standard Scan tier
 (3,049 probes) as of v2.1.0. PromptGuard and the LLM Judge are there for
 operators who want stricter detection on their specific traffic distribution.
 
+`/v1/clean` fails closed when zero ML detectors load and the LLM judge is
+disabled — HTTP 503 with `error.code = "no_detectors_loaded"` rather than
+silent sanitizer-only behaviour (ADR-040). Operators who want sanitizer-only
+must opt in with `BULWARK_ALLOW_NO_DETECTORS=1`; the response then carries
+`mode: "degraded-explicit"` and every request is logged at WARNING.
+
 ## Measuring quality
 
 Two harnesses ship for measuring detector behaviour against your real traffic.
@@ -202,8 +208,23 @@ safe = bulwark.clean("ignore previous instructions", source="email")
 ok = bulwark.guard("the LLM's response text")
 ```
 
-For full v2 detection (DeBERTa, PromptGuard, LLM judge), call the running
-dashboard via HTTP — that's where the detector models live. See examples in
+For dashboard parity (Sanitizer → DeBERTa → optional PromptGuard → optional
+LLM Judge → Trust Boundary) inside Python, use `Pipeline.from_config()` —
+it reads the same YAML the dashboard reads (ADR-044):
+
+```python
+from bulwark import Pipeline
+
+pipeline = Pipeline.from_config("bulwark-config.yaml")
+result = pipeline.run("ignore previous instructions", source="email")
+if result.blocked:
+    raise RuntimeError(result.block_reason)
+```
+
+`Pipeline.from_config()` blocks the same inputs the dashboard's `/v1/clean`
+blocks — see `G-PIPELINE-PARITY-001`. The `Pipeline(detect=callable)`
+constructor was removed in v2.5.0; pass `detectors=[callable, ...]` or use
+`from_config()`. See examples in
 [`examples/quickstart_generic.py`](examples/quickstart_generic.py).
 
 ## Project structure
@@ -219,7 +240,7 @@ dashboard via HTTP — that's where the detector models live. See examples in
 | `spec/contracts/`     | Function-level guarantees + non-guarantees.                |
 | `spec/decisions/`     | Architecture Decision Records.                             |
 | `spec/falsepos_corpus.jsonl` | Curated benign-email corpus for the FP harness.     |
-| `tests/`              | 848 tests including spec-compliance enforcement.           |
+| `tests/`              | 960+ tests including spec-compliance enforcement.          |
 
 ## Spec-driven development
 
@@ -233,7 +254,7 @@ enforces that every guarantee ID has at least one matching test reference.
 - **PyPI**: `bulwark-shield` (`bulwark` is taken on PyPI)
 - **Docker**: `nathandonaldson/bulwark`
 - **Import**: `import bulwark`
-- **Current**: v2.2.3
+- **Current**: see [`VERSION`](VERSION) and [`CHANGELOG.md`](CHANGELOG.md)
 
 The v1 → v2 break is documented in [ADR-031](spec/decisions/031-pipeline-simplification.md).
 The full release history lives in [CHANGELOG.md](CHANGELOG.md).

@@ -68,14 +68,49 @@ Pipeline: **Sanitizer → DeBERTa (mandatory) → PromptGuard (optional) → LLM
     {"step": 2, "layer": "detection:protectai", "verdict": "passed", "detail": "..."},
     {"step": 3, "layer": "trust_boundary", "verdict": "passed", "detail": "..."}
   ],
-  "detector": {"label": "SAFE", "score": null}
+  "detector": {"label": "SAFE", "score": null},
+  "mode": "normal"
 }
 ```
+
+The `mode` field is `"normal"` on a default deploy. When the dashboard is
+running with zero detectors loaded **and** the operator has set
+`BULWARK_ALLOW_NO_DETECTORS=1` to opt into a sanitizer-only posture, the
+field returns `"degraded-explicit"` and every request is logged at WARNING
+(see ADR-040).
 
 ### Response (422)
 
 The detector blocked the request. Body has the same shape with `blocked: true`
 and a `block_reason`. Feed `result` to nothing — return an error to your user.
+
+### Response (401)
+
+When `BULWARK_API_TOKEN` is set, non-loopback callers must provide a Bearer
+token. Loopback callers (127.0.0.0/8, ::1) bypass per ADR-029. The auth
+predicate keys on token presence + non-loopback origin alone — judge state
+is no longer load-bearing (ADR-041).
+
+### Response (413)
+
+```json
+{"error": {"code": "content_too_large", "message": "..."}}
+```
+
+`content` is capped at 262,144 bytes when UTF-8 encoded (256 KiB). The cap
+is byte-counted, not char-counted, so multi-byte payloads can't sneak past.
+Tunable via `BULWARK_MAX_CONTENT_SIZE` (ADR-042).
+
+### Response (503)
+
+```json
+{"error": {"code": "no_detectors_loaded", "message": "..."}}
+```
+
+Returned when zero ML detectors are loaded **and** the LLM judge is
+disabled — Bulwark refuses to silently serve a sanitizer-only response.
+Operators who want sanitizer-only must set `BULWARK_ALLOW_NO_DETECTORS=1`
+(see ADR-040; the response then carries `mode: "degraded-explicit"`).
 
 ## POST /v1/guard
 
@@ -114,11 +149,16 @@ variables override file values.
 
 ### Environment variables
 
-| Variable                | Effect                                                    |
-|-------------------------|-----------------------------------------------------------|
-| `BULWARK_API_TOKEN`     | Bearer auth on mutating + protected endpoints.            |
-| `BULWARK_WEBHOOK_URL`   | External webhook for BLOCKED events.                      |
-| `BULWARK_ALLOWED_HOSTS` | Comma-separated hostname allowlist for SSRF guard.        |
+| Variable                       | Effect                                                                                  |
+|--------------------------------|-----------------------------------------------------------------------------------------|
+| `BULWARK_API_TOKEN`            | Bearer auth on mutating + protected endpoints (incl. `/v1/clean`, ADR-041).             |
+| `BULWARK_WEBHOOK_URL`          | External webhook for BLOCKED events.                                                    |
+| `BULWARK_ALLOWED_HOSTS`        | Comma-separated hostname allowlist for SSRF guard.                                      |
+| `BULWARK_MAX_CONTENT_SIZE`     | Byte cap on `/v1/clean.content` and `/v1/guard.text` (default 262144 = 256 KiB, ADR-042). |
+| `BULWARK_ALLOW_NO_DETECTORS`   | `1` opts into sanitizer-only mode when zero detectors load. Returns 200 with `mode: degraded-explicit`. Default: 503 (ADR-040). |
+| `BULWARK_ALLOW_SANITIZE_ONLY`  | `1` lets `/healthz` report `ok` (with `mode: degraded-explicit`) when no detectors are loaded (ADR-038).  |
+
+The canonical list lives in `spec/contracts/env_config.yaml`.
 
 ### Detector configuration
 
@@ -169,10 +209,12 @@ client to be on the loopback interface — see ADR-029.
 ## Errors
 
 - **400** — Invalid request body for canary management.
-- **401** — Missing/invalid Bearer token.
+- **401** — Missing/invalid Bearer token (incl. `/v1/clean` from non-loopback when token is set, ADR-041).
 - **403** — Token unset, remote client tried to mutate.
 - **404** — No matching resource (canary label, redteam report).
+- **413** — `content_too_large`: `/v1/clean.content` or `/v1/guard.text` exceeded the byte cap (ADR-042).
 - **422** — Validation error OR detector blocked the request.
+- **503** — `no_detectors_loaded`: `/v1/clean` invoked with zero detectors and judge disabled (ADR-040).
 
 ## Versioning
 
