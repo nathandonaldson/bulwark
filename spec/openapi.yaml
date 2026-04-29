@@ -88,6 +88,11 @@ paths:
         Returns 422 when any classifier blocks. The LLM judge is a classifier:
         only its verdict + confidence + latency reach the response (NG-JUDGE-004).
         Generative judge text never leaks to /v1/clean callers.
+
+        Returns 503 with `error.code = "no_detectors_loaded"` when the
+        dashboard has zero ML detectors loaded AND the LLM judge is
+        disabled AND `BULWARK_ALLOW_NO_DETECTORS` is unset. The
+        sanitizer-only path is never silently served. See ADR-040.
       requestBody:
         required: true
         content:
@@ -103,6 +108,26 @@ paths:
                 $ref: "#/components/schemas/CleanResponse"
         "422":
           description: Injection detected or validation error. Content blocked.
+        "503":
+          description: |
+            No detectors loaded and operator has not opted into sanitize-
+            only mode (BULWARK_ALLOW_NO_DETECTORS unset). See ADR-040.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: object
+                    required: [code, message]
+                    properties:
+                      code:
+                        type: string
+                        enum: ["no_detectors_loaded"]
+                      message:
+                        type: string
+                        description: Human-readable explanation; references the env var operators can set to opt in.
 
   /v1/guard:
     post:
@@ -497,6 +522,14 @@ components:
             score:
               type: number
               description: Classifier confidence score.
+        mode:
+          type: string
+          nullable: true
+          enum: ["degraded-explicit"]
+          description: |
+            Set to "degraded-explicit" when BULWARK_ALLOW_NO_DETECTORS=1
+            and the request was served sanitize-only with zero detectors
+            available. Absent in normal (defended) responses. See ADR-040.
 
     GuardRequest:
       type: object

@@ -29,6 +29,16 @@ guarantees:
     summary: ValueError raised for invalid format parameter
   - id: G-CLEAN-013
     summary: Empty string input produces trust boundary with empty content
+  - id: G-CLEAN-DETECTOR-REQUIRED-001
+    summary: >
+      When the dashboard has zero ML detectors loaded AND the LLM judge is
+      disabled, /v1/clean MUST refuse to serve sanitize-only output. The
+      sanitizer-only path is never silently served. Operators who knowingly
+      want sanitize-only traffic explicitly opt in via
+      BULWARK_ALLOW_NO_DETECTORS=1 (see NG-CLEAN-DETECTOR-REQUIRED-001).
+      The predicate matches /healthz's `degraded` definition (ADR-038) so
+      both endpoints agree on what "detection chain present" means.
+      See ADR-040.
 
 non_guarantees:
   - id: NG-CLEAN-001
@@ -43,3 +53,18 @@ non_guarantees:
   - id: NG-CLEAN-004
     summary: Calling clean() twice will double-wrap (NOT idempotent)
     reason: By design. Content is always wrapped, even if already wrapped.
+  - id: NG-CLEAN-DETECTOR-REQUIRED-001
+    summary: >
+      Operators MAY explicitly opt into a sanitizer-only mode by setting
+      BULWARK_ALLOW_NO_DETECTORS=1. In this mode /v1/clean serves the pre-
+      v2.4.2 path: sanitize → trust-boundary wrap, no ML detection. The
+      response body gains "mode": "degraded-explicit" so callers can detect
+      the reduced-defense state. Each opt-in request emits a WARNING log
+      via bulwark.dashboard.api_v1. Truthy values for the env var:
+      "1" / "true" / "yes" (case-insensitive); "0" / "false" / "" do NOT
+      opt in.
+    reason: >
+      Some legitimate workflows (corpus sanitization, dev/integration test
+      rigs) deliberately want trust-boundary tagging without ML detection.
+      The opt-in is loud (env var + per-request WARNING) so the operator
+      can't accidentally end up here.

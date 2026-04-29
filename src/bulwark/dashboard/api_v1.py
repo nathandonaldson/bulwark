@@ -5,9 +5,27 @@ v2.0.0 (ADR-031): /v1/clean is sanitize → (optional detector) → wrap.
 """
 from __future__ import annotations
 
+import logging
+import os
 import time
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
+
+
+# ADR-040: Truthy values for the BULWARK_ALLOW_NO_DETECTORS opt-in.
+# Mirrors the convention used by BULWARK_ALLOW_SANITIZE_ONLY (ADR-038).
+_TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes"})
+
+
+def _allow_no_detectors() -> bool:
+    """Return True when BULWARK_ALLOW_NO_DETECTORS is set to a truthy value.
+
+    "0", "false", "" (and unset) all evaluate to False — the fail-closed
+    default. See ADR-040.
+    """
+    return os.environ.get("BULWARK_ALLOW_NO_DETECTORS", "").strip().lower() in _TRUTHY_ENV_VALUES
 
 from bulwark.dashboard.models import (
     CleanRequest, CleanResponse,
@@ -95,6 +113,7 @@ def _fire_webhook(url: str, event: dict) -> None:
     ),
     responses={
         422: {"description": "Injection detected — content blocked"},
+        503: {"description": "No detectors loaded and operator has not opted in (ADR-040)"},
     },
 )
 async def api_clean(req: CleanRequest):
@@ -103,6 +122,49 @@ async def api_clean(req: CleanRequest):
     source = req.source
 
     from bulwark.dashboard.app import config, _detection_checks
+
+    # ADR-040 / G-CLEAN-DETECTOR-REQUIRED-001 / G-HTTP-CLEAN-503-NO-DETECTORS-001:
+    # Fail closed when nothing can actually run a detection check. Predicate
+    # matches /healthz's `degraded` definition (ADR-038): zero ML detectors
+    # AND judge disabled. Operators may opt into sanitize-only mode via
+    # BULWARK_ALLOW_NO_DETECTORS=1. This runs BEFORE the sanitizer so we
+    # don't waste work on a request we're about to refuse.
+    judge_enabled = False
+    try:
+        judge_enabled = bool(config.judge_backend.enabled)
+    except AttributeError:
+        pass
+    has_any_detector = bool(_detection_checks) or judge_enabled
+    degraded_explicit_opt_in = _allow_no_detectors()
+    if not has_any_detector:
+        if not degraded_explicit_opt_in:
+            logger.warning(
+                "/v1/clean refused: no detectors loaded and "
+                "BULWARK_ALLOW_NO_DETECTORS is unset (ADR-040). source=%s",
+                source,
+            )
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": {
+                        "code": "no_detectors_loaded",
+                        "message": (
+                            "Bulwark has zero ML detectors loaded and the LLM "
+                            "judge is disabled. /v1/clean refuses to serve "
+                            "sanitize-only output by default. Set "
+                            "BULWARK_ALLOW_NO_DETECTORS=1 to opt in (see ADR-040)."
+                        ),
+                    },
+                },
+            )
+        # Opt-in path: log every request so the operator's log volume reflects
+        # the reduced-defense state. NG-CLEAN-DETECTOR-REQUIRED-001.
+        logger.warning(
+            "/v1/clean serving in degraded-explicit mode "
+            "(BULWARK_ALLOW_NO_DETECTORS=1, no detectors loaded, judge disabled). "
+            "source=%s bulwark.degraded_explicit=1",
+            source,
+        )
 
     sanitizer = Sanitizer(
         normalize_unicode=config.normalize_unicode,
@@ -325,6 +387,9 @@ async def api_clean(req: CleanRequest):
         modified=modified,
         trace=trace,
         detector=detector_verdict,
+        # ADR-040 / NG-CLEAN-DETECTOR-REQUIRED-001: mark sanitize-only opt-in
+        # responses so callers can detect they're in reduced-defense mode.
+        mode="degraded-explicit" if (not has_any_detector and degraded_explicit_opt_in) else None,
     )
 
 

@@ -50,6 +50,9 @@ class TestAuthEnabled:
 
     def test_v1_clean_public(self, monkeypatch):
         """G-AUTH-002: /v1/clean works without auth."""
+        # ADR-040: sanitize-only opt-in so the auth-public test isn't
+        # blocked by the no-detectors guard.
+        monkeypatch.setenv("BULWARK_ALLOW_NO_DETECTORS", "1")
         import bulwark.dashboard.app as app_mod
         from bulwark.dashboard.config import BulwarkConfig
         old = app_mod.config

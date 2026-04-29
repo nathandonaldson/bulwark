@@ -17,6 +17,12 @@ def _get_client():
 
 
 class TestLayerStatus:
+    @pytest.fixture(autouse=True)
+    def _opt_in_no_detectors(self, monkeypatch):
+        # ADR-040: these layer-toggle tests run sanitize-only deployments
+        # by design; opt into the no-detectors path.
+        monkeypatch.setenv("BULWARK_ALLOW_NO_DETECTORS", "1")
+
     def test_config_reflects_toggle_state(self):
         """G-DASH-LAYERS-001: Config endpoint returns toggle states for layer cards."""
         import bulwark.dashboard.app as app_mod

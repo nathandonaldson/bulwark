@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.4.2] - 2026-04-29
+
+### Security (Phase A of Codex efficacy hardening — see ADR-040)
+
+- **`/v1/clean` now fails closed when no detectors are loaded.** ADR-038 made the silent-demote-to-sanitize-only state visible at `/healthz`, but `/v1/clean` still returned `200 OK` with sanitize-only output. A default `BulwarkConfig()` boots with zero detectors and judge disabled — the published Docker image fit this profile until an integration was activated, and the visible signal on the only endpoint clients hit was "all healthy." Now `/v1/clean` returns `HTTP 503` with `{"error": {"code": "no_detectors_loaded", "message": "..."}}` when the predicate `len(_detection_checks) == 0 AND not judge_backend.enabled` holds. Same predicate `/healthz` already uses, so the two endpoints agree on what "detection chain present" means. New `BULWARK_ALLOW_NO_DETECTORS=1` env opt-in for operators who deliberately want sanitize-only traffic (corpus jobs, integration test rigs); opt-in responses gain `"mode": "degraded-explicit"` and emit a per-request WARNING log so the reduced-defense state is loud. New G-CLEAN-DETECTOR-REQUIRED-001, NG-CLEAN-DETECTOR-REQUIRED-001, G-HTTP-CLEAN-503-NO-DETECTORS-001.
+
+911 tests pass (was 903; 8 new tests covering the fail-closed path, opt-in handling, and falsy-value rejection).
+
 ## [2.4.1] - 2026-04-29
 
 ### Hardening (PR-B from `/codex challenge` follow-up — see ADR-039)
