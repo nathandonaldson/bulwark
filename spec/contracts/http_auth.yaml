@@ -29,12 +29,23 @@ guarantees:
       BULWARK_API_TOKEN and authenticate. See ADR-029.
   - id: G-AUTH-008
     summary: >
-      /v1/clean leaves the always-public allowlist when BULWARK_API_TOKEN
-      is set AND the LLM judge is enabled (judge_backend.enabled=true).
-      In that state it requires Bearer or cookie auth like any other
-      protected endpoint. Sanitize-only and judge-disabled deployments
-      keep the open default. Unauth invocation that burns operator judge
-      quota is cost-abuse. See ADR-030 / ADR-037.
+      Historical: /v1/clean was previously gated only when the LLM judge
+      was enabled AND BULWARK_API_TOKEN was set. Superseded by
+      G-AUTH-CLEAN-001 — the predicate now keys on token presence alone
+      (plus the ADR-029 loopback exception). The judge-quota-burn
+      motivation is subsumed by the broader "token set means auth
+      required" rule. See ADR-041.
+  - id: G-AUTH-CLEAN-001
+    summary: >
+      When BULWARK_API_TOKEN is set, /v1/clean from a non-loopback
+      client MUST require the token (Bearer header or cookie),
+      regardless of LLM judge state. Loopback clients (127.0.0.0/8,
+      ::1, TestClient sentinel) bypass per ADR-029 to preserve the
+      localhost dev experience. When no token is set, /v1/clean
+      remains on the public allowlist for all callers. Closes the
+      Codex efficacy-review finding that judge-disabled deployments
+      were exposed for unauthenticated content submission and
+      detector burn. See ADR-041.
 
 non_guarantees:
   - id: NG-AUTH-001

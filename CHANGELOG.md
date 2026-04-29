@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.4.4] - 2026-04-29
+
+### Security (Codex efficacy hardening Phase B — see ADR-041)
+
+- **`/v1/clean` auth decoupled from LLM judge state.** Until v2.4.3 the middleware only required Bearer auth on `/v1/clean` when `BULWARK_API_TOKEN` was set **and** `judge_backend.enabled=True`. Sanitize-only deployments with a token configured were exposed for unauthenticated content submission and detector burn from any non-loopback caller — an attacker could pin DeBERTa / PromptGuard workers, spam the operator's event log, and (depending on logging) post arbitrary text into the operator's telemetry without authenticating. Auth predicate now keys on token presence + non-loopback origin alone, regardless of judge state. Loopback callers (127.0.0.0/8, ::1, TestClient) still bypass per ADR-029 to preserve the localhost dev experience. New guarantee `G-AUTH-CLEAN-001`; `G-AUTH-008` retained as a historical pointer to the prior judge-coupled rule it supersedes. OpenAPI spec now documents 401 on `/v1/clean`.
+- **`_is_llm_configured()` helper removed.** After the auth-predicate change, the helper had zero production callers — `healthz()` and the pipeline path read `config.judge_backend.enabled` directly. The only remaining caller was a tautological test that existed solely to prove the helper still wrapped its attribute. Helper and test both deleted.
+- **ADR-041 names the loopback asymmetry explicitly.** ADR-029 grants loopback bypass *only when no token is set*; ADR-041 effectively extends loopback bypass to `/v1/clean` *even when a token is set*, making `/v1/clean` uniquely permissive among token-gated routes. New §"Loopback asymmetry vs other token-gated routes" subsection names the asymmetry plainly, explains why `/v1/clean` is treated specially (sanitize-as-a-library local use), and surfaces the deferred `require_token_for_clean: bool` config knob explicitly so a future contributor reaches for the flag rather than re-deriving the rule.
+
+905 tests pass (was 911; one tautological test removed plus the auth coverage churn).
+
+
 ## [2.4.3] - 2026-04-29
 
 ### Refactor (Phase A follow-up — see ADR-040)

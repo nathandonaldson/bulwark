@@ -106,6 +106,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CleanResponse"
+        "401":
+          description: |
+            Auth required but not supplied. Returned when BULWARK_API_TOKEN
+            is set and the request comes from a non-loopback client without
+            a valid Bearer header or session cookie. Loopback clients
+            (127.0.0.0/8, ::1) bypass this check by ADR-029. Independent
+            of LLM judge state. See G-AUTH-CLEAN-001 / ADR-041.
         "422":
           description: Injection detected or validation error. Content blocked.
         "503":

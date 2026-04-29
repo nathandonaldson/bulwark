@@ -319,8 +319,12 @@ class TestV1CleanAuthOnJudgeEnabled:
         app_mod.config = cfg
         return app_mod, saved
 
-    def test_judge_disabled_with_token_set_clean_stays_public(self, monkeypatch):
-        """Sanitize-only deployments keep /v1/clean open even with token set."""
+    def test_judge_disabled_with_token_set_loopback_bypasses(self, monkeypatch):
+        """G-AUTH-CLEAN-001 + ADR-029: loopback callers bypass token even with
+        token set, regardless of judge state. ADR-041 rationale: judge state
+        and token-required state are now orthogonal; only the loopback
+        exception keeps localhost dev-mode working.
+        """
         monkeypatch.setenv("BULWARK_API_TOKEN", "ops-secret")
         app_mod, saved = self._swap_config(judge_enabled=False)
         try:
@@ -331,7 +335,8 @@ class TestV1CleanAuthOnJudgeEnabled:
             app_mod.config = saved
 
     def test_judge_enabled_no_token_clean_stays_public(self, monkeypatch):
-        """No token means no auth wall — judge alone doesn't trigger auth."""
+        """G-AUTH-CLEAN-001: no token means no auth wall — judge alone never
+        triggers auth on its own."""
         monkeypatch.delenv("BULWARK_API_TOKEN", raising=False)
         app_mod, saved = self._swap_config(judge_enabled=True)
         try:
@@ -341,15 +346,20 @@ class TestV1CleanAuthOnJudgeEnabled:
         finally:
             app_mod.config = saved
 
-    def test_judge_enabled_with_token_clean_requires_auth(self, monkeypatch):
-        """G-AUTH-008: judge + token together flip /v1/clean off the public list."""
+    def test_judge_enabled_with_token_remote_requires_auth(self, monkeypatch):
+        """G-AUTH-CLEAN-001 / ADR-041: judge + token + non-loopback caller
+        forces auth. Same outcome as judge-disabled remote — judge state is
+        no longer part of the predicate.
+        """
         monkeypatch.setenv("BULWARK_API_TOKEN", "ops-secret")
+        import bulwark.dashboard.app as app_mod_inner
+        monkeypatch.setattr(app_mod_inner, "_is_loopback_client", lambda req: False)
         app_mod, saved = self._swap_config(judge_enabled=True)
         try:
             client = _get_client()
             resp = client.post("/v1/clean", json={"content": "hello", "source": "test"})
             assert resp.status_code == 401, \
-                "judge+token must force auth on /v1/clean to prevent quota burn"
+                "token + remote caller must force auth on /v1/clean"
         finally:
             app_mod.config = saved
 
@@ -373,23 +383,95 @@ class TestV1CleanAuthOnJudgeEnabled:
         finally:
             app_mod.config = saved
 
-    def test_is_llm_configured_reflects_judge_state(self, monkeypatch):
-        """ADR-037: _is_llm_configured() returns config.judge_backend.enabled."""
-        import bulwark.dashboard.app as app_mod
-        app_mod_, saved = self._swap_config(judge_enabled=False)
-        try:
-            assert app_mod.config.judge_backend.enabled is False
-            assert app_mod._is_llm_configured() is False
-        finally:
-            app_mod_.config = saved
-        app_mod_, saved = self._swap_config(judge_enabled=True)
-        try:
-            assert app_mod._is_llm_configured() is True
-        finally:
-            app_mod_.config = saved
-
     def test_healthz_and_guard_stay_public(self, monkeypatch):
         monkeypatch.setenv("BULWARK_API_TOKEN", "ops-secret")
         client = _get_client()
         assert client.get("/healthz").status_code == 200
         assert client.post("/v1/guard", json={"text": "hi"}).status_code == 200
+
+
+class TestV1CleanAuthRegardlessOfJudge:
+    """G-AUTH-CLEAN-001 / ADR-041: /v1/clean auth is gated on token presence
+    alone (plus the ADR-029 loopback exception), not on whether the LLM judge
+    is enabled. Closes the Codex review finding that judge-disabled
+    deployments could be hit unauthenticated for quota abuse / unauthenticated
+    content submission whenever the operator hadn't enabled the judge.
+    """
+
+    def _swap_config(self, *, judge_enabled: bool):
+        import bulwark.dashboard.app as app_mod
+        from bulwark.dashboard.config import BulwarkConfig, JudgeBackendConfig
+        saved = app_mod.config
+        cfg = BulwarkConfig()
+        if judge_enabled:
+            cfg.judge_backend = JudgeBackendConfig(
+                enabled=True, base_url="http://x/v1", model="m",
+                threshold=0.85, fail_open=True,
+            )
+        app_mod.config = cfg
+        return app_mod, saved
+
+    def test_clean_requires_token_when_judge_disabled(self, monkeypatch):
+        """G-AUTH-CLEAN-001: token set + judge disabled + non-loopback → 401.
+
+        Pre-ADR-041 this returned 200 because the auth predicate
+        AND-conjoined judge_enabled. Now token presence is the trigger.
+        """
+        monkeypatch.setenv("BULWARK_API_TOKEN", "ops-secret")
+        import bulwark.dashboard.app as app_mod_inner
+        monkeypatch.setattr(app_mod_inner, "_is_loopback_client", lambda req: False)
+        app_mod, saved = self._swap_config(judge_enabled=False)
+        try:
+            client = _get_client()
+            resp = client.post(
+                "/v1/clean", json={"content": "hello", "source": "test"}
+            )
+            assert resp.status_code == 401, (
+                "token set + judge disabled + remote caller must force auth "
+                "on /v1/clean (ADR-041)"
+            )
+        finally:
+            app_mod.config = saved
+
+    def test_clean_loopback_still_works_without_token_when_judge_disabled(
+        self, monkeypatch
+    ):
+        """G-AUTH-CLEAN-001 + ADR-029: token set + judge disabled + loopback
+        → bypass auth. The ADR-029 loopback exception is preserved exactly:
+        operators running locally don't need to set Bearer headers.
+        """
+        monkeypatch.setenv("BULWARK_API_TOKEN", "ops-secret")
+        # No monkeypatch of _is_loopback_client — TestClient counts as loopback.
+        app_mod, saved = self._swap_config(judge_enabled=False)
+        try:
+            client = _get_client()
+            resp = client.post(
+                "/v1/clean", json={"content": "hello", "source": "test"}
+            )
+            assert resp.status_code not in (401, 403), (
+                "loopback caller must bypass token check per ADR-029"
+            )
+        finally:
+            app_mod.config = saved
+
+    def test_clean_no_token_remains_public(self, monkeypatch):
+        """G-AUTH-CLEAN-001: no token + judge disabled + non-loopback → not 401.
+
+        With no operator token configured, /v1/clean stays on the public
+        allowlist for any caller. The new auth predicate keys on token
+        presence, not judge state, so this branch is unchanged from main.
+        """
+        monkeypatch.delenv("BULWARK_API_TOKEN", raising=False)
+        import bulwark.dashboard.app as app_mod_inner
+        monkeypatch.setattr(app_mod_inner, "_is_loopback_client", lambda req: False)
+        app_mod, saved = self._swap_config(judge_enabled=False)
+        try:
+            client = _get_client()
+            resp = client.post(
+                "/v1/clean", json={"content": "hello", "source": "test"}
+            )
+            assert resp.status_code != 401, (
+                "no token = public surface, regardless of judge or origin"
+            )
+        finally:
+            app_mod.config = saved
