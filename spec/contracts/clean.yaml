@@ -39,6 +39,22 @@ guarantees:
       The predicate matches /healthz's `degraded` definition (ADR-038) so
       both endpoints agree on what "detection chain present" means.
       See ADR-040.
+  - id: G-PIPELINE-PARITY-001
+    summary: >
+      A library `Pipeline.from_config(path)` constructed from the same
+      bulwark-config.yaml the dashboard uses MUST raise (or surface as
+      `PipelineResult.blocked`) for any input the dashboard's /v1/clean
+      blocks with HTTP 422. The library Pipeline reads
+      `integrations.protectai.enabled`, `integrations.promptguard.enabled`,
+      and `judge_backend.enabled` from the same config the dashboard reads,
+      composes a detector chain mirroring the dashboard's
+      `_detection_checks` + judge wire-up, and propagates
+      `SuspiciousPatternError` from any detector that flags. ADR-044 closes
+      the prior parity gap where the library got sanitizer + trust boundary
+      only — strictly weaker than the dashboard reading the same file.
+      Observability surface (/healthz, /api/integrations, EventDB) stays
+      dashboard-only; this guarantee is about defense parity, not
+      visibility parity.
 
 non_guarantees:
   - id: NG-CLEAN-001

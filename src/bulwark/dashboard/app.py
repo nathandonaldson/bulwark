@@ -385,10 +385,17 @@ async def pipeline_status():
 
     try:
         pipeline = Pipeline.from_config(str(Path(__file__).parent.parent / "bulwark-config.yaml"))
+        # ADR-044: Pipeline.detectors is now a chain (list of callables)
+        # instead of a single optional detector. Surface the count so the
+        # dashboard UI can show "3 detectors" / "0 detectors loaded" rather
+        # than a stale boolean. The legacy `detector: bool` field shipped
+        # in v2.5.0 has been removed — no JSX/test consumer read it (audit
+        # 2026-04-29) so dropping it is folded into the same MINOR bump's
+        # breaking changes rather than deferred to a deprecation window.
         return {
             "sanitizer": pipeline.sanitizer is not None,
             "trust_boundary": pipeline.trust_boundary is not None,
-            "detector": pipeline.detector is not None,
+            "detectors_loaded": len(pipeline.detectors),
         }
     except Exception:
         return {"error": "Failed to load pipeline configuration", "using_defaults": True}
