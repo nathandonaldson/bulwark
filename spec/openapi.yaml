@@ -113,6 +113,13 @@ paths:
             a valid Bearer header or session cookie. Loopback clients
             (127.0.0.0/8, ::1) bypass this check by ADR-029. Independent
             of LLM judge state. See G-AUTH-CLEAN-001 / ADR-041.
+        "413":
+          description: |
+            Request `content` exceeds the configured byte cap when UTF-8
+            encoded (default 262144 bytes; tunable via
+            `BULWARK_MAX_CONTENT_SIZE`). Body shape:
+            `{"error": {"code": "content_too_large", "message": "..."}}`.
+            See G-HTTP-CLEAN-CONTENT-BYTES-001 / ADR-042.
         "422":
           description: Injection detected or validation error. Content blocked.
         "503":
@@ -162,6 +169,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GuardResponse"
+        "413":
+          description: |
+            Request `text` exceeds the configured byte cap when UTF-8
+            encoded (default 262144 bytes; tunable via
+            `BULWARK_MAX_CONTENT_SIZE`). Body shape:
+            `{"error": {"code": "content_too_large", "message": "..."}}`.
+            See G-HTTP-GUARD-CONTENT-BYTES-001 / ADR-042.
         "422":
           description: Validation error (missing required fields, wrong types)
 
@@ -463,7 +477,13 @@ components:
       properties:
         content:
           type: string
-          description: Untrusted text to sanitize and wrap in trust boundary tags.
+          description: |
+            Untrusted text to sanitize and wrap in trust boundary tags.
+            Server enforces a UTF-8 *byte* cap (default 262144 bytes / 256
+            KiB; override with `BULWARK_MAX_CONTENT_SIZE`). Requests over
+            the cap are rejected with HTTP 413 and
+            `{"error": {"code": "content_too_large", ...}}`. ADR-042 /
+            G-HTTP-CLEAN-CONTENT-BYTES-001.
         source:
           type: string
           default: external
@@ -545,7 +565,13 @@ components:
       properties:
         text:
           type: string
-          description: LLM output to check for injection patterns and canary token leaks.
+          description: |
+            LLM output to check for injection patterns and canary token leaks.
+            Server enforces the same UTF-8 *byte* cap as `/v1/clean` (default
+            262144 bytes / 256 KiB; override with `BULWARK_MAX_CONTENT_SIZE`).
+            Requests over the cap are rejected with HTTP 413 and
+            `{"error": {"code": "content_too_large", ...}}`. ADR-042 /
+            G-HTTP-GUARD-CONTENT-BYTES-001.
         canary_tokens:
           type: object
           nullable: true

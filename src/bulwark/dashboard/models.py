@@ -11,7 +11,15 @@ from __future__ import annotations
 import os
 from typing import Annotated, Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+# ADR-042 / G-HTTP-CLEAN-CONTENT-BYTES-001: sentinel string the
+# RequestValidationError handler in app.py looks for when mapping a
+# Pydantic ValueError into HTTP 413. Kept in one place so the model and
+# the handler agree without importing app.py from models.py (which would
+# create a cycle).
+CONTENT_BYTE_LIMIT_SENTINEL = "content_exceeds_byte_limit"
 
 
 # G-HTTP-GUARD-009 / ADR-030: per-entry caps for user-supplied canary tokens.
@@ -35,15 +43,19 @@ def _default_max_content_size() -> int:
         return 262144
 
 
-_MAX_CONTENT_SIZE = _default_max_content_size()
+MAX_CONTENT_SIZE = _default_max_content_size()
 
 
 class CleanRequest(BaseModel):
     """Request body for POST /v1/clean."""
     content: str = Field(
         ...,
-        max_length=_MAX_CONTENT_SIZE,
-        description="Untrusted text to process through the defense stack.",
+        description=(
+            "Untrusted text to process through the defense stack. "
+            "Server enforces a UTF-8 byte cap (default 262144 bytes; see "
+            "BULWARK_MAX_CONTENT_SIZE). Over-cap requests get HTTP 413 "
+            "content_too_large. ADR-042 / G-HTTP-CLEAN-CONTENT-BYTES-001."
+        ),
     )
     source: str = Field(
         default="external",
@@ -62,6 +74,20 @@ class CleanRequest(BaseModel):
         default="xml",
         description='Trust boundary format. "xml" (default), "markdown", or "delimiter".',
     )
+
+    @field_validator("content")
+    @classmethod
+    def _content_byte_limit(cls, v: str) -> str:
+        """ADR-042 / G-HTTP-CLEAN-CONTENT-BYTES-001: enforce the cap on
+        UTF-8 *bytes*, not Python characters. Pydantic's ``max_length``
+        measures ``len(str)`` and so a 4-byte-per-char UTF-8 payload
+        could exceed ``MAX_CONTENT_SIZE`` bytes by up to 4x. The
+        ``RequestValidationError`` handler in ``dashboard.app`` maps
+        this sentinel-tagged ValueError into HTTP 413.
+        """
+        if len(v.encode("utf-8")) > MAX_CONTENT_SIZE:
+            raise ValueError(CONTENT_BYTE_LIMIT_SENTINEL)
+        return v
 
 
 class CleanResponse(BaseModel):
@@ -97,14 +123,25 @@ class GuardRequest(BaseModel):
     """Request body for POST /v1/guard."""
     text: str = Field(
         ...,
-        max_length=_MAX_CONTENT_SIZE,
-        description="LLM output to check for injection patterns and canary leaks.",
+        description=(
+            "LLM output to check for injection patterns and canary leaks. "
+            "Server enforces the same UTF-8 byte cap as /v1/clean "
+            "(ADR-042). Over-cap requests get HTTP 413 content_too_large."
+        ),
     )
     canary_tokens: Optional[dict[_CanarySourceName, _CanaryTokenValue]] = Field(
         default=None,
         max_length=64,
         description="Optional map of source_name to canary token. If null, server-configured canaries are used.",
     )
+
+    @field_validator("text")
+    @classmethod
+    def _text_byte_limit(cls, v: str) -> str:
+        """ADR-042: byte-cap parity with CleanRequest.content."""
+        if len(v.encode("utf-8")) > MAX_CONTENT_SIZE:
+            raise ValueError(CONTENT_BYTE_LIMIT_SENTINEL)
+        return v
 
 
 class GuardResponse(BaseModel):

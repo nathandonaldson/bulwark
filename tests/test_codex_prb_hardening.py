@@ -108,7 +108,7 @@ class TestBodySizeCap:
         # We allow either: matches default OR matches whatever env set.
         import os
         expected = int(os.environ.get("BULWARK_MAX_CONTENT_SIZE", "262144"))
-        assert models._MAX_CONTENT_SIZE == expected
+        assert models.MAX_CONTENT_SIZE == expected
 
     def test_env_override_function_returns_default_on_garbage(self):
         from bulwark.dashboard.models import _default_max_content_size

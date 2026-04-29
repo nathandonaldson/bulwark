@@ -43,6 +43,16 @@ guarantees:
       previous 1 MB default was a defense-in-depth gap — even
       authenticated callers could pin a worker on tokenization or judge
       round-trip. The same cap applies to /v1/guard text. ADR-038 / B2.
+  - id: G-HTTP-CLEAN-CONTENT-BYTES-001
+    summary: >
+      The body cap is enforced as UTF-8 *bytes*, not Python characters.
+      Any /v1/clean request whose content field exceeds 262144 bytes
+      (or BULWARK_MAX_CONTENT_SIZE if set) when UTF-8 encoded MUST be
+      rejected with HTTP 413 and a JSON body of the form
+      {"error": {"code": "content_too_large", "message": "..."}}.
+      Pydantic's max_length measured Python characters, so 4-byte
+      UTF-8 payloads (e.g. mathematical alphanumerics, certain emoji)
+      could bypass the documented byte cap by up to 4x. ADR-042.
   - id: G-HTTP-CLEAN-008
     summary: Respects dashboard layer toggles (sanitizer, trust boundary)
   - id: G-HTTP-CLEAN-009
