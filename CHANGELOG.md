@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.4.7] - 2026-04-29
+
+### CI / docs
+
+- **Fix Docker smoke test for v2.4.3+ semantics.** ADR-038 (v2.4.0) made `/healthz` report `status=degraded` when no detectors are loaded; ADR-040 (v2.4.3) made `/v1/clean` fail closed (HTTP 503) in the same state. The CI smoke test runs the bare image with no model weights, so both endpoints now require operators to opt into the degraded-explicit posture. Pass `BULWARK_ALLOW_SANITIZE_ONLY=1` and `BULWARK_ALLOW_NO_DETECTORS=1` to the smoke test container so `/healthz` reports `ok` (with `mode: degraded-explicit`) and `/v1/clean` returns sanitized output. Pre-existing breakage (`build` was already red on PR #34); this catches the smoke test up to the architectural reality.
+- **Commit the Codex efficacy hardening plan** (`docs/superpowers/plans/2026-04-29-codex-efficacy-hardening.md`) — the planning artifact behind PRs #35–#38 (Phases A–D) and the upcoming E–H. WSJF-ranked phase breakdown so future contributors can trace why each ADR shipped.
+
+
 ## [2.4.6] - 2026-04-29
 
 ### Security (Codex efficacy hardening Phase C — see ADR-042)
