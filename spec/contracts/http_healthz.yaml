@@ -1,15 +1,48 @@
 endpoint: GET /healthz
-version: "0.5.0"
+version: "0.6.0"
 
 guarantees:
   - id: G-HTTP-HEALTHZ-001
-    summary: Returns 200 with status "ok"
+    summary: Returns 200 with status "ok" or "degraded"
   - id: G-HTTP-HEALTHZ-002
     summary: Response includes version field matching VERSION file
   - id: G-HTTP-HEALTHZ-003
     summary: Response includes docker boolean (true inside container, false outside)
+  - id: G-HTTP-HEALTHZ-004
+    summary: >
+      Response includes detectors.loaded (list of names) and
+      detectors.failed (map of name → first 200 chars of the load
+      exception). Both fields are always present; either may be empty.
+      Operators can read this to know which models loaded and which
+      did not, without scraping startup logs. See ADR-038.
+  - id: G-HTTP-HEALTHZ-005
+    summary: >
+      status is "degraded" when zero detectors are loaded AND the
+      judge is disabled AND BULWARK_ALLOW_SANITIZE_ONLY is unset.
+      In that state the response also includes a `reason` field
+      ("no_detectors_loaded"). status is "ok" otherwise — including
+      judge-only deployments and explicitly-opted-in sanitize-only
+      deployments. See ADR-038.
+  - id: G-HTTP-HEALTHZ-006
+    summary: >
+      Setting BULWARK_ALLOW_SANITIZE_ONLY=1 suppresses the degraded
+      status when zero detectors are loaded. The detectors.loaded /
+      detectors.failed fields still report state. This opt-out is for
+      deployments that intentionally run without ML detection (corpus
+      sanitization batch jobs, test rigs). See ADR-038.
 
 non_guarantees:
   - id: NG-HTTP-HEALTHZ-001
     summary: Does NOT check database connectivity or readiness
-    reason: This is a liveness probe only, not a readiness probe
+    reason: This is a liveness probe only, not a readiness probe.
+  - id: NG-HTTP-HEALTHZ-002
+    summary: >
+      Does NOT distinguish "model still loading" from "model failed
+      to load." A detector either appears in detectors.loaded once
+      ready or in detectors.failed if it raised. There is no
+      "loading" intermediate state — load happens synchronously
+      during the FastAPI startup hook before /healthz starts serving.
+    reason: >
+      Adding a "loading" state would require an async readiness
+      probe; for v2.4.0 we keep /healthz as a strict liveness probe
+      with the load result captured at boot time.

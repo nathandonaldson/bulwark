@@ -10,9 +10,16 @@ guarantees:
   - id: G-JUDGE-002
     summary: >
       The judge prompt is fixed in code. Bulwark sends the sanitized input
-      wrapped in <input>...</input> markers and a system prompt instructing
-      the model to return a single-line JSON object {"verdict": SAFE|INJECTION,
-      "confidence": 0..1}. The user cannot edit the classifier prompt.
+      wrapped in PER-REQUEST nonce-delimited markers
+      ([INPUT_<nonce>_START] ... [INPUT_<nonce>_END], where <nonce> is
+      a 16-byte hex random value generated for each request) and a
+      system prompt instructing the model to return a single-line JSON
+      object {"verdict": SAFE|INJECTION, "confidence": 0..1}. The user
+      cannot edit the classifier prompt. The nonce ensures that a payload
+      containing literal close-tag text (e.g., `</input>`) cannot escape
+      the input markers and inject a fake verdict response. ADR-037
+      closed a regression where static markers allowed close-tag
+      injection.
   - id: G-JUDGE-003
     summary: >
       The judge response is parsed for verdict + confidence. INJECTION with

@@ -108,7 +108,15 @@ class FalseposRunner:
             self._event({"type": "restore_error", "what": "judge", "error": str(exc)})
 
     def _run_one_email(self, email: CorpusEmail) -> dict[str, Any]:
-        """Send one email through /v1/clean. Returns result + verdict shape."""
+        """Send one email through /v1/clean. Returns result + verdict shape.
+
+        ADR-038: classifies the response into one of:
+          - blocked=True (status 422, false positive)
+          - blocked=False, error=None (status 200, clean pass)
+          - blocked=False, error="..." (anything else: timeout, 401, 5xx,
+            non-JSON 200, network failure)
+        Errored requests are excluded from the false-positive rate denominator.
+        """
         import httpx
         url = f"{self.client.base_url}/v1/clean"
         body = {"content": email.text, "source": "falsepos"}
@@ -123,22 +131,42 @@ class FalseposRunner:
                 "id": email.id, "category": email.category,
                 "blocked": False, "error": str(exc)[:200],
             }
-        blocked = resp.status_code == 422
-        layer = None
-        reason = None
-        if blocked:
+        if resp.status_code == 422:
             try:
                 payload = resp.json()
                 layer = payload.get("blocked_at")
                 reason = payload.get("block_reason", "")[:200]
             except Exception:
+                layer = None
                 reason = resp.text[:200]
+            return {
+                "id": email.id,
+                "category": email.category,
+                "blocked": True,
+                "blocking_layer": layer,
+                "blocking_reason": reason,
+            }
+        if resp.status_code == 200:
+            try:
+                resp.json()
+            except Exception:
+                return {
+                    "id": email.id, "category": email.category,
+                    "blocked": False,
+                    "error": "200 OK with non-JSON body",
+                }
+            return {
+                "id": email.id,
+                "category": email.category,
+                "blocked": False,
+                "blocking_layer": None,
+                "blocking_reason": None,
+            }
+        # Any other status code is an error: 401, 403, 5xx, etc.
         return {
-            "id": email.id,
-            "category": email.category,
-            "blocked": blocked,
-            "blocking_layer": layer,
-            "blocking_reason": reason,
+            "id": email.id, "category": email.category,
+            "blocked": False,
+            "error": f"HTTP {resp.status_code}: {resp.text[:160]}",
         }
 
     def _run_one_config(self, index: int, cfg: DetectorConfig) -> dict[str, Any]:
@@ -170,13 +198,20 @@ class FalseposRunner:
         total_seconds = time.time() - t0
 
         blocked = [r for r in per_email if r.get("blocked")]
+        errored = [r for r in per_email if r.get("error")]
+        # ADR-038: rate computed over CLEAN responses only (blocked + clean
+        # passes), excluding errored requests. An errored request is no signal
+        # about whether the detector chain works.
+        scored_count = len(self.corpus) - len(errored)
         by_category: dict[str, dict[str, int]] = {}
         for r in per_email:
             cat = r.get("category", "unknown")
-            slot = by_category.setdefault(cat, {"total": 0, "blocked": 0})
+            slot = by_category.setdefault(cat, {"total": 0, "blocked": 0, "errors": 0})
             slot["total"] += 1
             if r.get("blocked"):
                 slot["blocked"] += 1
+            elif r.get("error"):
+                slot["errors"] += 1
 
         payload: dict[str, Any] = {
             "config_slug": cfg.slug,
@@ -188,7 +223,9 @@ class FalseposRunner:
             },
             "corpus_size": len(self.corpus),
             "blocked": len(blocked),
-            "false_positive_rate": (len(blocked) / len(self.corpus)) if self.corpus else 0.0,
+            "errored_count": len(errored),
+            "scored_count": scored_count,
+            "false_positive_rate": (len(blocked) / scored_count) if scored_count else 0.0,
             "elapsed_seconds": total_seconds,
             "blocked_by_category": by_category,
             "blocked_emails": [
@@ -201,9 +238,7 @@ class FalseposRunner:
                 for r in blocked
             ],
         }
-        errored = [r for r in per_email if r.get("error")]
         if errored:
-            payload["errored_count"] = len(errored)
             payload["errored_ids"] = [r["id"] for r in errored][:25]
 
         self._event({"type": "config_complete", "config": cfg.slug, "result": payload})

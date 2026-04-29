@@ -195,13 +195,36 @@ config = BulwarkConfig.load()
 
 @app.get("/healthz")
 async def healthz():
-    """Liveness probe. Returns 200 with version info."""
-    return {
-        "status": "ok",
+    """Liveness probe with detector load state (ADR-038, G-HTTP-HEALTHZ-001..006).
+
+    status flips to "degraded" when zero detectors are loaded AND the LLM
+    judge is disabled AND BULWARK_ALLOW_SANITIZE_ONLY is unset. The
+    detectors.loaded / detectors.failed fields are always present so
+    operators can observe load state without scraping startup logs.
+    """
+    loaded = sorted(_detection_checks.keys())
+    failed = dict(_detector_failures)
+    judge_enabled = False
+    try:
+        judge_enabled = bool(config.judge_backend.enabled)
+    except AttributeError:
+        pass
+    sanitize_only_opt_in = os.environ.get("BULWARK_ALLOW_SANITIZE_ONLY", "").lower() in ("1", "true", "yes")
+    has_any_detector = bool(loaded) or judge_enabled
+    degraded = (not has_any_detector) and (not sanitize_only_opt_in)
+    payload = {
+        "status": "degraded" if degraded else "ok",
         "version": _read_version(),
         "docker": os.path.exists("/.dockerenv"),
         "auth_required": bool(get_api_token()),
+        "detectors": {
+            "loaded": loaded,
+            "failed": failed,
+        },
     }
+    if degraded:
+        payload["reason"] = "no_detectors_loaded"
+    return payload
 
 
 @app.post("/api/auth/login")
@@ -427,15 +450,19 @@ async def delete_canary(label: str):
 
 @app.get("/api/integrations")
 async def list_integrations():
-    """List available integrations with their status."""
+    """List available integrations with their status (ADR-038)."""
     result = {}
     for key, info in AVAILABLE_INTEGRATIONS.items():
         int_config = config.integrations.get(key, IntegrationConfig())
+        loaded = key in _detection_checks
+        load_error = _detector_failures.get(key)
         result[key] = {
             **info,
             "enabled": int_config.enabled,
             "installed": int_config.installed,
             "last_used": int_config.last_used,
+            "loaded": loaded,
+            "load_error": load_error,
         }
     return result
 
@@ -443,10 +470,18 @@ async def list_integrations():
 # Loaded detection models (kept in memory while dashboard runs)
 _detection_checks: dict[str, object] = {}
 
+# ADR-038: detectors that failed to load at startup, surfaced via /healthz
+# and /api/integrations. Maps detector name -> first 200 chars of exception.
+_detector_failures: dict[str, str] = {}
+
 
 @app.on_event("startup")
 async def _auto_load_detection_models():
-    """Auto-load detection models that were previously activated."""
+    """Auto-load detection models that were previously activated.
+
+    Records failures in _detector_failures so /healthz can report a
+    degraded status when no detector loaded (ADR-038).
+    """
     import concurrent.futures
     for name in ("protectai", "promptguard"):
         int_cfg = config.integrations.get(name)
@@ -457,8 +492,10 @@ async def _auto_load_detection_models():
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                     detector = await loop.run_in_executor(pool, lambda n=name: load_detector(n))
                 _detection_checks[name] = create_check(detector)
+                _detector_failures.pop(name, None)
                 print(f"  Auto-loaded detection model: {name}")
             except Exception as e:
+                _detector_failures[name] = f"{type(e).__name__}: {str(e)[:200]}"
                 print(f"  Failed to auto-load {name}: {e}")
 
 
@@ -495,6 +532,7 @@ async def activate_integration(name: str):
 
         check_fn = create_check(detector)
         _detection_checks[name] = check_fn
+        _detector_failures.pop(name, None)
 
         # Update config
         if name not in config.integrations:
@@ -510,13 +548,17 @@ async def activate_integration(name: str):
             "message": f"{model_label} loaded and registered as bridge check",
         }
     except ImportError as e:
-        return {"status": "error", "message": f"Missing dependency: {e}. Run: pip install transformers torch"}
+        msg = f"Missing dependency: {e}. Run: pip install transformers torch"
+        _detector_failures[name] = f"ImportError: {str(e)[:200]}"
+        return {"status": "error", "message": msg}
     except OSError as e:
         msg = str(e)
+        _detector_failures[name] = f"OSError: {msg[:200]}"
         if "gated" in msg.lower() or "awaiting" in msg.lower():
             return {"status": "error", "message": f"{model_label} requires HuggingFace approval. Check https://huggingface.co/meta-llama/Prompt-Guard-86M"}
         return {"status": "error", "message": f"Failed to load model: {msg[:200]}"}
     except Exception as e:
+        _detector_failures[name] = f"{type(e).__name__}: {str(e)[:200]}"
         return {"status": "error", "message": f"Unexpected error: {type(e).__name__}: {str(e)[:200]}"}
 
 
@@ -856,13 +898,18 @@ async def _run_falsepos_in_background():
                     headers=headers, timeout=60.0,
                 )
             except Exception as exc:
+                # Network failure / timeout — classify as error, NOT pass.
+                # ADR-038: errored requests are excluded from the defense-rate
+                # denominator; they're surfaced separately.
                 entry["error"] = str(exc)[:200]
+                entry["verdict"] = "error"
+                entry["defended"] = False
                 results.append(entry)
                 _redteam_result["completed"] = i
                 continue
 
             if resp.status_code == 422:
-                # False positive!
+                # False positive — request blocked content that was actually benign.
                 entry["defended"] = False
                 entry["verdict"] = "false_positive"
                 try:
@@ -871,31 +918,49 @@ async def _run_falsepos_in_background():
                     entry["llm_response"] = (body.get("block_reason") or "")[:300]
                 except Exception:
                     pass
-            else:
+            elif resp.status_code == 200:
+                # Clean pass.
                 try:
                     body = resp.json()
                     entry["sanitizer_modified"] = bool(body.get("modified"))
                 except Exception:
-                    pass
+                    # 200 with non-JSON is a server bug — count as error.
+                    entry["error"] = "200 OK with non-JSON body"
+                    entry["verdict"] = "error"
+                    entry["defended"] = False
+            else:
+                # Any other status (401, 403, 5xx, etc.) is an error condition.
+                # Counting these as "passed" inflates the defense rate falsely.
+                entry["error"] = f"HTTP {resp.status_code}: {resp.text[:160]}"
+                entry["verdict"] = "error"
+                entry["defended"] = False
             results.append(entry)
             _redteam_result["completed"] = i
 
         duration_s = time.time() - t0
         total = len(results)
         false_positives = sum(1 for r in results if r["verdict"] == "false_positive")
-        errored = sum(1 for r in results if r["error"])
-        defended = total - false_positives  # how many passed cleanly
-        fp_rate = (false_positives / total) if total else 0.0
+        errored = sum(1 for r in results if r["verdict"] == "error")
+        defended = sum(1 for r in results if r["verdict"] == "passed")
+        # Defense rate computed over CLEAN responses only — errored requests
+        # don't tell us whether the detector chain works correctly.
+        scored = defended + false_positives
+        fp_rate = (false_positives / scored) if scored else 0.0
 
         # Per-category breakdown (analogous to by_family for redteam).
+        # ADR-038: errored requests are tallied separately and excluded from
+        # the defended/vulnerable counts so per-category rates aren't inflated.
         by_family: dict[str, dict[str, int]] = {}
         for r in results:
             cat = r.get("probe_class") or "unknown"
             slot = by_family.setdefault(cat, {"total": 0, "defended": 0, "vulnerable": 0,
-                                              "hijacked": 0, "format_failures": 0})
+                                              "hijacked": 0, "format_failures": 0,
+                                              "errors": 0})
             slot["total"] += 1
             if r["verdict"] == "false_positive":
                 slot["vulnerable"] += 1
+            elif r["verdict"] == "error":
+                slot["errors"] += 1
             else:
                 slot["defended"] += 1
 

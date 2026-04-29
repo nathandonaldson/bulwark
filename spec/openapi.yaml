@@ -26,11 +26,14 @@ paths:
   /healthz:
     get:
       operationId: healthz
-      summary: Liveness probe
-      description: Returns 200 with version info. Used by Docker HEALTHCHECK and k8s probes.
+      summary: Liveness probe with detector load state
+      description: |
+        Returns 200 with status and detector load state. Status is "degraded"
+        when zero detectors loaded AND the LLM judge is disabled AND
+        BULWARK_ALLOW_SANITIZE_ONLY is unset. See ADR-038.
       responses:
         "200":
-          description: Service is healthy
+          description: Service is healthy or degraded (always 200; check status field)
           content:
             application/json:
               schema:
@@ -38,16 +41,35 @@ paths:
                 required:
                   - status
                   - version
+                  - detectors
                 properties:
                   status:
                     type: string
-                    enum: ["ok"]
+                    enum: ["ok", "degraded"]
+                  reason:
+                    type: string
+                    description: Present when status=="degraded". e.g. "no_detectors_loaded".
                   version:
                     type: string
                     description: Current Bulwark version from VERSION file.
                   docker:
                     type: boolean
                     description: True if running inside a Docker container.
+                  auth_required:
+                    type: boolean
+                    description: True if BULWARK_API_TOKEN is set.
+                  detectors:
+                    type: object
+                    description: Detection-chain load state captured at startup.
+                    properties:
+                      loaded:
+                        type: array
+                        items: { type: string }
+                        description: Names of detectors that loaded successfully.
+                      failed:
+                        type: object
+                        additionalProperties: { type: string }
+                        description: Map of detector name → first 200 chars of the load exception.
 
   /v1/clean:
     post:
@@ -56,13 +78,16 @@ paths:
       description: |
         The primary Bulwark endpoint. Pipeline:
           1. Sanitizer — strip bidi, emoji smuggling, unicode tricks.
-          2. DeBERTa classifier — HIGH-confidence injection → 422.
-          3. Trust boundary wrap — content returned in <untrusted_input>…</>.
+          2. DeBERTa / PromptGuard classifiers — HIGH-confidence injection → 422.
+          3. Optional LLM judge classifier (ADR-033) when judge_backend.enabled.
+          4. Trust boundary wrap — content returned in <untrusted_input>…</>.
 
         Returns 200 with the cleaned, wrapped content when safe. The caller
         feeds `result` into their own LLM.
 
-        Returns 422 when the classifier blocks. No LLM is invoked by Bulwark.
+        Returns 422 when any classifier blocks. The LLM judge is a classifier:
+        only its verdict + confidence + latency reach the response (NG-JUDGE-004).
+        Generative judge text never leaks to /v1/clean callers.
       requestBody:
         required: true
         content:

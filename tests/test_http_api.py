@@ -373,12 +373,12 @@ class TestCORSSecurity:
 
 class TestHealthzEndpoint:
     def test_returns_200_ok(self):
-        """G-HTTP-HEALTHZ-001: Returns 200 with status 'ok'."""
+        """G-HTTP-HEALTHZ-001: Returns 200 with status 'ok' or 'degraded' (ADR-038)."""
         client = _get_client()
         resp = client.get("/healthz")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["status"] == "ok"
+        assert data["status"] in ("ok", "degraded")
 
     def test_version_matches_version_file(self):
         """G-HTTP-HEALTHZ-002: Response includes version field matching VERSION file."""
