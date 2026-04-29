@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.5.1] - 2026-04-29
+
+### Tests / CI (Codex efficacy hardening Phase F — see ADR-045)
+
+- **End-to-end real-detector CI lane.** Until v2.5.0 the only HTTP-422 test in the dashboard suite injected a fake detector — nothing in CI proved a default deploy actually blocks known prompt injections, so a `_tokenize_windows` regression, a label-set drift, or a threshold flip in ProtectAI's release line could ship green. New `e2e-detectors` job in `.github/workflows/test.yml` runs `pytest -m e2e_slow` against real ProtectAI DeBERTa weights on Python 3.12 with the CPU-only torch wheel; HuggingFace cache keyed on both `src/bulwark/integrations/promptguard.py` (model-ID source of truth) and the workflow file, so a model bump rotates the cache atomically. Triggers: every PR/push to main, plus nightly cron at 07:00 UTC for cache-warmup observation, plus `workflow_dispatch` for manual reruns. Lane is non-required for at least one release cycle (per ADR-045 §Decision); the cron lets us observe cache-hit rate before flipping `required: true`.
+- **Five canonical injections + one benign control.** Stable cross-version: instruction override, role hijack, system impersonation, prompt extraction, DAN-style jailbreak. Plus a benign-passthrough control so a stuck-on detector that returns INJECTION on everything would still fail the lane. All under `@pytest.mark.e2e_slow`.
+- **Default suite stays fast.** `pyproject.toml` adds `markers = ["e2e_slow: ..."]` and `addopts = "-m 'not e2e_slow'"` so `pytest tests/` collects 0 e2e items. Direct-file invocation footgun (`pytest tests/test_e2e_real_detectors.py` silently deselects all tests) mitigated by a top-of-file usage block plus a narrowly-scoped `pytest_collection_finish` hook in `tests/conftest.py` that emits a yellow DX banner only when the e2e file is named directly with the default markexpr — silent on full suite or `-m e2e_slow`.
+- New guarantee `G-E2E-DETECTOR-CI-001` with four explicit non-guarantees (cross-version drift, defense-rate scope, wall-clock not load-bearing, English-only).
+
+943 tests pass (was 942; +1 from collection-hook test). 6 e2e tests deselected by default. e2e suite runs ~7s warm, ~60-120s cold-cache.
+
+
 ## [2.5.0] - 2026-04-29
 
 ### Feature (Codex efficacy hardening Phase E — see ADR-044)

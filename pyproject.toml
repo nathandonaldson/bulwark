@@ -52,3 +52,12 @@ bulwark-falsepos = "bulwark_falsepos.__main__:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# ADR-045 / G-E2E-DETECTOR-CI-001: the e2e_slow marker isolates the
+# real-detector lane (downloads ~700 MB of HuggingFace weights, ~30-60s
+# per invocation). The default `pytest tests/` invocation must stay fast
+# for local dev iteration, so addopts excludes the marker by default.
+# CI opts in explicitly with `pytest -m e2e_slow`.
+markers = [
+    "e2e_slow: end-to-end tests that load real ML detector weights (slow, CI-only)",
+]
+addopts = "-m 'not e2e_slow'"
