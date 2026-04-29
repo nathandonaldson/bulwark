@@ -3,7 +3,7 @@
 Covers:
   - G-SANITIZER-018, NG-SANITIZER-003 (encoding_resistant)
   - G-HTTP-CLEAN-011, G-HTTP-CLEAN-012 (trace observability + body cap)
-  - G-WEBHOOK-008 (hostname-resolving SSRF)
+  - G-WEBHOOK-008, NG-WEBHOOK-006 (hostname-resolving SSRF + TOCTOU NG)
   - G-REDTEAM-REPORTS-006 (locked snapshot)
 """
 from __future__ import annotations
@@ -47,12 +47,24 @@ class TestEncodingResistantSanitizer:
         assert "path" in result and "here" in result
 
     def test_two_pass_handles_nested_encoding(self):
-        """`&amp;lt;` → `&lt;` → `<` after two passes (ADR-039 / B1)."""
+        """`&amp;lt;` → `&lt;` → `<` after the fixed-point loop (ADR-039 / B1)."""
         from bulwark.sanitizer import Sanitizer
         s = Sanitizer(decode_encodings=True)
         result = s.clean("a &amp;lt;script&amp;gt;x&amp;lt;/script&amp;gt; b")
         assert "x" not in result or "script" not in result.lower()
         assert "a" in result and "b" in result
+
+    def test_triple_encoded_payload_decoded(self):
+        """G-SANITIZER-018: fixed-point loop catches mixed-mode triple encoding."""
+        from bulwark.sanitizer import Sanitizer
+        s = Sanitizer(decode_encodings=True)
+        # %2526lt%253B → %26lt%3B → &lt; → < (three rounds of decode)
+        attack = "before %2526lt%253Bscript%2526gt%253B alert(1) %2526lt%253B/script%2526gt%253B after"
+        result = s.clean(attack)
+        # After decode loop, the script tag is plain text and the script
+        # stripper removes it. "alert" must not survive.
+        assert "alert" not in result
+        assert "before" in result and "after" in result
 
     def test_disabled_by_default(self):
         """Default Sanitizer doesn't touch encoded payloads (backwards compat)."""
@@ -208,6 +220,27 @@ class TestHostnameSsrf:
         err = validate_external_url("http://10.0.0.1/")
         assert err is not None
 
+    def test_does_not_pin_ip_at_fire_time(self):
+        """NG-WEBHOOK-006: validation resolves the host but does NOT pass the
+        IP to the eventual httpx call. Documented as a residual TOCTOU window
+        bounded by _RESOLUTION_TTL. Operators in adversarial-DNS environments
+        should front the receiver with a known-IP reverse proxy.
+
+        This is a documentation-only test: it asserts the URL string is
+        passed through untouched, which is the surface that makes the
+        TOCTOU possible.
+        """
+        from bulwark.dashboard import url_validator
+        # The validator returns None or an error string. It does NOT return
+        # a rewritten URL with an embedded IP. That is the (intentional, but
+        # documented) limit captured by NG-WEBHOOK-006.
+        url_validator._RESOLUTION_CACHE.clear()
+        with patch("socket.getaddrinfo") as gai:
+            gai.return_value = [(socket.AF_INET, socket.SOCK_STREAM, 6, "",
+                                 ("1.1.1.1", 0))]
+            result = url_validator.validate_external_url("https://example.com/hook")
+        assert result is None  # accepted, but URL not pinned to the resolved IP
+
 
 # ---------------------------------------------------------------------------
 # B4 — locked status snapshot
@@ -326,6 +359,36 @@ class TestTraceObservability:
         assert result["max_score"] == 0.0
         assert result["top_label"] == "SAFE"
         assert result["n_windows"] == 1
+
+    def test_clean_response_detector_label_reflects_top_label(self):
+        """G-HTTP-CLEAN-007: detector.label is the model's actual top label,
+        not a hardcoded "SAFE". Reviewer caught this on PR-B; previously the
+        pass path returned {"label": "SAFE", ...} regardless of what
+        PromptGuard ("BENIGN") or other models reported.
+        """
+        try:
+            from fastapi.testclient import TestClient
+        except ImportError:
+            pytest.skip("FastAPI not installed")
+        import bulwark.dashboard.app as app_mod
+
+        # Stub a check function that mimics PromptGuard returning BENIGN.
+        def _benign_check(text):
+            return {"max_score": 0.0, "n_windows": 1, "top_label": "BENIGN"}
+
+        saved_checks = dict(app_mod._detection_checks)
+        try:
+            app_mod._detection_checks.clear()
+            app_mod._detection_checks["fakepg"] = _benign_check
+            client = TestClient(app_mod.app)
+            resp = client.post("/v1/clean", json={"content": "hello", "source": "t"})
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["detector"]["label"] == "BENIGN"
+            assert body["detector"]["score"] == 0.0
+        finally:
+            app_mod._detection_checks.clear()
+            app_mod._detection_checks.update(saved_checks)
 
     def test_check_returns_max_inj_score_when_below_threshold(self):
         """Below-threshold INJECTION still surfaces in max_score for observability."""

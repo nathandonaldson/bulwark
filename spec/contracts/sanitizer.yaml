@@ -98,12 +98,14 @@ guarantees:
     summary: >
       When decode_encodings=True, Sanitizer.clean() decodes HTML entities
       (`&lt;`, `&#60;`, named and numeric) and percent-encoding (`%3C`)
-      BEFORE the strip steps. Two passes catch one level of nested
-      encoding (`&amp;lt;` → `&lt;` → `<`). The dashboard wires this
-      from config.encoding_resistant; it is off by default in the
-      Sanitizer dataclass for backwards compatibility. ADR-038 / B1
-      closes a gap where encoded payloads slipped past the sanitizer
-      and reached the detector intact.
+      BEFORE the strip steps. The decode loop runs to a fixed point
+      (max 4 iterations) so nested encodings (`&amp;lt;` → `&lt;` → `<`,
+      `%2526lt%253B` → `%26lt%3B` → `&lt;` → `<`) all collapse before
+      the downstream strippers see them. The dashboard wires this from
+      config.encoding_resistant; it is off by default in the Sanitizer
+      dataclass for backwards compatibility. ADR-039 / B1 closes a gap
+      where encoded payloads slipped past the sanitizer and reached the
+      detector intact.
 
 non_guarantees:
   - id: NG-SANITIZER-001

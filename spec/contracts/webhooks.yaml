@@ -97,3 +97,18 @@ non_guarantees:
       returns 4xx/5xx or refuses connections gets a config-write
       success and silent fire-and-forget failures at emit time.
       Matches G-WEBHOOK-004's fire-and-forget contract.
+  - id: NG-WEBHOOK-006
+    summary: Does NOT pin the resolved IP at webhook fire time
+    reason: >
+      G-WEBHOOK-008 resolves the host and validates every IP it sees.
+      The actual httpx.post() call then performs ITS OWN DNS lookup
+      via the OS resolver — Bulwark does not pass the validated IP
+      through. An attacker who controls a DNS record and flips it from
+      a public IP (validation time) to a private IP (fire time) within
+      the 60s validation cache window can cause Bulwark to emit at a
+      private host. The window is bounded but real. Operators in
+      adversarial-DNS environments should front the webhook receiver
+      with a known-IP reverse proxy or set BULWARK_ALLOWED_HOSTS to
+      the proxy hostname so the resolve check is skipped explicitly.
+      Closing this fully requires IP-pinning the httpx transport,
+      which is a larger change deferred to a future ADR.
