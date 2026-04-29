@@ -146,30 +146,76 @@ def create_check(
                 out.extend(r[0] for r in results if r)
         return out
 
-    def check(analysis: str) -> None:
+    def check(analysis: str) -> dict:
+        """Run the detector on `analysis`.
+
+        Returns a result dict on pass with `max_score` (highest detector
+        score across windows whose label is in injection_labels — 0.0 if
+        no window classified as injection), `n_windows`, and `top_label`
+        (the highest-scoring window's label, regardless of class). Raises
+        SuspiciousPatternError on block, with the same fields attached
+        as exception attributes (B6 / ADR-038): max_score, n_windows,
+        window_index, label.
+
+        max_score is reported AS injection signal: 0.0 means "no window
+        called this injection". A high max_score means the detector
+        flagged the content but the score didn't cross the threshold.
+        Operators see "almost-blocked" cases without confusing them with
+        SAFE-class confidence scores.
+        """
         if not analysis:
-            return
+            return {"max_score": 0.0, "n_windows": 0, "top_label": None}
         if tokenizer is None:
             # Fallback path — no tokenizer exposed. Single call, accept the
             # pipeline's own truncation. Better than refusing to run at all.
             result = detector(analysis)
             if not result:
-                return
+                return {"max_score": 0.0, "n_windows": 1, "top_label": None}
             top = result[0]
-            if top["label"] in injection_labels and top["score"] >= threshold:
-                raise AnalysisSuspiciousError(
-                    f"Prompt injection detected ({top['score']:.3f}, {top['label']}) by {detector.model.name_or_path}"
+            score = float(top.get("score", 0.0) or 0.0)
+            label = top.get("label")
+            if label in injection_labels and score >= threshold:
+                err = AnalysisSuspiciousError(
+                    f"Prompt injection detected ({score:.3f}, {label}) by {detector.model.name_or_path}"
                 )
-            return
+                err.max_score = score
+                err.n_windows = 1
+                err.window_index = 1
+                err.label = label
+                raise err
+            inj_score = score if label in injection_labels else 0.0
+            return {"max_score": inj_score, "n_windows": 1, "top_label": label}
 
         chunks = _tokenize_windows(analysis, tokenizer, model_max)
         results = _classify(chunks)
-        for top in results:
-            if top["label"] in injection_labels and top["score"] >= threshold:
-                raise AnalysisSuspiciousError(
-                    f"Prompt injection detected ({top['score']:.3f}, {top['label']}) by {detector.model.name_or_path}"
-                    + (f" in window {results.index(top) + 1}/{len(results)}" if len(chunks) > 1 else "")
+        injection_scores = [
+            float(r.get("score", 0.0) or 0.0)
+            for r in results
+            if r.get("label") in injection_labels
+        ]
+        for i, top in enumerate(results):
+            score = float(top.get("score", 0.0) or 0.0)
+            label = top.get("label")
+            if label in injection_labels and score >= threshold:
+                err = AnalysisSuspiciousError(
+                    f"Prompt injection detected ({score:.3f}, {label}) by {detector.model.name_or_path}"
+                    + (f" in window {i + 1}/{len(results)}" if len(chunks) > 1 else "")
                 )
+                err.max_score = score
+                err.n_windows = len(chunks)
+                err.window_index = i + 1
+                err.label = label
+                raise err
+        # Pass path: max_score is the strongest INJECTION-class score (0.0 if
+        # no window flagged injection). top_label is the strongest result's
+        # label, useful for "the model was very confident SAFE" observability.
+        max_inj = max(injection_scores) if injection_scores else 0.0
+        if results:
+            best = max(results, key=lambda r: float(r.get("score", 0.0) or 0.0))
+            top_label = best.get("label")
+        else:
+            top_label = None
+        return {"max_score": max_inj, "n_windows": len(chunks), "top_label": top_label}
 
     return check
 

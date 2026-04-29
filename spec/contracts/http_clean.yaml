@@ -21,7 +21,28 @@ guarantees:
   - id: G-HTTP-CLEAN-006
     summary: DeBERTa classifier runs on sanitized content, not raw input
   - id: G-HTTP-CLEAN-007
-    summary: Response includes detector verdict (label + score) when the model is loaded
+    summary: >
+      Response includes detector verdict (label + score) when the model
+      is loaded. Score is the max detector score across windows
+      (rounded to 4 decimals); 0.0 when the detector reports no
+      injection-class label. ADR-038 / B6 closed a regression where
+      the score was always null on pass.
+  - id: G-HTTP-CLEAN-011
+    summary: >
+      Per-detector trace entries include max_score (highest score across
+      all windows) and n_windows (number of chunks the detector ran on)
+      when those values are available. On block, the trace entry also
+      includes window_index (1-based, of the offending chunk). These
+      observability fields satisfy ADR-032's per-window visibility
+      requirement and let operators see whether a detector "almost
+      blocked" or had to scan many windows.
+  - id: G-HTTP-CLEAN-012
+    summary: >
+      Default content body cap is 256 KB (262144 bytes). Tunable via
+      BULWARK_MAX_CONTENT_SIZE env var (positive integer, bytes). The
+      previous 1 MB default was a defense-in-depth gap — even
+      authenticated callers could pin a worker on tokenization or judge
+      round-trip. The same cap applies to /v1/guard text. ADR-038 / B2.
   - id: G-HTTP-CLEAN-008
     summary: Respects dashboard layer toggles (sanitizer, trust boundary)
   - id: G-HTTP-CLEAN-009

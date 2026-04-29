@@ -12,6 +12,15 @@ guarantees:
     summary: Reports persist across dashboard restarts (saved to disk, not memory)
   - id: G-REDTEAM-REPORTS-005
     summary: Report JSON includes full per-probe results for gap analysis
+  - id: G-REDTEAM-REPORTS-006
+    summary: >
+      GET /api/redteam/status returns a coherent snapshot of the run
+      progress, taken under a write lock so callers never observe a
+      half-mutated dict while the background runner is updating
+      progress fields. The snapshot is a deep copy. ADR-038 / B4
+      closed a race where a concurrent read could see `completed`
+      updated but `total` still missing, or trigger
+      `RuntimeError: dictionary changed size during iteration`.
 
 non_guarantees:
   - id: NG-REDTEAM-REPORTS-001

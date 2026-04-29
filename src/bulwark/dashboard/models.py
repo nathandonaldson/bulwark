@@ -8,6 +8,7 @@ execution/llm_mode).
 """
 from __future__ import annotations
 
+import os
 from typing import Annotated, Any, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -18,11 +19,30 @@ _CanarySourceName = Annotated[str, Field(min_length=1, max_length=64)]
 _CanaryTokenValue = Annotated[str, Field(min_length=1, max_length=256)]
 
 
+# B2 / ADR-038: default body cap is 256KB. Tunable via BULWARK_MAX_CONTENT_SIZE
+# (bytes). The previous 1MB default was a defense-in-depth gap — combined with
+# a slow tokenizer or judge round-trip, even authenticated callers could
+# pin a worker for tens of seconds per request. 256KB covers realistic
+# email/document inputs while raising the floor on resource exhaustion.
+def _default_max_content_size() -> int:
+    raw = os.environ.get("BULWARK_MAX_CONTENT_SIZE", "262144")
+    try:
+        n = int(raw)
+        if n <= 0:
+            return 262144
+        return n
+    except (TypeError, ValueError):
+        return 262144
+
+
+_MAX_CONTENT_SIZE = _default_max_content_size()
+
+
 class CleanRequest(BaseModel):
     """Request body for POST /v1/clean."""
     content: str = Field(
         ...,
-        max_length=1_000_000,
+        max_length=_MAX_CONTENT_SIZE,
         description="Untrusted text to process through the defense stack.",
     )
     source: str = Field(
@@ -69,7 +89,7 @@ class GuardRequest(BaseModel):
     """Request body for POST /v1/guard."""
     text: str = Field(
         ...,
-        max_length=1_000_000,
+        max_length=_MAX_CONTENT_SIZE,
         description="LLM output to check for injection patterns and canary leaks.",
     )
     canary_tokens: Optional[dict[_CanarySourceName, _CanaryTokenValue]] = Field(
