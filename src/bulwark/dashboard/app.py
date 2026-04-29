@@ -36,10 +36,12 @@ _MUTATING_METHODS = frozenset({"POST", "PUT", "DELETE", "PATCH"})
 # language-agnostic security surface (clean/guard), the liveness probe, the
 # login form, and the presets catalogue. Nothing here persists state.
 #
-# NOTE: /v1/clean is in this set by default but becomes auth-protected when
-# (a) BULWARK_API_TOKEN is set AND (b) an LLM is configured. See
-# G-AUTH-008 / ADR-030 — unauth LLM invocation with the operator's
-# API key is cost-abuse. Sanitize-only deployments keep the open endpoint.
+# NOTE: /v1/clean is in this set by default but becomes auth-protected
+# whenever BULWARK_API_TOKEN is set and the caller is non-loopback,
+# regardless of LLM judge state (G-AUTH-CLEAN-001 / ADR-041). The previous
+# judge-coupling predicate (ADR-030 / ADR-037, retained as historical
+# G-AUTH-008) left judge-disabled deployments exposed for unauth content
+# submission and detector burn. Loopback callers still bypass per ADR-029.
 _UNAUTH_ALL_ORIGINS = frozenset({
     "/",
     "/healthz",
@@ -48,19 +50,6 @@ _UNAUTH_ALL_ORIGINS = frozenset({
     "/api/auth/login",
     "/api/presets",
 })
-
-
-def _is_llm_configured() -> bool:
-    """Return True when the LLM judge is enabled (ADR-033 / G-AUTH-008 / ADR-037).
-
-    When this returns True AND BULWARK_API_TOKEN is set, /v1/clean leaves
-    the public allowlist and requires Bearer or cookie auth. Sanitize-only
-    and judge-disabled deployments keep the open default.
-    """
-    try:
-        return bool(config.judge_backend.enabled)
-    except AttributeError:
-        return False
 
 
 def _is_loopback_client(request: Request) -> bool:
@@ -113,12 +102,19 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         path = request.url.path
 
         # Public surface — always open, no auth check at all … with one
-        # exception: /v1/clean flips to auth-required when a real LLM is
-        # configured AND a token is set (G-AUTH-008 / ADR-030).
-        # Unauthenticated LLM invocation with the operator's API key is
-        # cost-abuse; sanitize-only mode keeps the permissive default.
+        # exception: /v1/clean flips to auth-required whenever a token is
+        # set and the caller is non-loopback (G-AUTH-CLEAN-001 / ADR-041).
+        # Judge state is no longer part of the predicate — the prior
+        # judge-coupled rule (ADR-030 / ADR-037) left judge-disabled
+        # deployments exposed for unauth content submission and detector
+        # burn. Loopback callers (ADR-029) still bypass to keep the
+        # localhost dev experience working.
         if path in _UNAUTH_ALL_ORIGINS or path.startswith("/static/"):
-            if path == "/v1/clean" and get_api_token() and _is_llm_configured():
+            if (
+                path == "/v1/clean"
+                and get_api_token()
+                and not _is_loopback_client(request)
+            ):
                 pass  # fall through to the Bearer / cookie check below
             else:
                 return await call_next(request)
