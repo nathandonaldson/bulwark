@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.4.3] - 2026-04-29
+
+### Refactor (Phase A follow-up — see ADR-040)
+
+- **Unify truthy-env parser across dashboard.** Phase A (v2.4.2) added `BULWARK_ALLOW_NO_DETECTORS` to `api_v1.py` with its own `frozenset` + `.strip().lower()` parser, while `app.py` already had a separate inline check for `BULWARK_ALLOW_SANITIZE_ONLY` (`os.environ.get(...).lower() in ("1","true","yes")`, no `.strip()`). The behavioural drift was small but real — `"  1  "` opted into NO_DETECTORS but not SANITIZE_ONLY — and the helper-wedged-between-imports broke `api_v1.py`'s PEP 8 import ordering. Both env vars now flow through a single `env_truthy(name: str) -> bool` helper in `bulwark.dashboard.config` (alongside the existing `get_api_token()` precedent). Whitespace-tolerant, case-insensitive, fail-closed default. The two env vars keep their existing semantics — pure refactor, no observable behaviour change. Resolves the duplication exposed by Phase A.
+- New `tests/test_env_truthy.py` covers truthy/falsy/whitespace/missing.
+
+932 tests pass (was 911; 21 new tests for `env_truthy`).
+
 ## [2.4.2] - 2026-04-29
 
 ### Security (Phase A of Codex efficacy hardening — see ADR-040)

@@ -6,27 +6,11 @@ v2.0.0 (ADR-031): /v1/clean is sanitize → (optional detector) → wrap.
 from __future__ import annotations
 
 import logging
-import os
 import time
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-logger = logging.getLogger(__name__)
-
-
-# ADR-040: Truthy values for the BULWARK_ALLOW_NO_DETECTORS opt-in.
-# Mirrors the convention used by BULWARK_ALLOW_SANITIZE_ONLY (ADR-038).
-_TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes"})
-
-
-def _allow_no_detectors() -> bool:
-    """Return True when BULWARK_ALLOW_NO_DETECTORS is set to a truthy value.
-
-    "0", "false", "" (and unset) all evaluate to False — the fail-closed
-    default. See ADR-040.
-    """
-    return os.environ.get("BULWARK_ALLOW_NO_DETECTORS", "").strip().lower() in _TRUTHY_ENV_VALUES
-
+from bulwark.dashboard.config import env_truthy
 from bulwark.dashboard.models import (
     CleanRequest, CleanResponse,
     GuardRequest, GuardResponse,
@@ -34,14 +18,16 @@ from bulwark.dashboard.models import (
 from bulwark.shortcuts import guard as shortcut_guard
 from bulwark.sanitizer import Sanitizer
 from bulwark.trust_boundary import TrustBoundary, BoundaryFormat
+from bulwark.guard import SuspiciousPatternError
+from bulwark.canary import CanarySystem, CanaryLeakError
+
+logger = logging.getLogger(__name__)
 
 _FORMAT_MAP = {
     "xml": BoundaryFormat.XML,
     "markdown": BoundaryFormat.MARKDOWN_FENCE,
     "delimiter": BoundaryFormat.DELIMITER,
 }
-from bulwark.guard import SuspiciousPatternError
-from bulwark.canary import CanarySystem, CanaryLeakError
 
 router = APIRouter(prefix="/v1", tags=["Bulwark API v1"])
 
@@ -135,7 +121,7 @@ async def api_clean(req: CleanRequest):
     except AttributeError:
         pass
     has_any_detector = bool(_detection_checks) or judge_enabled
-    degraded_explicit_opt_in = _allow_no_detectors()
+    degraded_explicit_opt_in = env_truthy("BULWARK_ALLOW_NO_DETECTORS")
     if not has_any_detector:
         if not degraded_explicit_opt_in:
             logger.warning(
