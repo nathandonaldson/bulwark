@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.5.2] - 2026-04-29
+
+### Security (Codex efficacy hardening Phase G — see ADR-046)
+
+- **Document detector chunk-boundary evasion as a non-guarantee.** The Codex review flagged a real risk class against the per-window classifier in `src/bulwark/integrations/promptguard.py`: trigger and instruction split across chunks could each fall below threshold while the combined string crosses it. We built a programmatic split-evasion generator (`AttackSuite.generate_split_evasion_samples` in `src/bulwark/attacks.py`) and ran a curated three-pair corpus against real ProtectAI DeBERTa weights. Empirical finding: **the gap is real but not a chunking artefact** — even an unbounded single-window classifier loses the signal once ≥ ~50 tokens of benign English context surround the malicious fragments. Increasing chunk overlap, sliding mid-window re-classification, and aggregating per-window scores were all evaluated and rejected (none can synthesize signal that no single window emits; ADR-046 §"Why none of the chunk-mechanic remediations close the gap"). A fragile "head + tail" mitigation closes 2/3 of the curated samples at H=16-32 tokens but reopens at H≥64 and would catch the easy curated cases while missing harder ones — security theatre worse than honest documentation.
+- **New short-range guarantee + long-range non-guarantee.** `G-DETECTOR-WINDOW-EVASION-001` binds what the chunker actually delivers: separations ≤ 32 tokens (both pieces fit in at least one 510-token window via the 64-token overlap) MUST block. `NG-DETECTOR-WINDOW-EVASION-001` carves out the dilution regime (separations ≥ ~50 tokens) explicitly, names defense-in-depth (LLM Judge / future ADR-047 content fingerprinting) as the right layer for that gap, and pins the curated samples as regression-prevention so a model bump that closes the gap will flip the e2e tests RED on purpose and force a contract revisit.
+- **Three test classes.** `tests/test_split_evasion.py` adds: (1) `TestSplitEvasionGenerator` — fast unit tests pinning the generator's contract (deterministic, payloads contain both pieces, monotonic in filler size, AttackSuite method delegates correctly); (2) `TestSplitEvasionShortRange` — fast fake-pipeline tests proving the chunk-overlap mechanic works as designed when both pieces fit in a window; (3) `TestSplitEvasionLongRange` — `@pytest.mark.e2e_slow` real-DeBERTa tests, two-sided coverage (no-filler positive controls MUST block; long-filler regime currently passes — pin the gap).
+- **New `AttackCategory.SPLIT_EVASION`.** Tokenizer-dependent corpus generated on demand (not loaded into the static catalog) so the same generator can serve `bulwark_bench` and `bulwark_falsepos` consumers that have a tokenizer in hand. `tests/test_attacks.py` updated to skip the new category in the "every category has ≥2 samples" check (the corpus is generated, not catalogued) and to include it in the enum-membership tests.
+
+960 tests pass (was 957; 11 new generator/short-range tests + 2 e2e_slow long-range tests, 13 total). `tests/test_spec_compliance.py` green: every guarantee + non-guarantee ID has a docstring reference. Zero perf cost: no chunking-mechanic change, no extra inference per request.
+
+
 ## [2.5.1] - 2026-04-29
 
 ### Tests / CI (Codex efficacy hardening Phase F — see ADR-045)
