@@ -39,7 +39,7 @@ def test_integrations_contract_referenced():
     assert "_detection_checks.pop(name" in app_src
 
 
-def test_canary_never_in_clean():
+def test_canary_never_in_clean(monkeypatch):
     """G-CANARY-012: /v1/clean does not reference canaries.
 
     Canaries are output-side only (ADR-031). The /v1/clean handler processes
@@ -51,6 +51,9 @@ def test_canary_never_in_clean():
         import bulwark.dashboard.app as app_mod
     except ImportError:
         pytest.skip("FastAPI not installed")
+    # ADR-040: opt into sanitize-only so the canary-in-input check still runs
+    # against a deployment with no detectors loaded.
+    monkeypatch.setenv("BULWARK_ALLOW_NO_DETECTORS", "1")
     app_mod.config.canary_tokens = {"src": "CANARY_VALUE_THAT_NEVER_MATCHES_BENIGN"}
     client = TestClient(app)
     resp = client.post("/v1/clean", json={"content": "some clean content"})

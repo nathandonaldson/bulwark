@@ -16,7 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse as StarletteJSONResponse
 
 from bulwark.dashboard.db import EventDB
-from bulwark.dashboard.config import BulwarkConfig, AVAILABLE_INTEGRATIONS, IntegrationConfig, get_api_token
+from bulwark.dashboard.config import BulwarkConfig, AVAILABLE_INTEGRATIONS, IntegrationConfig, get_api_token, env_truthy
 from bulwark.dashboard.models import RetestRequest, CanaryUpsertRequest
 from bulwark.presets import load_presets
 from bulwark.canary_shapes import AVAILABLE_SHAPES, generate_canary
@@ -210,7 +210,7 @@ async def healthz():
         judge_enabled = bool(config.judge_backend.enabled)
     except AttributeError:
         pass
-    sanitize_only_opt_in = os.environ.get("BULWARK_ALLOW_SANITIZE_ONLY", "").lower() in ("1", "true", "yes")
+    sanitize_only_opt_in = env_truthy("BULWARK_ALLOW_SANITIZE_ONLY")
     has_any_detector = bool(loaded) or judge_enabled
     degraded = (not has_any_detector) and (not sanitize_only_opt_in)
     payload = {

@@ -28,8 +28,15 @@ def _get_client():
 
 class TestCleanEndpoint:
     @pytest.fixture(autouse=True)
-    def _force_no_llm(self):
-        """Isolate clean tests from local config — force sanitize-only mode."""
+    def _force_no_llm(self, monkeypatch):
+        """Isolate clean tests from local config — force sanitize-only mode.
+
+        ADR-040 / NG-CLEAN-DETECTOR-REQUIRED-001: with zero detectors and
+        no judge, /v1/clean fails closed unless the operator opts in. These
+        legacy clean-endpoint tests cover sanitize-only behavior, so they
+        set the opt-in.
+        """
+        monkeypatch.setenv("BULWARK_ALLOW_NO_DETECTORS", "1")
         import bulwark.dashboard.app as app_mod
         from bulwark.dashboard.config import BulwarkConfig
         old = app_mod.config
@@ -493,7 +500,10 @@ class TestCleanFullStack:
     """Tests for /v1/clean as the unified defense endpoint."""
 
     @pytest.fixture(autouse=True)
-    def _force_no_llm(self):
+    def _force_no_llm(self, monkeypatch):
+        # ADR-040: opt into sanitize-only so legacy zero-config rigs still
+        # see the previous /v1/clean behavior.
+        monkeypatch.setenv("BULWARK_ALLOW_NO_DETECTORS", "1")
         import bulwark.dashboard.app as app_mod
         from bulwark.dashboard.config import BulwarkConfig
         old = app_mod.config

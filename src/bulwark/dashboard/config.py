@@ -65,6 +65,21 @@ def get_api_token() -> str:
     return os.environ.get("BULWARK_API_TOKEN", "")
 
 
+# ADR-040: shared truthy-env parser. Matches the convention used by both
+# BULWARK_ALLOW_NO_DETECTORS and BULWARK_ALLOW_SANITIZE_ONLY (ADR-038).
+_TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes"})
+
+
+def env_truthy(name: str) -> bool:
+    """Return True if the named env var is set to a truthy value.
+
+    Truthy values: 1/true/yes (case-insensitive, whitespace-tolerant).
+    Anything else (including unset, "", "0", "false", "no", arbitrary
+    strings) returns False — the fail-closed default.
+    """
+    return os.environ.get(name, "").strip().lower() in _TRUTHY_ENV_VALUES
+
+
 @dataclass
 class IntegrationConfig:
     enabled: bool = False

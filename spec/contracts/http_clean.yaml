@@ -54,6 +54,17 @@ guarantees:
       split into overlapping windows (stride 64) and classified per-
       window; the response verdict is INJECTION if any window is flagged
       above threshold. See ADR-032.
+  - id: G-HTTP-CLEAN-503-NO-DETECTORS-001
+    summary: >
+      Returns HTTP 503 with a structured error envelope
+      ({"error": {"code": "no_detectors_loaded", "message": "..."}}) when
+      the dashboard has zero ML detectors loaded AND the LLM judge is
+      disabled AND BULWARK_ALLOW_NO_DETECTORS is unset. The 503 is the
+      request-time counterpart to /healthz `degraded` (ADR-038) — both
+      endpoints share the same predicate. The 503 message references
+      BULWARK_ALLOW_NO_DETECTORS so operators can self-serve the opt-in.
+      No BulwarkEvent is written for the 503 (the request never reached
+      a detection layer). See ADR-040.
 
 non_guarantees:
   - id: NG-HTTP-CLEAN-001

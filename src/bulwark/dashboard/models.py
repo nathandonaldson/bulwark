@@ -78,6 +78,14 @@ class CleanResponse(BaseModel):
         default=None,
         description="Detector verdict (label, score) when the model is loaded.",
     )
+    mode: Optional[Literal["degraded-explicit"]] = Field(
+        default=None,
+        description=(
+            "Set to 'degraded-explicit' when BULWARK_ALLOW_NO_DETECTORS=1 "
+            "and the request was served sanitize-only with zero detectors "
+            "available. Absent in normal (defended) responses. See ADR-040."
+        ),
+    )
 
 
 class RetestRequest(BaseModel):

@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.4.3] - 2026-04-29
+
+### Refactor (Phase A follow-up — see ADR-040)
+
+- **Unify truthy-env parser across dashboard.** Phase A (v2.4.2) added `BULWARK_ALLOW_NO_DETECTORS` to `api_v1.py` with its own `frozenset` + `.strip().lower()` parser, while `app.py` already had a separate inline check for `BULWARK_ALLOW_SANITIZE_ONLY` (`os.environ.get(...).lower() in ("1","true","yes")`, no `.strip()`). The behavioural drift was small but real — `"  1  "` opted into NO_DETECTORS but not SANITIZE_ONLY — and the helper-wedged-between-imports broke `api_v1.py`'s PEP 8 import ordering. Both env vars now flow through a single `env_truthy(name: str) -> bool` helper in `bulwark.dashboard.config` (alongside the existing `get_api_token()` precedent). Whitespace-tolerant, case-insensitive, fail-closed default. The two env vars keep their existing semantics — pure refactor, no observable behaviour change. Resolves the duplication exposed by Phase A.
+- New `tests/test_env_truthy.py` covers truthy/falsy/whitespace/missing.
+
+932 tests pass (was 911; 21 new tests for `env_truthy`).
+
+## [2.4.2] - 2026-04-29
+
+### Security (Phase A of Codex efficacy hardening — see ADR-040)
+
+- **`/v1/clean` now fails closed when no detectors are loaded.** ADR-038 made the silent-demote-to-sanitize-only state visible at `/healthz`, but `/v1/clean` still returned `200 OK` with sanitize-only output. A default `BulwarkConfig()` boots with zero detectors and judge disabled — the published Docker image fit this profile until an integration was activated, and the visible signal on the only endpoint clients hit was "all healthy." Now `/v1/clean` returns `HTTP 503` with `{"error": {"code": "no_detectors_loaded", "message": "..."}}` when the predicate `len(_detection_checks) == 0 AND not judge_backend.enabled` holds. Same predicate `/healthz` already uses, so the two endpoints agree on what "detection chain present" means. New `BULWARK_ALLOW_NO_DETECTORS=1` env opt-in for operators who deliberately want sanitize-only traffic (corpus jobs, integration test rigs); opt-in responses gain `"mode": "degraded-explicit"` and emit a per-request WARNING log so the reduced-defense state is loud. New G-CLEAN-DETECTOR-REQUIRED-001, NG-CLEAN-DETECTOR-REQUIRED-001, G-HTTP-CLEAN-503-NO-DETECTORS-001.
+
+911 tests pass (was 903; 8 new tests covering the fail-closed path, opt-in handling, and falsy-value rejection).
+
 ## [2.4.1] - 2026-04-29
 
 ### Hardening (PR-B from `/codex challenge` follow-up — see ADR-039)
