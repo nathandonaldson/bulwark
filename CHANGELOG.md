@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.4.1] - 2026-04-29
+
+### Hardening (PR-B from `/codex challenge` follow-up — see ADR-039)
+
+- **Sanitizer decodes HTML entities and percent-encoding when `encoding_resistant` is on (B1).** The dashboard config exposed `encoding_resistant` but `/v1/clean` never wired it through to the Sanitizer, so encoded payloads (`%3Cscript%3E`, `&lt;script&gt;`, `&#60;`) reached the detector intact and operators thought they were protected. Added `decode_encodings: bool = False` to the `Sanitizer` dataclass; runs `html.unescape` + `urllib.parse.unquote` BEFORE the strip steps, twice to catch nested encoding (`&amp;lt;` → `&lt;` → `<`). Dashboard sets the flag from `config.encoding_resistant`. New G-SANITIZER-018; NG-SANITIZER-003 rewritten to reflect the opt-in.
+- **Default request body cap dropped from 1MB to 256KB (B2).** Even authenticated callers could pin a worker on tokenization or judge round-trip with 1MB inputs. New `BULWARK_MAX_CONTENT_SIZE` env var (positive integer, bytes) tunes the cap. Applies to both `/v1/clean` and `/v1/guard`. New G-HTTP-CLEAN-012.
+- **SSRF validator resolves hostnames before allowing them through (B3).** Previously only literal IPs were checked, so `evil.com` resolving to `127.0.0.1` or `169.254.169.254` slipped past the validator. `validate_external_url` now calls `socket.getaddrinfo` and rejects if ANY resolved IP is in private/loopback/link-local/metadata ranges. Resolutions cached for 60s per process to avoid DNS amplification. `localhost` and `host.docker.internal` skip resolution (intentional — Docker networking). Unresolvable hosts are rejected at config-write time. New G-WEBHOOK-008.
+- **`_redteam_result` mutations now happen under a lock (B4).** Background runner thread mutated the dict while the status endpoint read it concurrently — could produce torn reads or `RuntimeError: dictionary changed size during iteration`. Added a `threading.Lock` around the four per-iteration update sites and a `_redteam_status_snapshot()` helper that returns a deep copy under the lock for `/api/redteam/status`. New G-REDTEAM-REPORTS-006. Includes a hammer-test that runs reader+writer threads in parallel.
+- **`/v1/clean` route docstring rewritten (B5).** Removed the stale "No LLM is invoked by Bulwark" claim. New copy reflects ADR-033 (judge optional) and ADR-037 (judge is detection-only — generative output never reaches the caller). Visible at `/openapi.json` and `/docs`.
+- **Detector trace surfaces max INJECTION score and chunk count (B6).** Previously a passed detection trace recorded `{"label": "SAFE", "score": null}` with no insight into how close the call was. Now per-detector trace entries include `max_score` (highest INJECTION-class score across windows; 0.0 when no window flagged injection) and `n_windows`. On block, the entry also includes `window_index` (1-based, of the offending chunk). `SuspiciousPatternError` carries the same fields as exception attributes. Operators can see "almost-blocked" cases and per-chunk costs. ADR-032's per-window observability requirement is now satisfied. New G-HTTP-CLEAN-011; G-HTTP-CLEAN-007 strengthened.
+
+900 tests pass (was 876; 24 new tests including a thread-race hammer test for B4).
+
 ## [2.4.0] - 2026-04-29
 
 ### Security & observability (PR-A from `/codex challenge` follow-up — see ADR-038)

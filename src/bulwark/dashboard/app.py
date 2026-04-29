@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 import asyncio
 import ipaddress
 import json
+import threading
 import time
 import os
 from pathlib import Path
@@ -752,6 +753,22 @@ _garak_result: dict = {}
 _redteam_task: Optional[asyncio.Task] = None
 _redteam_result: dict = {}
 _redteam_runner = None  # Reference to ProductionRedTeam for cancellation
+# B4 / ADR-039: protect _redteam_result reads/writes against the race between
+# the background runner thread (mutates) and the FastAPI status endpoint
+# (reads). Without this, status reads can land mid-write and return a
+# half-merged dict (e.g. completed updated, total still missing).
+_redteam_lock = threading.Lock()
+
+
+def _redteam_status_snapshot() -> dict:
+    """Return a deep-copy snapshot of _redteam_result under the lock.
+
+    Used by /api/redteam/status so callers see a coherent view even
+    while the runner is mutating the dict from a worker thread.
+    """
+    import copy
+    with _redteam_lock:
+        return copy.deepcopy(_redteam_result)
 
 
 @app.post("/api/garak/run")
@@ -905,7 +922,8 @@ async def _run_falsepos_in_background():
                 entry["verdict"] = "error"
                 entry["defended"] = False
                 results.append(entry)
-                _redteam_result["completed"] = i
+                with _redteam_lock:
+                    _redteam_result["completed"] = i
                 continue
 
             if resp.status_code == 422:
@@ -935,7 +953,8 @@ async def _run_falsepos_in_background():
                 entry["verdict"] = "error"
                 entry["defended"] = False
             results.append(entry)
-            _redteam_result["completed"] = i
+            with _redteam_lock:
+                _redteam_result["completed"] = i
 
         duration_s = time.time() - t0
         total = len(results)
@@ -1033,8 +1052,9 @@ async def run_redteam(request: Request):
         project_dir = os.environ.get("BULWARK_PROJECT_DIR", str(Path(__file__).parent.parent.parent))
 
         def on_progress(completed, total):
-            _redteam_result["completed"] = completed
-            _redteam_result["total"] = total
+            with _redteam_lock:
+                _redteam_result["completed"] = completed
+                _redteam_result["total"] = total
 
         try:
             runner = ProductionRedTeam(
@@ -1099,8 +1119,13 @@ async def run_redteam(request: Request):
 
 @app.get("/api/redteam/status")
 async def redteam_status():
-    """Check status of running red team scan."""
-    return _redteam_result
+    """Check status of running red team scan.
+
+    Returns a snapshot taken under the write lock so callers never see a
+    half-mutated dict while the background runner thread is updating
+    progress (B4 / ADR-038).
+    """
+    return _redteam_status_snapshot()
 
 
 @app.post("/api/redteam/stop")
@@ -1151,8 +1176,9 @@ async def retest_redteam(req: RetestRequest):
         project_dir = os.environ.get("BULWARK_PROJECT_DIR", str(Path(__file__).parent.parent.parent))
 
         def on_progress(completed, total):
-            _redteam_result["completed"] = completed
-            _redteam_result["total"] = total
+            with _redteam_lock:
+                _redteam_result["completed"] = completed
+                _redteam_result["total"] = total
 
         try:
             runner = ProductionRedTeam(

@@ -1,5 +1,5 @@
 feature: Content sanitization pipeline
-version: "1.0.0"
+version: "1.1.0"
 module: bulwark.sanitizer
 
 guarantees:
@@ -69,9 +69,10 @@ guarantees:
   - id: G-SANITIZER-013
     summary: >
       Sanitizer.clean() executes cleaning steps in a fixed deterministic
-      order: zero-width → scripts → HTML → CSS-hidden → control chars →
-      bidi → emoji smuggling → normalization → custom patterns →
-      whitespace collapse → max_length truncation → .strip().
+      order: encoding-decode (when decode_encodings=True, two passes) →
+      zero-width → scripts → HTML → CSS-hidden → control chars → bidi →
+      emoji smuggling → normalization → custom patterns → whitespace
+      collapse → max_length truncation → .strip().
   - id: G-SANITIZER-014
     summary: >
       Sanitizer.clean() returns an empty string for empty input and for
@@ -84,15 +85,27 @@ guarantees:
     summary: >
       Individual cleaning steps (strip_zero_width, strip_scripts,
       strip_html, strip_css_hidden, strip_control_chars, strip_bidi,
-      strip_emoji_smuggling, collapse_whitespace, normalize_unicode)
-      can be disabled independently via boolean fields on the Sanitizer
-      dataclass; disabling a step causes its removal behaviour to be
-      skipped entirely.
+      strip_emoji_smuggling, collapse_whitespace, normalize_unicode,
+      decode_encodings) can be disabled independently via boolean fields
+      on the Sanitizer dataclass; disabling a step causes its removal
+      behaviour to be skipped entirely.
   - id: G-SANITIZER-017
     summary: >
       Sanitizer.clean_batch(texts) applies clean() to each item in the
       input list and returns a list of the same length, preserving
       order. Empty input list returns an empty list.
+  - id: G-SANITIZER-018
+    summary: >
+      When decode_encodings=True, Sanitizer.clean() decodes HTML entities
+      (`&lt;`, `&#60;`, named and numeric) and percent-encoding (`%3C`)
+      BEFORE the strip steps. The decode loop runs to a fixed point
+      (max 4 iterations) so nested encodings (`&amp;lt;` → `&lt;` → `<`,
+      `%2526lt%253B` → `%26lt%3B` → `&lt;` → `<`) all collapse before
+      the downstream strippers see them. The dashboard wires this from
+      config.encoding_resistant; it is off by default in the Sanitizer
+      dataclass for backwards compatibility. ADR-039 / B1 closes a gap
+      where encoded payloads slipped past the sanitizer and reached the
+      detector intact.
 
 non_guarantees:
   - id: NG-SANITIZER-001
@@ -107,11 +120,13 @@ non_guarantees:
       preserve original bytes for audit logs and forensic comparison.
       Homoglyph defense requires explicit opt-in.
   - id: NG-SANITIZER-003
-    summary: Does not decode or unescape HTML entities
+    summary: Does not decode HTML entities or percent-encoding by default
     reason: >
-      Entity handling (&amp;, &#x20;, etc.) is application-layer; the
-      sanitizer's scope is steganography and control-character stripping,
-      not markup interpretation.
+      Entity and percent decoding are opt-in via decode_encodings=True
+      (G-SANITIZER-018). The default is False so existing callers that
+      rely on the original bytes (audit logs, forensic comparison) keep
+      working. The dashboard sets the flag from config.encoding_resistant
+      to catch encoded attack payloads at the /v1/clean boundary.
   - id: NG-SANITIZER-004
     summary: Does not exhaustively match every possible text-hiding CSS
     reason: >

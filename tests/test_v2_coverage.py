@@ -250,11 +250,26 @@ class TestWebhookContract:
         # Documented non-guarantee; operators use URL-embedded secrets.
 
     def test_webhook_does_not_probe_url(self):
-        """NG-WEBHOOK-005: config-write validator only rejects private hosts."""
+        """NG-WEBHOOK-005: config-write validator does not HTTP-probe the URL.
+
+        ADR-039 / B3 added DNS resolution to the validator so a hostname that
+        resolves to a private IP is rejected (G-WEBHOOK-008). DNS resolution
+        is NOT the same as URL probing — we don't HTTP-GET the endpoint.
+        """
+        import socket
+        from unittest.mock import patch
         from bulwark.dashboard.config import BulwarkConfig
+        from bulwark.dashboard import url_validator
+        url_validator._RESOLUTION_CACHE.clear()
         cfg = BulwarkConfig()
-        # A valid public URL is accepted even if unreachable.
-        err = cfg.update_from_dict({"webhook_url": "https://unreachable.example/hook"})
+        # Mock DNS to return a public IP. The endpoint can still be unreachable
+        # (the validator does not HTTP-probe), but the hostname IS resolved.
+        with patch("socket.getaddrinfo") as gai:
+            # Genuinely public IP (Cloudflare 1.1.1.1) — exercises the "host
+            # resolves OK, validator passes" path without HTTP-probing.
+            gai.return_value = [(socket.AF_INET, socket.SOCK_STREAM, 6, "",
+                                ("1.1.1.1", 0))]
+            err = cfg.update_from_dict({"webhook_url": "https://offline.example.com/hook"})
         assert err is None
 
 

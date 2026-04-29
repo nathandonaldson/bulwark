@@ -49,6 +49,17 @@ guarantees:
       performs the same check defensively at emit time so a stale
       config file loaded from disk cannot become an SSRF vector.
       Closes the Codex SSRF finding from 2026-04-20. See ADR-030.
+  - id: G-WEBHOOK-008
+    summary: >
+      Hostnames in webhook_url and judge_backend.base_url are resolved
+      via getaddrinfo and EVERY resolved IP is checked against the
+      private/loopback/link-local/metadata blacklist. A hostname like
+      `evil.com` that resolves to 127.0.0.1 or 169.254.169.254 is
+      rejected, closing the gap where literal-IP-only checks let
+      hostname-based SSRF through. Resolutions are cached for 60
+      seconds per process to avoid DNS amplification. Hosts in
+      _ALWAYS_ALLOWED (localhost, host.docker.internal) or
+      BULWARK_ALLOWED_HOSTS skip the resolve step. ADR-038 / B3.
 
 non_guarantees:
   - id: NG-WEBHOOK-001
@@ -77,10 +88,27 @@ non_guarantees:
       secrets. Operators needing header-based auth should front this
       with a reverse proxy. Avoids a credentials-in-config surface.
   - id: NG-WEBHOOK-005
-    summary: Does NOT validate URL reachability at config-write time
+    summary: Does NOT HTTP-probe the URL at config-write time
     reason: >
-      The config validator only rejects private/metadata hosts; it does
-      not probe the URL. An operator who sets webhook_url to a valid
-      public URL that happens to be offline gets a config-write success
-      and silent fire-and-forget failures at emit time. Matches
-      G-WEBHOOK-004's fire-and-forget contract.
+      The config validator rejects private/metadata hosts AND (per
+      ADR-039 / B3 / G-WEBHOOK-008) hostnames that resolve to a private
+      IP. It does NOT HTTP-GET the endpoint. An operator who sets
+      webhook_url to a host that resolves publicly but whose endpoint
+      returns 4xx/5xx or refuses connections gets a config-write
+      success and silent fire-and-forget failures at emit time.
+      Matches G-WEBHOOK-004's fire-and-forget contract.
+  - id: NG-WEBHOOK-006
+    summary: Does NOT pin the resolved IP at webhook fire time
+    reason: >
+      G-WEBHOOK-008 resolves the host and validates every IP it sees.
+      The actual httpx.post() call then performs ITS OWN DNS lookup
+      via the OS resolver — Bulwark does not pass the validated IP
+      through. An attacker who controls a DNS record and flips it from
+      a public IP (validation time) to a private IP (fire time) within
+      the 60s validation cache window can cause Bulwark to emit at a
+      private host. The window is bounded but real. Operators in
+      adversarial-DNS environments should front the webhook receiver
+      with a known-IP reverse proxy or set BULWARK_ALLOWED_HOSTS to
+      the proxy hostname so the resolve check is skipped explicitly.
+      Closing this fully requires IP-pinning the httpx transport,
+      which is a larger change deferred to a future ADR.
