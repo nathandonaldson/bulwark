@@ -55,6 +55,20 @@ guarantees:
       Observability surface (/healthz, /api/integrations, EventDB) stays
       dashboard-only; this guarantee is about defense parity, not
       visibility parity.
+  - id: G-DETECTOR-WINDOW-EVASION-001
+    summary: >
+      The detector chain MUST block the curated short-range split-evasion
+      corpus (see src/bulwark/attacks.py
+      AttackSuite.generate_split_evasion_samples) where the trigger and the
+      malicious instruction are separated by no more than 32 tokens of
+      benign filler. Within that range both fragments fit inside at least
+      one chunk window (510-token window minus 64-token overlap leaves
+      ~446 tokens of "sole" coverage with a 64-token shared region) and
+      the chunked classifier MUST flag at least one window as INJECTION
+      above threshold. This guarantee binds the per-window mechanic
+      ADR-032 actually delivers — it does NOT promise coverage of the
+      longer-separation regime that NG-DETECTOR-WINDOW-EVASION-001 carves
+      out. ADR-046.
 
 non_guarantees:
   - id: NG-CLEAN-001
@@ -84,3 +98,28 @@ non_guarantees:
       rigs) deliberately want trust-boundary tagging without ML detection.
       The opt-in is loud (env var + per-request WARNING) so the operator
       can't accidentally end up here.
+  - id: NG-DETECTOR-WINDOW-EVASION-001
+    summary: >
+      The per-window classifier does NOT reliably block split-evasion
+      attacks where the trigger and the malicious instruction are
+      separated by ≥ ~50 tokens of benign filler. Empirically (ADR-046
+      §"Empirical investigation"), the gap is not a chunking artefact:
+      even an unbounded single-window classifier loses the signal once
+      enough benign English context surrounds the malicious fragments,
+      because the model itself was not trained to find "needle in
+      benign-haystack" patterns. Increasing chunk overlap, sliding
+      mid-window re-classification, and aggregating per-window scores
+      were all evaluated and rejected — none catch a separation larger
+      than the model's window. Defense in this regime relies on the LLM
+      Judge layer (ADR-033) reading the full prompt with cross-attention
+      and on future content-fingerprinting work (planned ADR-047).
+      Curated samples in src/bulwark/attacks.py
+      AttackSuite.generate_split_evasion_samples are pinned as
+      regression-prevention: if a model bump starts catching them,
+      tests/test_split_evasion.py::TestSplitEvasionLongRange will flip
+      and force us to revisit this non-guarantee.
+    reason: >
+      Per-window ML classifiers cannot synthesize signal that no single
+      window emits. Pretending otherwise via fragile head+tail tricks
+      would catch the easy curated cases while missing harder ones —
+      security theatre worse than honest documentation.
