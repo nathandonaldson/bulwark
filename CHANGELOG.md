@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.5.0] - 2026-04-29
+
+### Feature (Codex efficacy hardening Phase E — see ADR-044)
+
+- **`Pipeline.from_config()` loads the full detector chain** so library users (`import bulwark`) get the same defense the dashboard delivers. `Pipeline` now holds `detectors: list[Callable]` instead of a single optional callable; `from_config()` reads `bulwark-config.yaml` and composes protectai → promptguard → judge based on `integrations.*.enabled` and `judge_backend.enabled` (same predicate the dashboard uses). Heavy ML imports stay lazy inside the loaders. Loader failures degrade gracefully — empty chain plus a WARNING log, matching the dashboard's `_detector_failures` behaviour.
+- **`/api/pipeline-status` response cleaned up.** Replaced legacy `detector: bool` field with `detectors_loaded: int` (audit found zero JSX/test consumers of the legacy field; safe to drop).
+- **Loader plumbing consolidated.** Single `_load_bulwark_config()` helper replaces two near-parallel YAML readers; reads sanitizer/trust-boundary toggles directly from the `BulwarkConfig` dataclass. Failure paths now have explicit test coverage (`TestLoaderFailureDegrades`).
+- New guarantee `G-PIPELINE-PARITY-001`: a `Pipeline.from_config(path)` constructed from the same config the dashboard uses MUST raise `SuspiciousPatternError` for any input the dashboard `/v1/clean` blocks with HTTP 422.
+
+### Breaking
+
+- `Pipeline(detect=callable)` constructor kwarg removed. Use `Pipeline(detectors=[callable, ...])` or — preferred — `Pipeline.from_config(path)`. No backwards-compat shim.
+- `/api/pipeline-status` response no longer carries the legacy `detector: bool` field. Callers should switch to `detectors_loaded: int` (true if `> 0`).
+
+949 tests pass (was 938; 7 new — 5 parity + 2 loader-failure degrade).
+
+
 ## [2.4.7] - 2026-04-29
 
 ### CI / docs
