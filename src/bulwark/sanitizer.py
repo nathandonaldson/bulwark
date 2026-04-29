@@ -1,10 +1,12 @@
 """Input sanitization for prompt injection defense."""
 from __future__ import annotations
 
+import html
 import re
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Optional
+from urllib.parse import unquote
 
 from bulwark.events import EventEmitter, BulwarkEvent, Layer, Verdict, _now
 
@@ -69,6 +71,12 @@ class Sanitizer:
     strip_bidi: bool = True
     strip_emoji_smuggling: bool = True
     normalize_unicode: bool = False
+    decode_encodings: bool = False
+    """ADR-038/B1: decode HTML entities and percent-encoding BEFORE the
+    rest of the pipeline. Catches encoded payloads (`%3Cscript%3E`,
+    `&#60;`, `&lt;`) that would otherwise survive the strip steps because
+    the strippers only see the encoded form. Off by default for backwards
+    compatibility; the dashboard sets this from config.encoding_resistant."""
     collapse_whitespace: bool = True
     max_length: Optional[int] = 3000
     custom_patterns: list[str] = field(default_factory=list)
@@ -94,6 +102,12 @@ class Sanitizer:
         _original = text if self.emitter else ""
 
         # Apply each cleaning step in order
+        if self.decode_encodings:
+            # B1 / encoding_resistant: decode encoded payloads first so the
+            # downstream strippers see the real characters. Two passes catch
+            # one level of nested encoding (e.g. &amp;lt; → &lt; → <).
+            text = self._decode_encodings(text)
+            text = self._decode_encodings(text)
         if self.strip_zero_width:
             text = self._strip_zero_width(text)
         if self.strip_scripts:
@@ -186,6 +200,22 @@ class Sanitizer:
     def _normalize_unicode(self, text: str) -> str:
         """NFKC normalization — maps homoglyphs to canonical forms."""
         return unicodedata.normalize('NFKC', text)
+
+    @staticmethod
+    def _decode_encodings(text: str) -> str:
+        """Decode HTML entities and percent-encoding (B1 / encoding_resistant).
+
+        Runs html.unescape and urllib.parse.unquote. unquote is safe on
+        ordinary text — `%` followed by non-hex is left alone — so an
+        unencoded payload passes through unchanged. We catch the common
+        attack-evasion shapes:
+          - `&#60;script&#62;` → `<script>`
+          - `&lt;script&gt;`   → `<script>`
+          - `%3Cscript%3E`     → `<script>`
+        Two-level encoding (`&amp;lt;` → `&lt;` → `<`) is handled by
+        clean() running this method twice.
+        """
+        return unquote(html.unescape(text))
 
     @staticmethod
     def _collapse_whitespace(text: str) -> str:

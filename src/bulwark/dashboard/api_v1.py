@@ -85,9 +85,13 @@ def _fire_webhook(url: str, event: dict) -> None:
     response_model=CleanResponse,
     summary="Sanitize, detect, and wrap untrusted content",
     description=(
-        "Pipeline: sanitizer → DeBERTa detector (if loaded) → trust boundary wrap. "
-        "Returns 200 with cleaned content the caller feeds into their own LLM. "
-        "Returns 422 when the detector blocks. No LLM is invoked by Bulwark."
+        "Pipeline: sanitizer (with optional encoding-decode) → DeBERTa / "
+        "PromptGuard / optional LLM judge classifiers → trust boundary wrap. "
+        "Returns 200 with cleaned content the caller feeds into their own "
+        "LLM. Returns 422 when any classifier blocks. The LLM judge is "
+        "detection-only — only verdict + confidence + latency reach the "
+        "response (NG-JUDGE-004 / ADR-037). Generative judge text is never "
+        "exposed to /v1/clean callers."
     ),
     responses={
         422: {"description": "Injection detected — content blocked"},
@@ -104,6 +108,7 @@ async def api_clean(req: CleanRequest):
         normalize_unicode=config.normalize_unicode,
         strip_emoji_smuggling=config.strip_emoji_smuggling,
         strip_bidi=config.strip_bidi,
+        decode_encodings=config.encoding_resistant,
         max_length=req.max_length,
     ) if config.sanitizer_enabled else None
 
@@ -126,31 +131,64 @@ async def api_clean(req: CleanRequest):
         })
 
     # Step 2: detectors (DeBERTa + optional PromptGuard)
+    # B6 / ADR-038: trace records max_score and n_windows from the detector
+    # so observability is per-window, not just SAFE/BLOCKED.
     detector_verdict = None
     if _detection_checks and cleaned:
         for model_name, check_fn in _detection_checks.items():
             step += 1
             dt0 = time.time()
             try:
-                check_fn(cleaned)
+                result = check_fn(cleaned)
                 elapsed = (time.time() - dt0) * 1000
-                trace.append({
+                # check_fn now returns a dict on pass (B6); fall back to
+                # empty dict if a custom check still returns None.
+                result = result or {}
+                max_score = result.get("max_score")
+                n_windows = result.get("n_windows")
+                detail = f"{model_name}: clean"
+                if max_score is not None:
+                    detail += f" (max={max_score:.3f}"
+                    if n_windows and n_windows > 1:
+                        detail += f", {n_windows} windows"
+                    detail += ")"
+                detail += f" ({elapsed:.0f}ms)"
+                trace_entry = {
                     "step": step, "layer": f"detection:{model_name}",
                     "verdict": "passed",
-                    "detail": f"{model_name}: clean ({elapsed:.0f}ms)",
+                    "detail": detail,
                     "detection_model": model_name,
                     "duration_ms": round(elapsed, 1),
-                })
-                detector_verdict = {"label": "SAFE", "score": None}
+                }
+                if max_score is not None:
+                    trace_entry["max_score"] = round(max_score, 4)
+                if n_windows is not None:
+                    trace_entry["n_windows"] = n_windows
+                trace.append(trace_entry)
+                detector_verdict = {
+                    "label": "SAFE",
+                    "score": round(max_score, 4) if max_score is not None else None,
+                }
             except SuspiciousPatternError as e:
                 elapsed = (time.time() - dt0) * 1000
-                trace.append({
+                # B6: blocked exceptions carry max_score / n_windows / window_index.
+                max_score = getattr(e, "max_score", None)
+                n_windows = getattr(e, "n_windows", None)
+                window_index = getattr(e, "window_index", None)
+                trace_entry = {
                     "step": step, "layer": f"detection:{model_name}",
                     "verdict": "blocked",
                     "detail": f"{model_name}: {e} ({elapsed:.0f}ms)",
                     "detection_model": model_name,
                     "duration_ms": round(elapsed, 1),
-                })
+                }
+                if max_score is not None:
+                    trace_entry["max_score"] = round(max_score, 4)
+                if n_windows is not None:
+                    trace_entry["n_windows"] = n_windows
+                if window_index is not None:
+                    trace_entry["window_index"] = window_index
+                trace.append(trace_entry)
                 total_ms = (time.time() - t0) * 1000
                 _emit_event(
                     layer="detection", verdict="blocked",
