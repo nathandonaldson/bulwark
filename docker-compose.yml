@@ -24,9 +24,17 @@ services:
     volumes:
       - ${BULWARK_CONFIG_PATH:-${HOME}/.config/bulwark/bulwark-config.yaml}:/app/bulwark-config.yaml
     env_file:
-      # .env provides BULWARK_LLM_MODE, BULWARK_API_KEY, BULWARK_BASE_URL,
-      # BULWARK_ANALYZE_MODEL, BULWARK_EXECUTE_MODEL, BULWARK_ALLOWED_HOSTS,
-      # and HF_TOKEN if you use gated detection models. Never commit .env.
+      # .env may provide (all optional, see spec/contracts/env_config.yaml
+      # for the canonical list):
+      #   BULWARK_API_TOKEN     — Bearer auth token for mutating + judge endpoints
+      #   BULWARK_ALLOWED_HOSTS — comma-separated SSRF allowlist (webhook URLs)
+      #   BULWARK_WEBHOOK_URL   — external webhook URL for blocked events
+      #   HF_TOKEN              — HuggingFace token, required only if you
+      #                           enable PromptGuard (gated weights)
+      # ADR-031 removed the BULWARK_LLM_MODE / BULWARK_API_KEY /
+      # BULWARK_BASE_URL / BULWARK_ANALYZE_MODEL / BULWARK_EXECUTE_MODEL env
+      # vars in v2.0.0 — Bulwark is detection-only and never calls an LLM.
+      # Never commit .env.
       - .env
     environment:
       - BULWARK_PROJECT_DIR=/app

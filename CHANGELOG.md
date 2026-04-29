@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.4.5] - 2026-04-29
+
+### Docs / cleanup (Codex efficacy hardening Phase D — see ADR-043)
+
+- **Corrected `spec/presets.yaml` XML preset description.** The "XML boundary escape" preset claimed the Trust Boundary layer "re-escapes the payload before wrapping" — directly contradicted by `tests/test_trust_boundary.py::test_content_with_xml_like_characters_preserved` and `::test_content_containing_tag_name_handled` which prove no character substitution happens. Rewrote the description to accurately describe the actual defense: wrap the payload (close-tag and all) inside an outer `<untrusted_email>` block plus a security instruction; no escaping or encoding.
+- **Dropped 5 ADR-031-removed env vars from `docker-compose.yml`.** `BULWARK_LLM_MODE`, `BULWARK_API_KEY`, `BULWARK_BASE_URL`, `BULWARK_ANALYZE_MODEL`, `BULWARK_EXECUTE_MODEL` were removed in v2.0.0 but still appeared in the compose comment block. Comment now lists only the surviving canonical env-var set with a pointer to `spec/contracts/env_config.yaml`.
+- **Cleaned up `.env.example`** to remove the same 5 ADR-031-removed env vars (higher impact than `docker-compose.yml` since operators copy `.env.example` to `.env`). Mirrors the docker-compose comment block style.
+- **CI guards against this drift class.** New `TestPresetTrustBoundaryDrift::test_no_preset_claims_xml_escaping` fails if any preset description claims XML payload escaping (regex covers `re-escape`, `escape payload`, `xml-escape` variants, with negation lookback so legitimate disclaimers stay legal). New `TestEnvFileDrift::test_no_setup_file_references_removed_llm_envvars` reads the canonical removed-env-var list from `NG-ENV-LLM-REMOVED` and grep-checks `.env.example` and `docker-compose.yml`. New guarantee `G-SPEC-PRESETS-NO-XML-ESCAPE-001`.
+
+906 tests pass (was 904; 2 new drift-prevention tests).
+
+
 ## [2.4.4] - 2026-04-29
 
 ### Security (Codex efficacy hardening Phase B — see ADR-041)
