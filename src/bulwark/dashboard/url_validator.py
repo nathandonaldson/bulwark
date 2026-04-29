@@ -35,9 +35,13 @@ _ALWAYS_ALLOWED = {"localhost", "host.docker.internal"}
 _METADATA_IPS = {"169.254.169.254", "fd00:ec2::254"}
 
 # DNS resolution cache: host -> (set of IP strings, expiry epoch seconds).
-# Avoids DNS amplification when the same URL is validated repeatedly. The
-# cache is per-process and small; we don't bother bounding it because
-# url_validator is only called during config writes, not request handling.
+# Avoids DNS amplification when the same URL is validated repeatedly.
+# Validation runs at config-write AND on every blocked-event webhook fire
+# (api_v1._fire_webhook), so the cache hit rate matters. With one webhook
+# URL the cache stays at size <= 2 in practice.
+# NOTE: Bulwark does NOT pass the validated IP into httpx — the actual
+# webhook POST does its own DNS lookup at fire time. See NG-WEBHOOK-006
+# for the residual TOCTOU and how operators mitigate it.
 _RESOLUTION_CACHE: dict[str, tuple[set[str], float]] = {}
 _RESOLUTION_TTL = 60.0
 

@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 import asyncio
 import ipaddress
 import json
+import threading
 import time
 import os
 from pathlib import Path
@@ -752,11 +753,10 @@ _garak_result: dict = {}
 _redteam_task: Optional[asyncio.Task] = None
 _redteam_result: dict = {}
 _redteam_runner = None  # Reference to ProductionRedTeam for cancellation
-# B4 / ADR-038: protect _redteam_result reads/writes against the race between
+# B4 / ADR-039: protect _redteam_result reads/writes against the race between
 # the background runner thread (mutates) and the FastAPI status endpoint
 # (reads). Without this, status reads can land mid-write and return a
 # half-merged dict (e.g. completed updated, total still missing).
-import threading
 _redteam_lock = threading.Lock()
 
 

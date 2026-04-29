@@ -104,10 +104,15 @@ class Sanitizer:
         # Apply each cleaning step in order
         if self.decode_encodings:
             # B1 / encoding_resistant: decode encoded payloads first so the
-            # downstream strippers see the real characters. Two passes catch
-            # one level of nested encoding (e.g. &amp;lt; → &lt; → <).
-            text = self._decode_encodings(text)
-            text = self._decode_encodings(text)
+            # downstream strippers see the real characters. Loop to a
+            # fixed point so nested encodings (&amp;lt;, %2526lt%253B,
+            # arbitrary depth) all collapse before the strip steps. Cap
+            # iterations at 4 to bound pathological inputs.
+            for _ in range(4):
+                decoded = self._decode_encodings(text)
+                if decoded == text:
+                    break
+                text = decoded
         if self.strip_zero_width:
             text = self._strip_zero_width(text)
         if self.strip_scripts:

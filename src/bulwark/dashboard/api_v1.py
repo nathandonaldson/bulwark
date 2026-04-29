@@ -165,8 +165,11 @@ async def api_clean(req: CleanRequest):
                 if n_windows is not None:
                     trace_entry["n_windows"] = n_windows
                 trace.append(trace_entry)
+                # B6 follow-up (review): use the detector's actual top label
+                # (BENIGN / SAFE / etc.) rather than hardcoding "SAFE".
+                # max_score remains the INJECTION-class signal per ADR-039.
                 detector_verdict = {
-                    "label": "SAFE",
+                    "label": result.get("top_label") or "SAFE",
                     "score": round(max_score, 4) if max_score is not None else None,
                 }
             except SuspiciousPatternError as e:
