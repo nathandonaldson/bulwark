@@ -375,8 +375,12 @@ function ReportRow({ report, last }) {
                                  : 'var(--red)';
   const tier = report.tier || 'scan';
   const probeCount = report.total || report.probe_count || '?';
+  const errorCount = report.errors || 0;
   const duration = report.duration_s ? _fmtDuration(report.duration_s) : '';
-  const label = `${tier} — ${probeCount} probes${duration ? ', ' + duration : ''}`;
+  // ADR-038: surface error count when present so an inflated defense_rate
+  // from network failures or 5xxs is visible at a glance.
+  const errorSuffix = errorCount > 0 ? `, ${errorCount} errors` : '';
+  const label = `${tier} — ${probeCount} probes${errorSuffix}${duration ? ', ' + duration : ''}`;
   const when = _fmtDate(report.completed_at || report.saved_at || report.created_at);
 
   async function onRetest() {
