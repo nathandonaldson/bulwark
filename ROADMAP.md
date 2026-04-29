@@ -1,45 +1,75 @@
 # Bulwark Roadmap
 
-## Current State (v1.0.1)
+See [`VERSION`](VERSION) for the current shipped version and
+[`CHANGELOG.md`](CHANGELOG.md) for the full release history.
 
-5 defense layers, 843 tests, Docker distribution, unified HTTP API, dashboard with auth, OpenClaw integration, three-tier red teaming.
+## Current state (v2.5.x)
 
-### Shipped
-- 5 defense layers: Sanitizer, TrustBoundary, TwoPhaseExecutor, CanarySystem, MapReduceIsolator
-- Pipeline orchestrator with async support
-- 77 attack patterns across 10 categories
-- Convenience API: `bulwark.clean()`, `bulwark.guard()`, `bulwark.protect()`
-- Unified HTTP API: `/v1/clean` runs full defense stack, `/v1/guard` checks output (language-agnostic)
-- Docker distribution: `docker run -p 3000:3000 nathandonaldson/bulwark`
-- LLM backend config: Anthropic API, OpenAI-compatible (local inference), or sanitize-only
-- Model dropdowns with short aliases that auto-resolve to latest version
-- Detection models: ProtectAI DeBERTa (ungated, ~30ms), PromptGuard-86M (gated)
-- Three-tier red teaming: Smoke Test (10), Standard Scan (~4k), Full Sweep (~33k) with dynamic counts from garak
-- Two-tier verdict scoring: structural analysis check eliminates false positives (100% defense rate on full sweep)
-- Retest failures from previous reports
-- Report persistence with download
-- Smart rate limiting (only delays probes that hit the LLM)
-- Event emission from /v1/clean and /v1/guard to dashboard
-- Smart status pill showing actual pipeline state + version
-- OpenClaw integration: Docker sidecar + npm plugin with infrastructure-level hooks
-- Dashboard bearer token auth via BULWARK_API_TOKEN
-- Docker hardening: multi-stage build, non-root user, no build tools in final image
-- Env vars override config file (Docker .env always wins)
-- Security: SSRF validation on execution paths, API key masking, defense-disable protection, XSS escaping
-- OpenAPI spec, contract specs with guarantee IDs, 12 ADRs
-- Anthropic SDK integration via `protect()`
-- `bulwark test` CLI with color output
-- GitHub Actions CI + Docker Hub publish
-- Security audited, benchmarked (<1ms deterministic layers)
+Detection-only architecture (ADR-031). Five-stage pipeline: Sanitizer →
+DeBERTa (mandatory) → PromptGuard (optional) → LLM Judge (optional) →
+Trust Boundary. 960+ tests. Docker distribution. FastAPI dashboard +
+React/Babel JSX UI compiled in-browser. Spec-driven development enforced
+in CI via `tests/test_spec_compliance.py`.
+
+### Shipped highlights
+
+- **Five-stage detection pipeline** — sanitizer + DeBERTa + optional
+  PromptGuard + optional LLM Judge + trust boundary (ADR-031, ADR-032,
+  ADR-033).
+- **Library/dashboard parity** — `Pipeline.from_config()` reads the same
+  YAML the dashboard reads and composes the same detector chain
+  (ADR-044, `G-PIPELINE-PARITY-001`).
+- **Fail-closed semantics** — `/v1/clean` returns HTTP 503 +
+  `error.code = "no_detectors_loaded"` when zero detectors are loaded
+  and the judge is disabled (ADR-040). Operators opt into sanitizer-only
+  via `BULWARK_ALLOW_NO_DETECTORS=1`.
+- **Byte-count content cap** — `/v1/clean.content` and `/v1/guard.text`
+  are capped in bytes, not chars (ADR-042). Tunable via
+  `BULWARK_MAX_CONTENT_SIZE`.
+- **Auth gate decoupled from judge** — `BULWARK_API_TOKEN` enables
+  Bearer auth on `/v1/clean` from non-loopback callers regardless of
+  judge state (ADR-041).
+- **HTTP API** — `/v1/clean`, `/v1/guard`, `/healthz`, dashboard `/api/*`.
+  Source of truth: `spec/openapi.yaml`.
+- **Sister CLIs** — `bulwark_bench` for detector-config bake-offs
+  (ADR-034), `bulwark_falsepos` for false-positive measurement
+  (ADR-036). False-positive harness surfaced as the 4th tier card on
+  the dashboard's Test page.
+- **Real-detector e2e CI lane** — nightly cron + per-PR job exercises
+  the canonical injections against real ProtectAI DeBERTa weights
+  (ADR-045).
+- **Split-evasion test coverage** — short-range gap is a guarantee
+  (`G-DETECTOR-WINDOW-EVASION-001`); long-range dilution is documented
+  as a non-guarantee (`NG-DETECTOR-WINDOW-EVASION-001`, ADR-046).
+- **Docker hardening** — multi-stage build, non-root user, no build
+  tools in final image (ADR-019).
+- **OpenClaw integration** — Docker sidecar + npm plugin with
+  infrastructure-level hooks (ADR-011).
+- **Wintermute integration** — personal-agent integration via the
+  Docker HTTP API (`docs/integrations/wintermute.md`).
+- **Spec-driven development** — every endpoint/feature has an OpenAPI
+  spec entry, a contract YAML with guarantee IDs, and an ADR (ADR-001).
 
 ### Next
-- **Docker image hardening** — CVE scan of `:latest` shows 1 critical + 7 high (litellm, jaraco.context, wheel, openssl). Most come from garak's dep tree (litellm, langchain, openai, boto3, cohere, mistralai, torch, …) which is only used by the optional red-team endpoints. See `spec/decisions/019-docker-image-hardening.md` for options: (A) split into `:latest` (minimal) + `:bench` (with garak), (B) pin/patch in place, (C) Docker Hardened Images / Chainguard base. Leaning A+B for the short term.
-- **LLM Guard integration** — broader scanner coverage (PII, toxicity)
-- **Transparent proxy mode** — Bulwark as a reverse proxy between your app and the LLM provider. Zero-code integration.
-- **LLM-as-judge for edge cases** — cheap model call to classify ambiguous verdicts in red teaming
+
+- **Semantic encoding detection (Phase H, deferred)** — base64 / ROT13 /
+  punycode decoding pre-pass at `/v1/clean`. Deliberately punted from
+  the Codex efficacy hardening series pending its own brainstorming
+  session — see Phase H in
+  [`docs/superpowers/plans/2026-04-29-codex-efficacy-hardening.md`](docs/superpowers/plans/2026-04-29-codex-efficacy-hardening.md).
+- **Content fingerprinting pre-pass** — strip benign filler before
+  classification to mitigate the long-range dilution gap documented by
+  ADR-046 (planned ADR-047).
+- **Promptfoo CI eval pipeline** — assertion-based regression testing
+  layered on top of the e2e detector lane.
 
 ### Future
-- **Promptfoo CI eval pipeline** — assertion-based regression testing
-- **CaMeL-style capability tracking** — fine-grained information flow control
-- **More attack patterns** — expand from 77+ with community contributions
-- **OpenClaw TypeScript plugin** — deeper integration via `before_agent_reply` hooks (version-dependent)
+
+- **Transparent proxy mode** — Bulwark as a reverse proxy between your
+  app and the LLM provider. Zero-code integration.
+- **CaMeL-style capability tracking** — fine-grained information flow
+  control.
+- **Community attack catalog growth** — expand the curated catalog
+  beyond the current 77 patterns × 10 categories with contributions.
+- **OpenClaw TypeScript plugin** — deeper integration via
+  `before_agent_reply` hooks (version-dependent).

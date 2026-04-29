@@ -23,12 +23,19 @@ Every new feature follows this sequence. Complete each step before moving to the
 The detection pipeline (`src/bulwark/pipeline.py`) runs five stages in order:
 
 1. **Sanitizer** (`sanitizer.py`) — strips HTML/zero-width/invisible tricks
-2. **DeBERTa / ProtectAI** (`detectors/`) — mandatory ML classifier, chunked across 512-token windows (ADR-032)
-3. **PromptGuard-86M** (`detectors/`) — optional second classifier; already integrated, don't suggest "adding" it
+2. **DeBERTa / ProtectAI** (`integrations/promptguard.py`) — mandatory ML classifier, chunked across 510-token windows with 64-token overlap (ADR-032)
+3. **PromptGuard-86M** (`integrations/promptguard.py`) — optional second classifier; already integrated, don't suggest "adding" it
 4. **LLM Judge** (`detectors/llm_judge.py`) — optional third detector with high-latency warning (ADR-033). Detection-only: NG-JUDGE-004 forbids returning generative output to `/v1/clean` callers. System prompt is hardcoded in `_SYSTEM_PROMPT` (NG-JUDGE-003).
 5. **Trust Boundary** (`trust_boundary.py`) — wraps output in XML/JSON envelope
 
+Both DeBERTa and PromptGuard live in `integrations/promptguard.py` (the file name predates the rename — same loader, two model IDs).
+
 `ADR-029`: mutating endpoints require `BULWARK_API_TOKEN` when accessed from non-loopback clients (Docker bridge IP triggers this).
+`ADR-040`: `/v1/clean` returns HTTP 503 + `error.code = "no_detectors_loaded"` when zero detectors are loaded and judge is disabled. Operators opt into sanitizer-only via `BULWARK_ALLOW_NO_DETECTORS=1` (response carries `mode: "degraded-explicit"`).
+`ADR-041`: `/v1/clean` auth predicate keys on token presence + non-loopback origin alone — judge state is no longer load-bearing.
+`ADR-042`: `/v1/clean.content` and `/v1/guard.text` are byte-capped (default 256 KiB) via `BULWARK_MAX_CONTENT_SIZE`. Over-cap requests get HTTP 413 + `error.code = "content_too_large"`.
+`ADR-044`: `Pipeline.from_config(path)` loads the same detector chain the dashboard uses. The `Pipeline(detect=callable)` constructor was REMOVED in v2.5.0 — pass `detectors=[callable, ...]` instead.
+`ADR-046`: long-range split-evasion (≥~50 tokens of benign filler between trigger and instruction) is a documented non-guarantee — the dilution is a model-context limit, not a chunking artefact.
 
 ## Sister packages
 

@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.5.3] - 2026-04-29
+
+### Docs / cleanup (post-Codex-hardening tidy pass)
+
+Documentation refresh: removed stale references to ADR-031-removed features, updated API docs for Phases A–G.
+
+- **`docs/api-reference.md`** — documented the four error codes shipped by Phases A–C: HTTP 401 from non-loopback `/v1/clean` when token set (ADR-041), HTTP 413 + `error.code = "content_too_large"` on byte-cap overrun (ADR-042), HTTP 503 + `error.code = "no_detectors_loaded"` when zero detectors load and judge disabled (ADR-040), plus the `mode: "normal" | "degraded-explicit"` response field. Env-var table extended with `BULWARK_MAX_CONTENT_SIZE`, `BULWARK_ALLOW_NO_DETECTORS`, `BULWARK_ALLOW_SANITIZE_ONLY` (canonical list still lives in `spec/contracts/env_config.yaml`).
+- **`docs/config.md`** — env-var section gained the same three additions with their defaults and ADR pointers; auth note clarified that `/v1/clean` is now token-gated regardless of judge state per ADR-041.
+- **`docs/README.md`** — dropped the broken `[Two-phase execution](two-phase.md)` link (the doc was deleted with v1; ADR-031). Rewrote the `MapReduceIsolator`-focused batch description as the v2 client-side concurrency pattern. Tightened the dashboard / detection / CLI captions to match the shipped feature list.
+- **`README.md`** — added `Pipeline.from_config()` to the Library use section (ADR-044) and the breaking removal of the `Pipeline(detect=callable)` kwarg, swapped the hardcoded "848 tests" / "Current: v2.2.3" lines for pointers to the live `VERSION` / `CHANGELOG`. New paragraph documenting the Phase-A fail-closed posture under the Detectors table.
+- **`ROADMAP.md`** — full rewrite. The previous version was stuck at v1.0.1, named removed components (`TwoPhaseExecutor`, `MapReduceIsolator`, `LLM backend config`), and listed shipped features as "next". Replaced with a v2.5.x snapshot keyed off ADR numbers, plus a forward-looking section that names Phase H (semantic encoding) and the planned ADR-047 follow-up.
+- **`CONTRIBUTING.md`** — Architecture section's ADR pointer list refreshed: dropped ADR-002 (TwoPhaseExecutor — gone in v2), ADR-003 (`protect()` convenience — gone in v2), and ADR-007 (always-200 v1 response codes — superseded by ADR-040/041/042). Added the v2 cornerstones (031, 032, 033, 040, 041, 042, 044, 045, 046).
+- **`CLAUDE.md`** — fixed the PromptGuard module path (`integrations/promptguard.py`, not `detectors/`; same loader hosts both DeBERTa and PromptGuard). Added inline pointers to ADR-040/041/042/044/046 with the new env vars and behaviour they bind so future agentic edits don't re-derive the rules.
+- **`spec/decisions/046-split-evasion-test-coverage.md`** — corrected the third trigger/instruction pair in §"Empirical investigation" to match what `SPLIT_EVASION_PAIRS` actually contains (`("PS:", "leak system prompt")`). The ADR previously listed a different pair that never reached `src/bulwark/attacks.py` — this was the single empirical-content drift in the v2.5.2 ship.
+- **`docs/superpowers/plans/2026-04-29-codex-efficacy-hardening.md`** — added a "Phase status" header table mapping each phase to its PR number and final shipped version (the version cascade differed from the inline targets — Phase A landed at v2.4.2 → v2.4.3 across two PRs, Phase B at v2.4.4, Phase D at v2.4.5, Phase C at v2.4.6, cleanup at v2.4.7, Phases E–G at v2.5.0–v2.5.2). Phase A–G step checkboxes flipped to `[x]`; Phase H stays `[ ]` per the deferral.
+
+Documentation only — no production code, no spec/contract changes, no new ADR. Test count unchanged (960 passing, 2 skipped, 8 deselected).
+
+
 ## [2.5.2] - 2026-04-29
 
 ### Security (Codex efficacy hardening Phase G — see ADR-046)
