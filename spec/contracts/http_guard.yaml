@@ -28,6 +28,16 @@ guarantees:
       the Codex DoS finding where attacker-controlled canary_tokens
       forced linear CPU cost (5k tokens × 1M text ≈ 21 s per request)
       on an unauthenticated endpoint. See ADR-030.
+  - id: G-HTTP-GUARD-CONTENT-BYTES-001
+    summary: >
+      /v1/guard MUST reject any request whose text field exceeds
+      262144 bytes (or BULWARK_MAX_CONTENT_SIZE if set) when UTF-8
+      encoded with HTTP 413 and a JSON body of the form
+      {"error": {"code": "content_too_large", "message": "..."}}.
+      Mirrors G-HTTP-CLEAN-CONTENT-BYTES-001 — the same byte cap
+      applies to both endpoints so an attacker cannot launder
+      oversized payloads through the output-side endpoint instead
+      of /v1/clean. ADR-042.
 
 non_guarantees:
   - id: NG-HTTP-GUARD-001

@@ -1,5 +1,7 @@
 """Bulwark Dashboard — FastAPI application."""
 from fastapi import FastAPI, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -17,7 +19,12 @@ from starlette.responses import JSONResponse as StarletteJSONResponse
 
 from bulwark.dashboard.db import EventDB
 from bulwark.dashboard.config import BulwarkConfig, AVAILABLE_INTEGRATIONS, IntegrationConfig, get_api_token, env_truthy
-from bulwark.dashboard.models import RetestRequest, CanaryUpsertRequest
+from bulwark.dashboard.models import (
+    CONTENT_BYTE_LIMIT_SENTINEL,
+    MAX_CONTENT_SIZE,
+    RetestRequest,
+    CanaryUpsertRequest,
+)
 from bulwark.presets import load_presets
 from bulwark.canary_shapes import AVAILABLE_SHAPES, generate_canary
 
@@ -188,6 +195,36 @@ from bulwark.dashboard.api_v1 import router as v1_router
 app.include_router(v1_router)
 db = EventDB()
 config = BulwarkConfig.load()
+
+
+# ADR-042 / G-HTTP-CLEAN-CONTENT-BYTES-001: translate the byte-cap
+# field-validator failure (raised as a sentinel-tagged ValueError) into
+# HTTP 413 content_too_large. All other Pydantic validation errors keep
+# FastAPI's default 422 path. Registered as soon as the router is
+# attached so it covers /v1/clean and /v1/guard equivalently.
+@app.exception_handler(RequestValidationError)
+async def _content_byte_limit_handler(request, exc: RequestValidationError):
+    """Map the byte-cap sentinel ValueError to HTTP 413; defer everything
+    else to FastAPI's default 422 handler.
+    """
+    for err in exc.errors():
+        # Pydantic v2: err["type"] is "value_error" and err["msg"] is
+        # "Value error, <our sentinel>". The sentinel substring match is
+        # tight enough to avoid false positives.
+        if CONTENT_BYTE_LIMIT_SENTINEL in str(err.get("msg", "")):
+            return StarletteJSONResponse(
+                status_code=413,
+                content={
+                    "error": {
+                        "code": "content_too_large",
+                        "message": (
+                            f"content exceeds maximum byte size "
+                            f"({MAX_CONTENT_SIZE} bytes when UTF-8 encoded)"
+                        ),
+                    }
+                },
+            )
+    return await request_validation_exception_handler(request, exc)
 
 
 @app.get("/healthz")

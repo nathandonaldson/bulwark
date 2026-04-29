@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.4.6] - 2026-04-29
+
+### Security (Codex efficacy hardening Phase C — see ADR-042)
+
+- **Byte-count limit on `/v1/clean` and `/v1/guard` content fields.** `_MAX_CONTENT_SIZE` (262,144 = 256 KiB) was always documented as bytes, but `Field(max_length=)` measures `len(str)`. A 4-byte UTF-8 char × 70k payload sailed past the cap several-fold, expanding attack surface and detector latency for non-ASCII payloads. Replaced with `field_validator`s measuring `len(v.encode("utf-8"))` on both `CleanRequest.content` and `GuardRequest.text`. New global `RequestValidationError` exception handler returns HTTP 413 with `error.code = "content_too_large"` for sentinel-tagged validation errors; non-sentinel errors flow through FastAPI's default 422 path unchanged.
+- **`MAX_CONTENT_SIZE` made public.** The constant has three cross-module readers (`app.py` + 2 test files), so the leading underscore was wrong. Renamed and exposed without aliasing-on-import.
+- **`app.py` import block tidied.** Inlined imports added by the byte-count work moved to the top of the file with the other framework imports for PEP 8 contiguity. Dropped redundant `_JSONResponse` alias; reuse the existing `StarletteJSONResponse`.
+
+New guarantees `G-HTTP-CLEAN-CONTENT-BYTES-001` and `G-HTTP-GUARD-CONTENT-BYTES-001`. OpenAPI documents 413 responses on both endpoints. 938 tests pass (was 932; 5 new tests across both endpoints — oversize 4-byte UTF-8 → 413, ASCII at limit → not 413, unicode under limit → not 413).
+
+### Notes
+
+- Status code: HTTP 413 (Payload Too Large per RFC 9110 §15.5.14) — consistent with what NGINX / Cloudflare emit upstream when a payload trips a perimeter cap.
+- Implementation: `field_validator` on the model rather than a Starlette middleware. Single source of truth, survives endpoint refactors, and the `BULWARK_MAX_CONTENT_SIZE` env override applies uniformly. Body is fully deserialized before the byte check fires; for tighter perimeters, uvicorn body-size flags or upstream NGINX/Cloudflare apply first.
+
+
 ## [2.4.5] - 2026-04-29
 
 ### Docs / cleanup (Codex efficacy hardening Phase D — see ADR-043)
