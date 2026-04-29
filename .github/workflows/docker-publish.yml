@@ -42,7 +42,15 @@ jobs:
       - name: Smoke test — container starts and serves API
         run: |
           set -euo pipefail
-          docker run -d --name bulwark-test -p 3000:3000 bulwark:test
+          # ADR-038 makes /healthz report status=degraded when no detectors are
+          # loaded; ADR-040 makes /v1/clean fail closed (HTTP 503) in the same
+          # state. The bare image has no model weights baked in, so the smoke
+          # test must opt into the degraded-explicit posture for both endpoints
+          # to behave like an operator's sanitize-only deployment.
+          docker run -d --name bulwark-test -p 3000:3000 \
+            -e BULWARK_ALLOW_SANITIZE_ONLY=1 \
+            -e BULWARK_ALLOW_NO_DETECTORS=1 \
+            bulwark:test
 
           # Poll /healthz until it's ready instead of guessing at a sleep
           # duration. If we pass the deadline, or the container exits early,
