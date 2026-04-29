@@ -34,6 +34,14 @@ guarantees:
       (via walk-up from the module location) and wheel installs (via
       importlib.resources on bulwark._data). Neither layout raises
       FileNotFoundError on a correctly built distribution. See ADR-023.
+  - id: G-SPEC-PRESETS-NO-XML-ESCAPE-001
+    summary: >
+      Preset descriptions in spec/presets.yaml MUST NOT claim XML escaping or
+      payload re-escaping behaviour. Trust boundary tests
+      (tests/test_trust_boundary.py) prove the boundary WRAPS untrusted content
+      but does NOT escape XML characters in the payload — the wrap plus the
+      security instruction is the defense. Enforced by
+      tests/test_spec_compliance.py::TestPresetTrustBoundaryDrift. See ADR-043.
 
 non_guarantees:
   - id: NG-PRESETS-001
