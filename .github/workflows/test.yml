@@ -5,6 +5,15 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # 07:00 UTC daily — light traffic on GitHub runners. Builds cache-warmup
+    # health history for the e2e-detectors lane (ADR-045) so we can
+    # eventually flip it to required: true with confidence.
+    - cron: '0 7 * * *'
+  # Manual re-run for fixing flakes — lets a maintainer re-trigger the
+  # e2e lane after a transient HuggingFace CDN hiccup without an empty
+  # commit (M-4 from /codex review).
+  workflow_dispatch:
 
 jobs:
   test:
@@ -33,4 +42,57 @@ jobs:
 
       - name: Run tests
         run: |
+          # The e2e_slow marker is excluded by default (pyproject addopts).
+          # Real-detector binding lives in the e2e-detectors job below.
           PYTHONPATH=src pytest tests/ -v --tb=short
+
+  # ADR-045 / G-E2E-DETECTOR-CI-001: load real DeBERTa weights and assert
+  # canonical prompt-injection samples are blocked with HTTP 422. Without
+  # this lane, every other detector test in the suite uses a fake
+  # detector and a regression in the real-model load path could ship
+  # silently. Single Python version because the model isn't a function
+  # of the Python version, and the matrix `test` job already proves
+  # cross-version compatibility for the rest of the surface.
+  e2e-detectors:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      # Hash both the model-id source (promptguard.py defines the HF model
+      # ID in MODELS) and the workflow file into the cache key. A contributor
+      # bumping the model ID edits promptguard.py without necessarily
+      # touching this workflow; hashing both ensures the cache rotates
+      # atomically with the policy change either way. Persisted across
+      # runs by actions/cache.
+      - name: Restore HuggingFace cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface
+          key: ${{ runner.os }}-hf-protectai-${{ hashFiles('src/bulwark/integrations/promptguard.py', '.github/workflows/test.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-hf-protectai-
+
+      - name: Install dependencies (CPU-only torch)
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pyyaml
+          # CPU-only torch wheel — saves ~1 GB vs the default CUDA wheel.
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install transformers
+          pip install -e ".[cli,bench,dashboard]"
+
+      - name: Run e2e detector tests
+        env:
+          # Quieter logs during model download.
+          TRANSFORMERS_VERBOSITY: error
+          HF_HUB_DISABLE_TELEMETRY: "1"
+        run: |
+          PYTHONPATH=src pytest tests/test_e2e_real_detectors.py -v -m e2e_slow --tb=short

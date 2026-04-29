@@ -1,0 +1,45 @@
+scope: CI confidence — real-detector end-to-end
+version: "2.4.8"
+
+guarantees:
+  - id: G-E2E-DETECTOR-CI-001
+    summary: >
+      CI MUST run at least one e2e test per shipped detector model that
+      loads the real model weights, posts a canonical prompt-injection
+      sample to /v1/clean, and asserts the response is HTTP 422 with a
+      block_reason indicating detection. The lane gates merges (or is
+      surfaced clearly in PR checks even when not yet a required check).
+      Without this lane, every other guarantee in spec/contracts/http_clean.yaml
+      around detector behaviour is implementation-shaped — fake detectors
+      could be wired into TestClient and pass the suite while a default
+      Docker deploy is silently broken. ADR-045.
+
+non_guarantees:
+  - id: NG-E2E-DETECTOR-CI-001
+    summary: >
+      The e2e lane does NOT prove cross-version stability — DeBERTa weight
+      revisions are pinned by HuggingFace cache key, and a future revision
+      that drops one of our canonical samples below the 0.9 threshold would
+      silently regress until the lane next runs against the new revision.
+      ADR-045 names this gap explicitly; the broader red-team / falsepos
+      tiers cover the wider efficacy surface.
+  - id: NG-E2E-DETECTOR-CI-002
+    summary: >
+      The canonical sample set is a smoke test, not an efficacy benchmark.
+      Five hand-picked injections cover the most common patterns
+      (instruction override, role hijack, prompt leak, jailbreak) and are
+      chosen to be stable across DeBERTa minor versions. Defense-rate
+      claims belong in the bench / red-team tiers, not here.
+  - id: NG-E2E-DETECTOR-CI-003
+    summary: >
+      The lane is run on the default lane runner (ubuntu-latest, CPU-only)
+      and downloads weights at job time. It is NOT a latency benchmark and
+      its wall-clock numbers are not load-bearing. Model-variant tradeoffs
+      (size vs accuracy on the canonical set) are an ADR-045 §Decision
+      concern, not a contractual non-guarantee here.
+  - id: NG-E2E-DETECTOR-CI-004
+    summary: >
+      Multilingual coverage is not part of this lane. The canonical samples
+      are English-only; the multilingual / multi-turn / encoded categories
+      in src/bulwark/attacks.py have known false-negative rates against the
+      DeBERTa default and are out of scope for the smoke-binding test.
