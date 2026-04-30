@@ -31,6 +31,8 @@ The detection pipeline (`src/bulwark/pipeline.py`) runs five stages in order:
 Both DeBERTa and PromptGuard live in `integrations/promptguard.py` (the file name predates the rename — same loader, two model IDs).
 
 `ADR-029`: mutating endpoints require `BULWARK_API_TOKEN` when accessed from non-loopback clients (Docker bridge IP triggers this).
+`ADR-031`: v2 detection-only architecture. /v1/clean classifies and either returns sanitized content or raises an error. No LLM generation through /v1/clean.
+`ADR-033`: optional LLM judge as third detector. Detection-only (NG-JUDGE-004 forbids returning generative output). System prompt hardcoded (NG-JUDGE-003). Per-request nonce-delimited markers wrap user input.
 `ADR-040`: `/v1/clean` returns HTTP 503 + `error.code = "no_detectors_loaded"` when zero detectors are loaded and judge is disabled. Operators opt into sanitizer-only via `BULWARK_ALLOW_NO_DETECTORS=1` (response carries `mode: "degraded-explicit"`).
 `ADR-041`: `/v1/clean` auth predicate keys on token presence + non-loopback origin alone — judge state is no longer load-bearing.
 `ADR-042`: `/v1/clean.content` and `/v1/guard.text` are byte-capped (default 256 KiB) via `BULWARK_MAX_CONTENT_SIZE`. Over-cap requests get HTTP 413 + `error.code = "content_too_large"`.

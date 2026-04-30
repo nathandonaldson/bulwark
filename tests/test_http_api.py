@@ -14,12 +14,7 @@ except ImportError:
 
 pytestmark = pytest.mark.skipif(not HAS_FASTAPI, reason="FastAPI not installed")
 
-
-def _get_client():
-    """Create a TestClient for the dashboard app."""
-    from fastapi.testclient import TestClient
-    from bulwark.dashboard.app import app
-    return TestClient(app)
+from tests.conftest import _get_client  # shared dashboard TestClient factory
 
 
 # ---------------------------------------------------------------------------

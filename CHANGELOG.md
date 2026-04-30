@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.5.15] - 2026-05-01
+
+### Cleanup (Tier 2 A5/A6 + Tier 4 housekeeping from 2026-05-01 simplification audit)
+
+- **Merged `tests/test_shortcuts.py` into `tests/test_contracts.py`.** The two files were near-duplicates targeting `bulwark.shortcuts.{clean,guard}` with the same guarantee IDs. 6 unique tests preserved in `test_contracts.py` (`test_label_in_tag`, `test_accessible_from_top_level` × 2, `test_tool_call_pattern_raises`, `test_canary_clean_passes`, `test_canary_leak_error_importable`); `test_shortcuts.py` deleted. `test_contracts.py` grew from 25 to 31 tests.
+- **Removed `AnalysisGuard` / `AnalysisSuspiciousError` package-level aliases.** Per the 2026-05-01 audit (analyst 2): zero internal call sites, every test that uses the old name does its own local rename via `from bulwark.guard import PatternGuard as AnalysisGuard`. Aliases remained from the v2.0 transition and have outlived their utility. Removed from `src/bulwark/__init__.py` (top-level + `__all__`) and `src/bulwark/guard.py` (module-level). Operators relying on the old names should switch to `PatternGuard` / `SuspiciousPatternError` from `bulwark.guard`.
+- **CLAUDE.md ADR pointer block** now cites ADR-031 (the most-referenced ADR in the project — v2 detection-only cutover) and ADR-033 (LLM judge surface). Both are load-bearing for agent edits.
+- **Conftest factory for HTTP client.** Hoisted `_get_client()` from 4 test files (`test_http_api.py`, `test_auth.py`, `test_dashboard_layers.py`, `test_content_byte_limit.py`) into `tests/conftest.py` as a shared factory function. Source-of-truth-ifies the test client so future API-shape changes update one place, not four.
+
 ## [2.5.14] - 2026-05-01
 
 ### Behaviour change (dashboard UI honesty — closes audit-05 F2/F13/F16)

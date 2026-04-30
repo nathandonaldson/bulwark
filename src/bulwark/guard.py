@@ -88,7 +88,3 @@ class PatternGuard:
             ))
 
 
-# Back-compat aliases — some internal modules still import the old names.
-# Library consumers: prefer PatternGuard / SuspiciousPatternError in v2.
-AnalysisGuard = PatternGuard
-AnalysisSuspiciousError = SuspiciousPatternError
