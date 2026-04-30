@@ -557,6 +557,50 @@ components:
             Set to "degraded-explicit" when BULWARK_ALLOW_NO_DETECTORS=1
             and the request was served sanitize-only with zero detectors
             available. Absent in normal (defended) responses. See ADR-040.
+        decoded_variants:
+          type: array
+          nullable: true
+          description: |
+            Variants of the input that the detector chain was run against.
+            Each entry records its label, depth, and skip status.
+            See ADR-047 for the decode-and-detect-parallel architecture.
+            Absent (or empty) when neither ROT13 nor base64 decoding
+            produced a variant for this request.
+          items:
+            type: object
+            required: [label, depth, skipped]
+            properties:
+              label:
+                type: string
+                description: |
+                  Variant identifier. "original" for the cleaned input;
+                  "rot13" for the ROT13-rotated text;
+                  "base64@<start>:<end>" for a decoded base64 substring;
+                  nested labels separated by "/" (e.g.
+                  "base64@10:42/rot13").
+                examples: [original, rot13, "base64@45:81"]
+              depth:
+                type: integer
+                description: 0 for original, 1 for first-pass decoded, 2 for second-pass.
+                minimum: 0
+                maximum: 2
+              skipped:
+                type: boolean
+                description: True when the variant was generated but rejected by the quality gate or candidate cap.
+              skip_reason:
+                type: string
+                description: |
+                  Populated only when skipped is true. One of:
+                  too_short, not_utf8, low_printable_ratio:<ratio>,
+                  decode_failed, candidate_cap.
+        blocked_at_variant:
+          type: string
+          nullable: true
+          description: |
+            Label of the variant that triggered the block. Populated only
+            on blocked (HTTP 422) responses when the block was attributed
+            to a decoded variant. Absent on 200 OK and on blocks attributed
+            to the original text. See ADR-047.
 
     GuardRequest:
       type: object
