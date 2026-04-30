@@ -4,6 +4,21 @@ import pytest
 from bulwark.canary import CanarySystem
 
 
+def _get_client():
+    """Create a TestClient for the dashboard app.
+
+    Hoisted from per-file copies in test_http_api.py / test_auth.py /
+    test_dashboard_layers.py / test_content_byte_limit.py — single
+    source of truth so an API-shape change updates one place.
+
+    Imported lazily so tests gated on FastAPI availability still skip
+    cleanly via their module-level pytestmark.
+    """
+    from fastapi.testclient import TestClient
+    from bulwark.dashboard.app import app
+    return TestClient(app)
+
+
 @pytest.fixture
 def canary():
     """Fresh CanarySystem instance."""
