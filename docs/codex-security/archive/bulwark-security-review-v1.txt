@@ -1,5 +1,7 @@
 # Bulwark Security — Codex Security Review
 
+> **ARCHIVED 2026-05-01 — frozen at v1.x architecture. Does not reflect v2 (ADR-031) detection-only design. Do not consult for current threat model.**
+
 ## 1. Overview
 
 Bulwark is a prompt-injection defense toolkit for LLM applications. It ships as:
