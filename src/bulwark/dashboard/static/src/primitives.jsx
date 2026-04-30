@@ -92,16 +92,15 @@ function Verdict({ v }) {
   );
 }
 
-// Layer icons (minimal SVG glyphs)
+// Layer icons (minimal SVG glyphs) — one per v2 layer (sanitizer, detection,
+// boundary, canary). The v1 analyze / bridge / execute glyphs were dropped
+// in v2.5.16 (zero render sites post-ADR-031).
 function LayerIcon({ id, size = 16 }) {
   const paths = {
     sanitizer: <g stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round"><path d="M3 5h10M3 9h10M3 13h6"/><path d="M11 13l2 2 3-4" stroke="var(--accent)"/></g>,
     boundary:  <g stroke="currentColor" strokeWidth="1.4" fill="none"><rect x="2.5" y="3.5" width="11" height="9" rx="1"/><path d="M5 6h6M5 10h4"/></g>,
     detection: <g stroke="currentColor" strokeWidth="1.4" fill="none"><circle cx="7" cy="7" r="4"/><path d="M10 10l3.5 3.5"/></g>,
-    analyze:   <g stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round"><path d="M2 8h12M6 4l-4 4 4 4"/></g>,
-    bridge:    <g stroke="currentColor" strokeWidth="1.4" fill="none"><path d="M2 11l3-4 3 3 3-2 3 3"/><path d="M2 13h12"/></g>,
     canary:    <g stroke="currentColor" strokeWidth="1.4" fill="none"><path d="M8 2v12M5 5l3-3 3 3M5 11l3 3 3-3"/></g>,
-    execute:   <g stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round"><path d="M4 3l8 5-8 5V3z"/></g>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" style={{color: 'currentColor', flexShrink: 0}}>

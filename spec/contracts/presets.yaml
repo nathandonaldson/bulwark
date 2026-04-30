@@ -17,8 +17,11 @@ guarantees:
       at load time.
   - id: G-PRESETS-004
     summary: >
-      Preset family is one of {sanitizer, boundary, bridge, detection, canary};
-      any other value raises ValueError at load time.
+      Preset family is one of {sanitizer, boundary, detection, canary};
+      any other value raises ValueError at load time. The v1 "bridge" family
+      was retired in v2.5.16 — the two presets that used it now declare
+      `boundary` (Structured action injection) and `canary` (Base64 canary exfil)
+      to reflect what they actually test.
   - id: G-PRESETS-005
     summary: >
       GET /api/presets returns 200 with JSON body {presets: [...]} where each

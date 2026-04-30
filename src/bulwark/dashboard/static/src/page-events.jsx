@@ -294,9 +294,10 @@ function EventExpansion({ event }) {
 }
 
 function _defaultTrace(event) {
-  // When the backend doesn't carry a trace, synthesize a 5-step pipeline view
-  // so the expansion pane still shows something useful.
-  return LAYERS.slice(0, 5).map(l => ({ id: l.id }));
+  // When the backend doesn't carry a trace, synthesize a per-layer pipeline
+  // view so the expansion pane still shows something useful. Layers come
+  // from the canonical LAYERS list (sanitizer, detection, boundary, canary).
+  return LAYERS.map(l => ({ id: l.id }));
 }
 
 function _verdictColor(v) {

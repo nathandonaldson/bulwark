@@ -19,7 +19,7 @@ categories are stable.
 | delimiter_escape      | 6     | XML tag injection, boundary escapes                  |
 | tool_manipulation     | 6     | Tool parameter injection, unauthorized calls         |
 | multi_turn            | 5     | Multi-message injection chains                       |
-| bridge_exploitation   | 6     | Boundary-escape patterns retained from v1            |
+| boundary_escape       | 6     | Structured-payload trust-boundary escape patterns    |
 
 An 11th category — `split_evasion` — is generated on demand by
 `AttackSuite.generate_split_evasion_samples()` rather than registered

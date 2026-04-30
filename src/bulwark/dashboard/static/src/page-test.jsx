@@ -27,11 +27,13 @@ function PageTest({ store }) {
     };
   }, []);
 
+  // Mirrors _ALLOWED_FAMILIES in src/bulwark/presets.py.
   const categories = [
     { id: 'all', label: 'All' },
     { id: 'sanitizer', label: 'Sanitizer' },
     { id: 'boundary', label: 'Boundary' },
-    { id: 'bridge', label: 'Bridge' },
+    { id: 'detection', label: 'Detection' },
+    { id: 'canary', label: 'Canary' },
   ];
   const presets = category === 'all' ? store.presets : store.presets.filter(p => p.family === category);
 
@@ -68,7 +70,7 @@ function PageTest({ store }) {
   return (
     <div style={{padding: '28px 28px 60px', maxWidth: 1320, margin: '0 auto'}}>
       <SectionTitle eyebrow="Red team" title="Test your defenses" size="lg"
-        action={<span className="dim" style={{fontSize: 12.5}}>Paste untrusted content, select a preset, or generate payloads</span>} />
+        action={<span className="dim" style={{fontSize: 12.5}}>Paste untrusted content or select a preset</span>} />
 
       <div style={{display: 'grid', gridTemplateColumns: '260px 1fr 1fr', gap: 18, alignItems: 'start', marginBottom: 28}}>
         {/* Payload library */}
@@ -150,18 +152,18 @@ function PageTest({ store }) {
 
 // Map backend trace .layer values to the display layer ids used by LAYERS.
 // Mirrors _normalizeEventLayer in data.jsx — kept local to avoid coupling.
+// Post-ADR-031: only the four v2 layers exist (sanitizer, detection,
+// boundary, canary). The v1 analyze / execute / executor / guard /
+// bridge keys were dropped in v2.5.16; analysis_guard maps to canary
+// (the canonical mapping in data.jsx::_normalizeEventLayer).
 function _normalizeTraceLayer(raw) {
   if (!raw) return 'sanitizer';
   if (raw.startsWith && raw.startsWith('detection:')) return 'detection';
   const direct = {
     sanitizer: 'sanitizer',
     trust_boundary: 'boundary',
-    analysis_guard: 'bridge',
+    analysis_guard: 'canary',
     canary: 'canary',
-    analyze: 'analyze',
-    execute: 'execute',
-    executor: 'analyze',
-    guard: 'bridge',
   };
   return direct[raw] || raw;
 }
@@ -266,7 +268,7 @@ function RedTeam({ store }) {
               )}
             </div>
             <div className="dim" style={{fontSize: 12.5, marginTop: 4, maxWidth: 540}}>
-              Sends Garak's attack payloads through your real Bulwark pipeline with the configured LLM backend.
+              Sends Garak's attack payloads through your real /v1/clean pipeline (sanitizer → DeBERTa / PromptGuard / optional LLM judge → trust boundary).
             </div>
           </div>
           {store.running && <button className="btn btn-danger" onClick={() => BulwarkStore.stopRun()}>⬛ Stop</button>}
