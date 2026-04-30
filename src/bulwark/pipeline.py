@@ -48,11 +48,18 @@ class Pipeline:
     with the exception message in `block_reason`. This mirrors the
     dashboard's iteration over `_detection_checks` plus the optional LLM
     judge — see G-PIPELINE-PARITY-001.
+
+    v2.5.4 (ADR-047 / Phase H): each detector runs once per decoded
+    variant of the cleaned text. ROT13 always-on; base64 opt-in via
+    `decode_base64`. Trust boundary still wraps the original cleaned
+    text — variants are a detection-only fan-out
+    (NG-CLEAN-DECODE-VARIANTS-PRESERVED-001).
     """
     sanitizer: Optional[Sanitizer] = None
     trust_boundary: Optional[TrustBoundary] = None
     detectors: List[Callable[[str], object]] = field(default_factory=list)
     emitter: Optional[EventEmitter] = None
+    decode_base64: bool = False
 
     def run(self, content: str, source: str = "external",
             label: Optional[str] = None) -> PipelineResult:
@@ -77,6 +84,13 @@ class Pipeline:
                 "detail": f"{'Modified' if was_modified else 'Clean'}: {len(content)} -> {len(cleaned)} chars",
             })
 
+        # ADR-047 / Phase H: build decoded variants once; each detector runs
+        # over every non-skipped variant. Block on first hit on any variant.
+        from bulwark.decoders import decode_rescan_variants
+        variants = decode_rescan_variants(
+            cleaned, decode_base64=self.decode_base64,
+        ) if cleaned else []
+
         # Detector chain (G-PIPELINE-PARITY-001). Each detector is a
         # callable that raises SuspiciousPatternError to block. Order is
         # the order the chain was constructed — for from_config() this is
@@ -84,25 +98,45 @@ class Pipeline:
         for index, detector in enumerate(self.detectors):
             step += 1
             layer_name = _detector_layer_name(detector, index)
-            try:
-                detector(cleaned)
+            blocked_exc: Optional[Exception] = None
+            blocked_variant_label: Optional[str] = None
+            for variant in variants or [None]:
+                # variants is empty when content is empty — fall back to
+                # running the detector on the cleaned text as before.
+                target = variant.text if variant is not None else cleaned
+                if variant is not None and (variant.skipped or not variant.text):
+                    continue
+                try:
+                    detector(target)
+                except Exception as exc:
+                    blocked_exc = exc
+                    blocked_variant_label = (
+                        variant.label if variant is not None else "original"
+                    )
+                    break
+            if blocked_exc is None:
                 trace.append({
                     "step": step,
                     "layer": layer_name,
                     "verdict": "passed",
                     "detail": "Detector passed",
                 })
-            except Exception as exc:
+            else:
+                variant_suffix = (
+                    f" variant={blocked_variant_label}"
+                    if blocked_variant_label and blocked_variant_label != "original"
+                    else ""
+                )
                 trace.append({
                     "step": step,
                     "layer": layer_name,
                     "verdict": "blocked",
-                    "detail": str(exc),
+                    "detail": f"{blocked_exc}{variant_suffix}",
                 })
                 return PipelineResult(
                     result="",
                     blocked=True,
-                    block_reason=f"Detector blocked: {exc}",
+                    block_reason=f"Detector blocked: {blocked_exc}",
                     neutralized=neutralized,
                     trace=trace,
                 )
@@ -184,6 +218,7 @@ class Pipeline:
             sanitizer = Sanitizer()
             trust_boundary = TrustBoundary()
             chain: List[Callable[[str], object]] = []
+            decode_base64 = False
         else:
             sanitizer = None
             if bulwark_config.sanitizer_enabled:
@@ -196,6 +231,8 @@ class Pipeline:
                 TrustBoundary() if bulwark_config.trust_boundary_enabled else None
             )
             chain = _build_detector_chain(bulwark_config)
+            # ADR-047: dashboard parity for the decode-rescan opt-in flag.
+            decode_base64 = bool(getattr(bulwark_config, "decode_base64", False))
 
         if detectors:
             chain.extend(detectors)
@@ -204,6 +241,7 @@ class Pipeline:
             sanitizer=sanitizer,
             trust_boundary=trust_boundary,
             detectors=chain,
+            decode_base64=decode_base64,
         )
 
 

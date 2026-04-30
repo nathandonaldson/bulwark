@@ -114,6 +114,12 @@ class BulwarkConfig:
     strip_emoji_smuggling: bool = True
     strip_bidi: bool = True
 
+    # ADR-047 / Phase H: opt-in base64 decode-rescan in /v1/clean.
+    # ROT13 is always-on (zero-FP cost — rotated normal English is gibberish
+    # detectors classify SAFE) and not a config field. Env override:
+    # BULWARK_DECODE_BASE64=1 routed through env_truthy() in _apply_env_vars.
+    decode_base64: bool = False
+
     # PatternGuard (regex patterns used by /v1/guard, not on input)
     guard_patterns: list[str] = field(default_factory=lambda: list(DEFAULT_PATTERNS))
     guard_max_length: int = 5000
@@ -159,6 +165,11 @@ class BulwarkConfig:
         webhook = os.environ.get("BULWARK_WEBHOOK_URL")
         if webhook is not None:
             cfg.webhook_url = webhook
+        # ADR-047: BULWARK_DECODE_BASE64 opts into base64 decode-rescan.
+        # Uses the same env_truthy() helper as ADR-040's
+        # BULWARK_ALLOW_NO_DETECTORS so truthy-value parsing stays consistent.
+        if env_truthy("BULWARK_DECODE_BASE64"):
+            cfg.decode_base64 = True
 
     @classmethod
     def load(cls, path: str = None) -> "BulwarkConfig":

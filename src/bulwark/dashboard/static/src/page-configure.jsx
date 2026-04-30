@@ -229,9 +229,11 @@ function SubToggle({ name, desc, on, onToggle }) {
 
 function SanitizerPane({ store, stage }) {
   const opts = [
-    { id: 'emoji_smuggling', name: 'Emoji smuggling defense', desc: 'Strip variation selectors and tag characters' },
-    { id: 'bidi_override',   name: 'Bidirectional override',  desc: 'Strip bidi override and embedding characters' },
-    { id: 'nfkc',            name: 'NFKC normalization',      desc: 'Map Unicode homoglyphs to canonical forms' },
+    { id: 'emoji_smuggling',   name: 'Emoji smuggling defense', desc: 'Strip variation selectors and tag characters' },
+    { id: 'bidi_override',     name: 'Bidirectional override',  desc: 'Strip bidi override and embedding characters' },
+    { id: 'nfkc',              name: 'NFKC normalization',      desc: 'Map Unicode homoglyphs to canonical forms' },
+    { id: 'encoding_canaries', name: 'HTML / percent decode',   desc: 'Decode HTML entities and percent-encoded text inside the sanitizer (ADR-039)' },
+    { id: 'decode_base64',     name: 'Base64 decode-rescan',    desc: 'Opt-in: detect prompt injections hidden in base64 substrings. May increase FP on data URIs / JWTs / OAuth tokens. ROT13 is always-on; base64 is gated by this flag. See ADR-047.' },
   ];
   return (
     <div className="card" style={{padding: 0}}>

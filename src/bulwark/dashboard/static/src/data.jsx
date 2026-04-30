@@ -25,6 +25,7 @@ const _LAYER_TO_CONFIG = {
   emoji_smuggling:   'strip_emoji_smuggling',
   bidi_override:     'strip_bidi',
   nfkc:              'normalize_unicode',
+  decode_base64:     'decode_base64',  // ADR-047 — opt-in base64 decode-rescan
 };
 
 // Backend event.layer → dashboard layer id.
@@ -64,6 +65,7 @@ function _layerConfigFromBackend(cfg) {
     emoji_smuggling:   !!cfg.strip_emoji_smuggling,
     bidi_override:     !!cfg.strip_bidi,
     nfkc:              !!cfg.normalize_unicode,
+    decode_base64:     !!cfg.decode_base64,  // ADR-047
   };
 }
 
@@ -98,6 +100,7 @@ const BulwarkStore = (() => {
     layerConfig: {
       sanitizer: true, boundary: true, detection: false, canary: true,
       encoding_canaries: true, emoji_smuggling: true, bidi_override: true, nfkc: false,
+      decode_base64: false, // ADR-047 — opt-in base64 decode-rescan
     },
     // detector: { protectai: {status: 'ready'|'loading'|'error', latency_ms, score}, promptguard: {...} }
     detectorStatus: {

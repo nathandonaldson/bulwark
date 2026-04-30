@@ -112,6 +112,26 @@ class CleanResponse(BaseModel):
             "available. Absent in normal (defended) responses. See ADR-040."
         ),
     )
+    # ADR-047 / Phase H: decode-rescan trace surface. Empty list when
+    # neither ROT13 nor base64 decoding produced a variant for this request
+    # (e.g. empty content or sanitizer-only path). Decoded variant *content*
+    # never appears here — only labels, depth, and skip metadata
+    # (NG-CLEAN-DECODE-VARIANTS-PRESERVED-001).
+    decoded_variants: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Variants of the input that the detector chain ran against "
+            "(label, depth, skipped, optional skip_reason). See ADR-047."
+        ),
+    )
+    blocked_at_variant: Optional[str] = Field(
+        default=None,
+        description=(
+            "Label of the variant that triggered the block. Populated only "
+            "on 422 responses where the block was attributed to a decoded "
+            "variant. See ADR-047."
+        ),
+    )
 
 
 class RetestRequest(BaseModel):

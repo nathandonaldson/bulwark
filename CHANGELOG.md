@@ -1,5 +1,31 @@
 # Changelog
 
+## [2.5.5] - 2026-04-30
+
+### Fixed (Phase H follow-up)
+
+- **`_quality_gate` no longer counts `�` as printable.** When binary bytes were decoded with `errors='replace'`, the resulting `�`-dominated string passed the ≥80% printable-ASCII gate and produced a useless detector pass on garbage. Fixed by treating the Unicode replacement character as non-printable. Functional impact: minor performance improvement (one fewer detector pass per binary base64 candidate); detection correctness unaffected since the now-skipped variants were classifying SAFE anyway.
+- **`BULWARK_DECODE_BASE64` documented** in `.env.example`, `docker-compose.yml`, `docs/api-reference.md`, and `docs/config.md`. Phase A pattern caught up.
+
+977 tests pass (was 977; 1 new test for the `�` gate).
+
+
+## [2.5.4] - 2026-04-30
+
+### Feature (Codex efficacy hardening Phase H — see ADR-047)
+
+- **`/v1/clean` now decodes base64 and ROT13 substrings as detection variants.** New `bulwark.decoders` module exposes `decode_rescan_variants(text, *, decode_base64)` returning the original sanitized text plus zero or more decoded variants. The dashboard's `/v1/clean` handler (and the library `Pipeline.run()` for parity) runs the existing detector chain — DeBERTa / PromptGuard / optional LLM judge — once per non-skipped variant and blocks on the first hit. Trust boundary still wraps the original cleaned text — decoded variants exist only for detection and never appear in response bodies (NG-CLEAN-DECODE-VARIANTS-PRESERVED-001). ROT13 is always-on (effectively zero-FP — rotated normal English is gibberish detectors classify SAFE). Base64 is opt-in via new `BulwarkConfig.decode_base64: bool = False` (env override `BULWARK_DECODE_BASE64=1` via Phase A's `env_truthy` helper). Substring scan uses regex `[A-Za-z0-9+/_-]{20,}={0,2}` (covers standard + url-safe alphabets); embedded whitespace is stripped before decode so MIME-line-broken inputs round-trip. Quality gate: ≥80% printable ASCII, ≥10 decoded bytes — filters binary garbage from data URIs / JWT signatures / OAuth tokens / content hashes. Two-pass nested decoding bounds depth at 2 (covers `base64(rot13(...))` and `rot13(base64(...))`). Per-request candidate cap of 16 prevents adversarial fan-out DoS; over-cap candidates surface in the trace with `skipped: candidate_cap`.
+- **Dashboard toggle** added to the Sanitizer pane on the configure page (alongside the unsurfaced `encoding_resistant` HTML/percent-decode toggle, which was simultaneously promoted to a visible control). Default off; tooltip warns about FP risk in email / data-URI / JWT use cases. Operators flip it live without restart through `PUT /api/config`.
+- **Trace shape extended:** `/v1/clean` responses (200 and 422) now carry `decoded_variants[]` (label / depth / skipped / optional skip_reason) and `blocked_at_variant` so operators can audit which variant the detector chain ran against and which one (if any) triggered the block. Existing trace fields (`step` / `layer` / `verdict` / `detail` / detector model + score) are unchanged; non-original variants are annotated inline (`variant=base64@45:81`) on the per-detector trace entry.
+- **Library Pipeline parity (G-PIPELINE-PARITY-001).** `Pipeline.from_config(path)` now reads `cfg.decode_base64` and threads it onto `Pipeline.decode_base64`, so library callers get the same defense the dashboard delivers from the same YAML. Existing `Pipeline(detectors=[...])` callers default to `decode_base64=False` — backward-compatible.
+- **E2E lane gains 2 canonical encoded samples** under `@pytest.mark.e2e_slow`: `rot13_instruction_override` and `base64_instruction_override`, both rotating/encoding the same canonical instruction-override payload. Real DeBERTa is expected to block both (rot13 always-on; base64 case flips `decode_base64=True` for the duration of the test).
+- **False-positive corpus gains 3 benign encoded samples** (`encoded-001..003`) covering data-URI image bytes, a sample JWT, and a content-hash hex — exactly the legitimate base64-shaped substrings ADR-047's quality gate is designed to skip without tripping detectors.
+
+New guarantees `G-CLEAN-DECODE-ROT13-001`, `G-CLEAN-DECODE-BASE64-001`. New non-guarantees `NG-CLEAN-DECODE-NESTED-001` (depth >2 not guaranteed; rely on LLM Judge), `NG-CLEAN-DECODE-BASE64-FP-001` (legitimate base64 may produce FP; default off mitigates), `NG-CLEAN-DECODE-VARIANTS-PRESERVED-001` (decoded text never in response body). Trace fields `decoded_variants` / `blocked_at_variant` documented in `spec/openapi.yaml`'s `CleanResponse` schema.
+
+977 tests pass (was 960; +17 — 12 unit tests in `tests/test_decoders.py`, 5 integration tests in `tests/test_clean_decode.py`). 2 new e2e_slow tests deselected by default (now 10 deselected, was 8). `tests/test_spec_compliance.py` green: every new guarantee + non-guarantee ID has a docstring reference.
+
+
 ## [2.5.3] - 2026-04-29
 
 ### Docs / cleanup (post-Codex-hardening tidy pass)

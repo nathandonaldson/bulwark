@@ -20,6 +20,7 @@ from bulwark.sanitizer import Sanitizer
 from bulwark.trust_boundary import TrustBoundary, BoundaryFormat
 from bulwark.guard import SuspiciousPatternError
 from bulwark.canary import CanarySystem, CanaryLeakError
+from bulwark.decoders import DecodedVariant, decode_rescan_variants
 
 logger = logging.getLogger(__name__)
 
@@ -178,20 +179,53 @@ async def api_clean(req: CleanRequest):
             "detail": f"{'Modified' if modified else 'Clean'}: {len(content)} -> {len(cleaned)} chars",
         })
 
+    # ADR-047 / Phase H: decode-rescan fan-out. Build variant list once;
+    # the detector chain runs over each non-skipped variant. Trust boundary
+    # still wraps the *original* cleaned text (NG-CLEAN-DECODE-VARIANTS-
+    # PRESERVED-001) — variants are a detection-only fan-out.
+    decode_b64 = bool(getattr(config, "decode_base64", False))
+    variants: list[DecodedVariant] = decode_rescan_variants(
+        cleaned, decode_base64=decode_b64,
+    ) if cleaned else []
+    decoded_variants_trace: list[dict] = [
+        {
+            "label": v.label,
+            "depth": v.depth,
+            "skipped": v.skipped,
+            **({"skip_reason": v.skip_reason} if v.skipped and v.skip_reason else {}),
+        }
+        for v in variants
+    ]
+
     # Step 2: detectors (DeBERTa + optional PromptGuard)
     # B6 / ADR-038: trace records max_score and n_windows from the detector
     # so observability is per-window, not just SAFE/BLOCKED.
+    # ADR-047: each detector runs once per variant; on first block we attach
+    # `blocked_at_variant` so operators can audit decode decisions.
     detector_verdict = None
     if _detection_checks and cleaned:
         for model_name, check_fn in _detection_checks.items():
             step += 1
             dt0 = time.time()
-            try:
-                result = check_fn(cleaned)
-                elapsed = (time.time() - dt0) * 1000
-                # check_fn now returns a dict on pass (B6); fall back to
-                # empty dict if a custom check still returns None.
-                result = result or {}
+            blocked_exc: SuspiciousPatternError | None = None
+            blocked_variant_label: str | None = None
+            last_result: dict | None = None
+            for variant in variants:
+                if variant.skipped or not variant.text:
+                    continue
+                try:
+                    result = check_fn(variant.text)
+                    last_result = result or {}
+                except SuspiciousPatternError as e:
+                    blocked_exc = e
+                    blocked_variant_label = variant.label
+                    break
+            elapsed = (time.time() - dt0) * 1000
+            if blocked_exc is None:
+                # All variants passed this detector. Trace the result of the
+                # last (or only) variant — for the original-only case the
+                # trace shape is unchanged from pre-Phase-H behaviour.
+                result = last_result or {}
                 max_score = result.get("max_score")
                 n_windows = result.get("n_windows")
                 detail = f"{model_name}: clean"
@@ -220,16 +254,21 @@ async def api_clean(req: CleanRequest):
                     "label": result.get("top_label") or "SAFE",
                     "score": round(max_score, 4) if max_score is not None else None,
                 }
-            except SuspiciousPatternError as e:
-                elapsed = (time.time() - dt0) * 1000
+            else:
+                e = blocked_exc
                 # B6: blocked exceptions carry max_score / n_windows / window_index.
                 max_score = getattr(e, "max_score", None)
                 n_windows = getattr(e, "n_windows", None)
                 window_index = getattr(e, "window_index", None)
+                variant_suffix = (
+                    f" variant={blocked_variant_label}"
+                    if blocked_variant_label and blocked_variant_label != "original"
+                    else ""
+                )
                 trace_entry = {
                     "step": step, "layer": f"detection:{model_name}",
                     "verdict": "blocked",
-                    "detail": f"{model_name}: {e} ({elapsed:.0f}ms)",
+                    "detail": f"{model_name}: {e} ({elapsed:.0f}ms){variant_suffix}",
                     "detection_model": model_name,
                     "duration_ms": round(elapsed, 1),
                 }
@@ -244,7 +283,7 @@ async def api_clean(req: CleanRequest):
                 _emit_event(
                     layer="detection", verdict="blocked",
                     source_id=f"api:clean:{source}",
-                    detail=f"Blocked by {model_name}: {e}",
+                    detail=f"Blocked by {model_name}: {e}{variant_suffix}",
                     duration_ms=round(total_ms, 1),
                 )
                 return JSONResponse(
@@ -254,6 +293,8 @@ async def api_clean(req: CleanRequest):
                         "block_reason": f"Detector {model_name}: {e}",
                         "blocked_at": f"detection:{model_name}",
                         "trace": trace,
+                        "decoded_variants": decoded_variants_trace,
+                        "blocked_at_variant": blocked_variant_label,
                         "content_length": len(content),
                         "modified": modified,
                     },
@@ -261,18 +302,43 @@ async def api_clean(req: CleanRequest):
 
     # Step 2b: LLM judge (opt-in, runs after DeBERTa/PromptGuard so faster
     # detectors short-circuit it). G-JUDGE-001..008.
+    # ADR-047: judge runs once per variant; first INJECTION verdict on any
+    # non-skipped variant blocks. Generative judge text (v.reason) never
+    # reaches the trace (NG-JUDGE-004 / ADR-037).
     if config.judge_backend.enabled and cleaned:
         from bulwark.detectors.llm_judge import classify
         jcfg = config.judge_backend
         step += 1
-        v = classify(jcfg, cleaned)
         trace_layer = "detection:llm_judge"
+        v = None
+        judge_blocked_variant: str | None = None
+        for variant in variants:
+            if variant.skipped or not variant.text:
+                continue
+            v = classify(jcfg, variant.text)
+            if v.verdict == "INJECTION" and v.confidence >= jcfg.threshold:
+                judge_blocked_variant = variant.label
+                break
+            # ERROR/UNPARSEABLE on any variant short-circuits with that
+            # verdict so fail-open / fail-closed semantics apply uniformly.
+            if v.verdict in ("ERROR", "UNPARSEABLE"):
+                judge_blocked_variant = variant.label
+                break
+            # SAFE on this variant — keep iterating to scan the rest.
+        # Fallback if every variant was skipped (e.g. empty content): run on
+        # the cleaned text as before so the existing SAFE-path stays stable.
+        if v is None:
+            v = classify(jcfg, cleaned)
         if v.verdict == "INJECTION" and v.confidence >= jcfg.threshold:
             # NG-JUDGE-004 / ADR-037: do NOT include v.reason in trace detail.
-            # Generative judge text never reaches /v1/clean callers.
+            variant_suffix = (
+                f" variant={judge_blocked_variant}"
+                if judge_blocked_variant and judge_blocked_variant != "original"
+                else ""
+            )
             trace.append({
                 "step": step, "layer": trace_layer, "verdict": "blocked",
-                "detail": f"LLM judge: INJECTION ({v.confidence:.2f}) ({v.latency_ms:.0f}ms)",
+                "detail": f"LLM judge: INJECTION ({v.confidence:.2f}) ({v.latency_ms:.0f}ms){variant_suffix}",
                 "detection_model": "llm_judge",
                 "duration_ms": round(v.latency_ms, 1),
             })
@@ -280,7 +346,7 @@ async def api_clean(req: CleanRequest):
             _emit_event(
                 layer="detection", verdict="blocked",
                 source_id=f"api:clean:{source}",
-                detail=f"Blocked by llm_judge (confidence={v.confidence:.2f})",
+                detail=f"Blocked by llm_judge (confidence={v.confidence:.2f}){variant_suffix}",
                 duration_ms=round(total_ms, 1),
             )
             return JSONResponse(
@@ -290,6 +356,8 @@ async def api_clean(req: CleanRequest):
                     "block_reason": f"Detector llm_judge: INJECTION ({v.confidence:.2f})",
                     "blocked_at": "detection:llm_judge",
                     "trace": trace,
+                    "decoded_variants": decoded_variants_trace,
+                    "blocked_at_variant": judge_blocked_variant,
                     "content_length": len(content),
                     "modified": modified,
                 },
@@ -322,6 +390,8 @@ async def api_clean(req: CleanRequest):
                         "block_reason": f"Detector llm_judge {label}",
                         "blocked_at": "detection:llm_judge",
                         "trace": trace,
+                        "decoded_variants": decoded_variants_trace,
+                        "blocked_at_variant": judge_blocked_variant,
                         "content_length": len(content),
                         "modified": modified,
                     },
@@ -376,6 +446,10 @@ async def api_clean(req: CleanRequest):
         # ADR-040 / NG-CLEAN-DETECTOR-REQUIRED-001: mark sanitize-only opt-in
         # responses so callers can detect they're in reduced-defense mode.
         mode="degraded-explicit" if (not has_any_detector and degraded_explicit_opt_in) else None,
+        # ADR-047 / Phase H: surface variants and the (None on 200) blocked-at
+        # label so operators can audit decode decisions on every request.
+        decoded_variants=decoded_variants_trace,
+        blocked_at_variant=None,
     )
 
 
