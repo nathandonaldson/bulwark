@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.5.5] - 2026-04-30
+
+### Fixed (Phase H follow-up)
+
+- **`_quality_gate` no longer counts `�` as printable.** When binary bytes were decoded with `errors='replace'`, the resulting `�`-dominated string passed the ≥80% printable-ASCII gate and produced a useless detector pass on garbage. Fixed by treating the Unicode replacement character as non-printable. Functional impact: minor performance improvement (one fewer detector pass per binary base64 candidate); detection correctness unaffected since the now-skipped variants were classifying SAFE anyway.
+- **`BULWARK_DECODE_BASE64` documented** in `.env.example`, `docker-compose.yml`, `docs/api-reference.md`, and `docs/config.md`. Phase A pattern caught up.
+
+977 tests pass (was 977; 1 new test for the `�` gate).
+
+
 ## [2.5.4] - 2026-04-30
 
 ### Feature (Codex efficacy hardening Phase H — see ADR-047)

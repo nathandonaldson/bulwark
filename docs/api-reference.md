@@ -157,6 +157,7 @@ variables override file values.
 | `BULWARK_MAX_CONTENT_SIZE`     | Byte cap on `/v1/clean.content` and `/v1/guard.text` (default 262144 = 256 KiB, ADR-042). |
 | `BULWARK_ALLOW_NO_DETECTORS`   | `1` opts into sanitizer-only mode when zero detectors load. Returns 200 with `mode: degraded-explicit`. Default: 503 (ADR-040). |
 | `BULWARK_ALLOW_SANITIZE_ONLY`  | `1` lets `/healthz` report `ok` (with `mode: degraded-explicit`) when no detectors are loaded (ADR-038).  |
+| `BULWARK_DECODE_BASE64`        | `1` enables base64 decode-rescan in `/v1/clean` — base64 spans are decoded and re-fed through the detector chain (ADR-047). ROT13 rescan is always on. Default off; trades a small FP uptick for base64-encoded injection coverage. |
 
 The canonical list lives in `spec/contracts/env_config.yaml`.
 

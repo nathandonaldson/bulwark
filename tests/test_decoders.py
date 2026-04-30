@@ -190,3 +190,21 @@ class TestCandidateCap:
             if v.skipped and v.skip_reason == "candidate_cap"
         ]
         assert cap_skips, "expected at least one variant skipped with reason=candidate_cap"
+
+
+class TestQualityGateReplacementChars:
+    """M-2 follow-up: \\ufffd should count as non-printable."""
+
+    def test_binary_bytes_dont_pass_gate_via_replacement_chars(self):
+        """Quality gate must reject decoded text dominated by \\ufffd."""
+        # 30 bytes of binary that decode to mostly U+FFFD when errors='replace'
+        binary_bytes = bytes(range(0, 30))
+        encoded = base64.b64encode(binary_bytes).decode()
+        out = decode_rescan_variants(f"image: {encoded}", decode_base64=True)
+        # Find any base64 variant that wasn't skipped
+        non_skipped = [v for v in out if v.label.startswith("base64@") and not v.skipped]
+        # If the gate works, all such variants should be skipped (low_printable_ratio)
+        assert non_skipped == [], (
+            f"Expected all-binary base64 candidate to be skipped by quality gate; "
+            f"got non-skipped variants: {[(v.label, v.text[:40]) for v in non_skipped]}"
+        )

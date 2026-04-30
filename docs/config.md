@@ -30,6 +30,13 @@ BULWARK_ALLOW_NO_DETECTORS=0
 # Opt into a "degraded-explicit" /healthz when no detectors load (ADR-038).
 # Default behaviour is /healthz reporting status=degraded.
 BULWARK_ALLOW_SANITIZE_ONLY=0
+
+# Enable base64 decode-rescan in /v1/clean (ADR-047). When set to 1,
+# base64 spans inside the input are decoded and re-fed through the
+# detector chain, catching base64-encoded injection payloads. ROT13
+# rescan is always on (zero-FP cost). Default off — trades a small
+# false-positive uptick for coverage.
+BULWARK_DECODE_BASE64=0
 ```
 
 The canonical list lives in `spec/contracts/env_config.yaml`. There is no

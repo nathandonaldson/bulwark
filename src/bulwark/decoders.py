@@ -213,7 +213,10 @@ def _quality_gate(decoded: bytes) -> tuple[bool, Optional[str]]:
     text = decoded.decode("utf-8", errors="replace")
     if not text:
         return False, "not_utf8"
-    printable = sum(1 for c in text if c.isprintable() or c in ("\n", "\r", "\t"))
+    printable = sum(
+        1 for c in text
+        if c != "�" and (c.isprintable() or c in ("\n", "\r", "\t"))
+    )
     ratio = printable / len(text)
     if ratio < _MIN_PRINTABLE_RATIO:
         return False, f"low_printable_ratio:{ratio:.2f}"

@@ -29,6 +29,7 @@ services:
       #   BULWARK_API_TOKEN     — Bearer auth token for mutating + judge endpoints
       #   BULWARK_ALLOWED_HOSTS — comma-separated SSRF allowlist (webhook URLs)
       #   BULWARK_WEBHOOK_URL   — external webhook URL for blocked events
+      #   BULWARK_DECODE_BASE64 — `1` enables base64 decode-rescan in /v1/clean (ADR-047, default off)
       #   HF_TOKEN              — HuggingFace token, required only if you
       #                           enable PromptGuard (gated weights)
       # ADR-031 removed the BULWARK_LLM_MODE / BULWARK_API_KEY /
