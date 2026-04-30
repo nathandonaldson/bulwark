@@ -32,8 +32,8 @@ class _FakeClient:
 class TestStandaloneRunnerClassification:
 
     def _make_runner(self):
-        from bulwark_bench.configs import DetectorConfig
-        from bulwark_falsepos.runner import FalseposRunner
+        from bulwark.tools.bench.configs import DetectorConfig
+        from bulwark.tools.falsepos.runner import FalseposRunner
         cfg = DetectorConfig(slug="test", name="test")
         return FalseposRunner(
             client=_FakeClient(),
@@ -43,7 +43,7 @@ class TestStandaloneRunnerClassification:
         )
 
     def _email(self):
-        from bulwark_falsepos.corpus import CorpusEmail
+        from bulwark.tools.falsepos.corpus import CorpusEmail
         return CorpusEmail(id="e1", category="newsletter", subject="hi", body="hello")
 
     def test_200_response_is_clean_pass(self, monkeypatch):
@@ -111,9 +111,9 @@ class TestStandaloneRunnerClassification:
 
     def test_fp_rate_excludes_errors(self):
         """ADR-038: false_positive_rate = blocked / scored_count, not / corpus_size."""
-        from bulwark_bench.configs import DetectorConfig
-        from bulwark_falsepos.corpus import CorpusEmail
-        from bulwark_falsepos.runner import FalseposRunner
+        from bulwark.tools.bench.configs import DetectorConfig
+        from bulwark.tools.falsepos.corpus import CorpusEmail
+        from bulwark.tools.falsepos.runner import FalseposRunner
 
         cfg = DetectorConfig(slug="test", name="test")
         corpus = [

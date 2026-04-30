@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.5.13] - 2026-05-01
+
+### Refactor (sister-package merge — see ADR-050)
+
+- **Collapsed `bulwark_bench` and `bulwark_falsepos` into `bulwark.tools.{bench,falsepos}`.** The "independent sister packages" framing was fictional: `bulwark_falsepos` hard-imported from `bulwark_bench` (5 sites), `bulwark.dashboard.app` reached into `bulwark_falsepos.corpus` (3 sites), and both shipped in the same wheel under one VERSION/CHANGELOG. Net ~250 LOC reduction (after removing structural duplication of `_safe_id`, `_persist`, `_snapshot`, `_restore`, `_run_one_config` shell, `stderr_progress`, argparse plumbing, `render_json`/`_fmt_pct`).
+- **Console scripts unchanged.** `bulwark-bench` and `bulwark-falsepos` continue to work; entry points now resolve to `bulwark.tools.bench.__main__` / `bulwark.tools.falsepos.__main__`.
+- **Back-compat shims** at the old top-level paths (`bulwark_bench`, `bulwark_falsepos`) re-export the moved modules so `python -m bulwark_bench` and `import bulwark_bench` still work for v2.5.x. **Will be removed in v3.** Migrate to `import bulwark.tools.bench` / `import bulwark.tools.falsepos`.
+
+993 tests pass.
+
 ## [2.5.11] - 2026-05-01
 
 ### Cleanup (Tier 1 free wins from 2026-05-01 simplification audit)

@@ -7,6 +7,10 @@ path = "VERSION"
 pattern = "(?P<version>.+)"
 
 [tool.hatch.build.targets.wheel]
+# ADR-050: bench + falsepos collapsed into bulwark.tools.{bench,falsepos}.
+# `bulwark_bench` / `bulwark_falsepos` are 4-LOC back-compat shims that
+# also ship in the wheel (so `python -m bulwark_bench` keeps working
+# until v3).
 packages = ["src/bulwark", "src/bulwark_bench", "src/bulwark_falsepos"]
 
 # Bundle spec/presets.yaml into the wheel under bulwark/_data/ so
@@ -15,7 +19,7 @@ packages = ["src/bulwark", "src/bulwark_bench", "src/bulwark_falsepos"]
 # duplicate. See ADR-023.
 [tool.hatch.build.targets.wheel.force-include]
 "spec/presets.yaml" = "bulwark/_data/presets.yaml"
-"spec/falsepos_corpus.jsonl" = "bulwark_falsepos/_data/falsepos_corpus.jsonl"
+"spec/falsepos_corpus.jsonl" = "bulwark/tools/falsepos/_data/falsepos_corpus.jsonl"
 
 [project]
 name = "bulwark-shield"
@@ -47,8 +51,8 @@ all = ["anthropic>=0.39.0", "click>=8.0", "fastapi>=0.100.0", "uvicorn>=0.20.0",
 
 [project.scripts]
 bulwark = "bulwark.cli:main"
-bulwark-bench = "bulwark_bench.__main__:main"
-bulwark-falsepos = "bulwark_falsepos.__main__:main"
+bulwark-bench = "bulwark.tools.bench.__main__:main"
+bulwark-falsepos = "bulwark.tools.falsepos.__main__:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -11,10 +11,10 @@ from typing import Any
 
 import pytest
 
-from bulwark_bench.configs import parse_configs
-from bulwark_falsepos.corpus import CorpusEmail, categories, load_corpus
-from bulwark_falsepos.report import render_json, render_markdown
-from bulwark_falsepos.runner import FalseposRunner
+from bulwark.tools.bench.configs import parse_configs
+from bulwark.tools.falsepos.corpus import CorpusEmail, categories, load_corpus
+from bulwark.tools.falsepos.report import render_json, render_markdown
+from bulwark.tools.falsepos.runner import FalseposRunner
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +280,7 @@ class TestReports:
 
 class TestCLIGate:
     def test_max_fp_rate_documented(self):
-        from bulwark_falsepos import __main__ as m
+        from bulwark.tools.falsepos import __main__ as m
         parser = m._build_parser()
         text = parser.format_help()
         assert "--max-fp-rate" in text
@@ -316,7 +316,7 @@ class TestNonGuarantees:
         this by inspecting the source — `result` field is never read.
         """
         from pathlib import Path
-        src = Path(__file__).parent.parent / "src" / "bulwark_falsepos" / "runner.py"
+        src = Path(__file__).parent.parent / "src" / "bulwark" / "tools" / "falsepos" / "runner.py"
         text = src.read_text()
         # The runner records status_code and block fields; it does not read or
         # compare the response's `result` field semantically.

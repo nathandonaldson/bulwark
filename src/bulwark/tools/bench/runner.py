@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from bulwark_bench.configs import DetectorConfig
+from bulwark.tools.bench.configs import DetectorConfig
 
 
 def _safe_id(s: str) -> str:

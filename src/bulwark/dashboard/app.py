@@ -770,7 +770,7 @@ def _compute_redteam_tiers(_force: bool = False) -> dict:
 def _falsepos_tier_entries() -> list[dict]:
     """Return [tier dict] for the false-positive sweep, or [] if corpus unreadable."""
     try:
-        from bulwark_falsepos.corpus import load_corpus, categories
+        from bulwark.tools.falsepos.corpus import load_corpus, categories
         corpus = load_corpus(_falsepos_corpus_path())
     except Exception:
         return []
@@ -892,8 +892,10 @@ def _make_emitter():
 def _falsepos_corpus_path() -> Path:
     """Resolve the false-positive corpus path.
 
-    Order: ENV override → repo `spec/` (dev) → packaged `bulwark_falsepos/_data/`
-    (installed wheel + Docker image, see pyproject.toml force-include).
+    Order: ENV override → repo `spec/` (dev) → packaged
+    `bulwark/tools/falsepos/_data/` (installed wheel + Docker image, see
+    pyproject.toml force-include — moved from `bulwark_falsepos/_data/`
+    in v2.5.13 / ADR-050).
     """
     env = os.environ.get("BULWARK_FALSEPOS_CORPUS")
     if env:
@@ -904,7 +906,7 @@ def _falsepos_corpus_path() -> Path:
     # Installed-wheel layout: bundled via [tool.hatch.build.targets.wheel.force-include].
     try:
         from importlib.resources import files
-        return Path(str(files("bulwark_falsepos") / "_data" / "falsepos_corpus.jsonl"))
+        return Path(str(files("bulwark.tools.falsepos") / "_data" / "falsepos_corpus.jsonl"))
     except Exception:
         return repo  # fall back to the repo path even if missing — caller surfaces the error
 
@@ -921,7 +923,7 @@ async def _run_falsepos_in_background():
     global _redteam_result
     import concurrent.futures
     from datetime import datetime, timezone
-    from bulwark_falsepos.corpus import load_corpus
+    from bulwark.tools.falsepos.corpus import load_corpus
 
     try:
         corpus = load_corpus(_falsepos_corpus_path())

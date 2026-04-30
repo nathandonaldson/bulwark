@@ -380,7 +380,7 @@ def test_no_caching_across_requests(monkeypatch):
 def test_bench_runner_only_uses_dashboard_api():
     """G-BENCH-010: bench client never spawns / kills processes — only HTTP calls."""
     from pathlib import Path
-    from bulwark_bench import bulwark_client as bc
+    from bulwark.tools.bench import bulwark_client as bc
     src = Path(bc.__file__).read_text()
     forbidden = ("subprocess", "Popen", "os.system", "os.kill", "signal.SIG", "psutil")
     for f in forbidden:

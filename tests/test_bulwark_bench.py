@@ -11,9 +11,9 @@ from typing import Any
 
 import pytest
 
-from bulwark_bench.configs import PRESETS, parse_configs
-from bulwark_bench.report import render_json, render_markdown
-from bulwark_bench.runner import BenchRunner
+from bulwark.tools.bench.configs import PRESETS, parse_configs
+from bulwark.tools.bench.report import render_json, render_markdown
+from bulwark.tools.bench.runner import BenchRunner
 
 
 # ---------------------------------------------------------------------------
@@ -260,20 +260,20 @@ class TestReports:
 
         No CLI flag for parallelism exists; runner.run_all is a serial loop.
         """
-        from bulwark_bench import runner as runner_mod
+        from bulwark.tools.bench import runner as runner_mod
         src = Path(runner_mod.__file__).read_text()
         assert "parallel" not in src.lower() or "no parallel" in src.lower(), \
             "runner must not introduce parallel execution"
 
     def test_no_capability_autodiscovery(self):
         """NG-BENCH-004: bench does not probe model lists."""
-        from bulwark_bench import bulwark_client as bc
+        from bulwark.tools.bench import bulwark_client as bc
         src = Path(bc.__file__).read_text()
         assert "/v1/llm/models" not in src
         assert "list_models" not in src
 
     def test_v1_model_sweep_removed(self):
         """NG-BENCH-MODEL-SWEEP-REMOVED."""
-        from bulwark_bench import bulwark_client as bc
+        from bulwark.tools.bench import bulwark_client as bc
         src = Path(bc.__file__).read_text()
         assert "def swap_model(" not in src

@@ -1,6 +1,24 @@
-"""bulwark_falsepos — false-positive harness (ADR-036).
+"""Back-compat shim: `bulwark_falsepos` → `bulwark.tools.falsepos` (ADR-050).
 
-Sweeps detector configurations against a curated benign corpus, reports
-per-config false-positive rate. Companion to bulwark_bench.
+The real module moved to `bulwark.tools.falsepos` in v2.5.13. This shim
+keeps `python -m bulwark_falsepos`, `from bulwark_falsepos import ...`,
+and `from bulwark_falsepos.<submodule> import ...` working for v2.5.x.
+
+**Will be removed in v3.** Migrate to `import bulwark.tools.falsepos`.
 """
-__version__ = "1.0.0"
+from __future__ import annotations
+
+import sys as _sys
+
+from bulwark.tools import falsepos as _real
+from bulwark.tools.falsepos import (  # noqa: F401  (re-exports)
+    corpus,
+    report,
+    runner,
+)
+
+__version__ = _real.__version__
+
+_sys.modules[__name__ + ".corpus"] = corpus
+_sys.modules[__name__ + ".report"] = report
+_sys.modules[__name__ + ".runner"] = runner
