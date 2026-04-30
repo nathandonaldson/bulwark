@@ -21,6 +21,7 @@ from bulwark.trust_boundary import TrustBoundary, BoundaryFormat
 from bulwark.guard import SuspiciousPatternError
 from bulwark.canary import CanarySystem, CanaryLeakError
 from bulwark.decoders import DecodedVariant, decode_rescan_variants
+from bulwark.detector_chain import run_detector_chain
 
 logger = logging.getLogger(__name__)
 
@@ -197,190 +198,207 @@ async def api_clean(req: CleanRequest):
         for v in variants
     ]
 
-    # Step 2: detectors (DeBERTa + optional PromptGuard)
-    # B6 / ADR-038: trace records max_score and n_windows from the detector
-    # so observability is per-window, not just SAFE/BLOCKED.
-    # ADR-047: each detector runs once per variant; on first block we attach
-    # `blocked_at_variant` so operators can audit decode decisions.
+    # Step 2 + 2b: detectors + LLM judge — delegated to bulwark.detector_chain
+    # (G-CLEAN-DETECTOR-CHAIN-PARITY-001 / ADR-048). The shared helper runs
+    # all detectors first (cheaper short-circuits the slower judge), then
+    # the judge on every non-skipped variant. ERROR / UNPARSEABLE in
+    # fail-open mode is logged + traced per variant but does NOT short-
+    # circuit (G-CLEAN-DECODE-JUDGE-ALL-VARIANTS-001 / H.2).
     detector_verdict = None
+    judge_enabled_runtime = bool(config.judge_backend.enabled)
+    judge_callable = None
+    jcfg = config.judge_backend
+    if judge_enabled_runtime and cleaned:
+        from bulwark.detectors.llm_judge import classify
+
+        def _judge_call(text: str):
+            v = classify(jcfg, text)
+            # Coerce sub-threshold INJECTION to SAFE so the chain doesn't
+            # block on a low-confidence verdict (existing dashboard
+            # threshold semantic).
+            if v.verdict == "INJECTION" and v.confidence < jcfg.threshold:
+                from bulwark.detectors.llm_judge import JudgeVerdict
+                return JudgeVerdict(
+                    verdict="SAFE", confidence=v.confidence, reason=v.reason,
+                    latency_ms=v.latency_ms, raw=None,
+                )
+            return v
+
+        judge_callable = _judge_call
+
+    # Wrap each registered detector check with a `__bulwark_name__`
+    # attribute so the helper can attribute trace entries by model name.
+    detector_callables: list = []
     if _detection_checks and cleaned:
         for model_name, check_fn in _detection_checks.items():
-            step += 1
-            dt0 = time.time()
-            blocked_exc: SuspiciousPatternError | None = None
-            blocked_variant_label: str | None = None
-            last_result: dict | None = None
-            for variant in variants:
-                if variant.skipped or not variant.text:
-                    continue
-                try:
-                    result = check_fn(variant.text)
-                    last_result = result or {}
-                except SuspiciousPatternError as e:
-                    blocked_exc = e
-                    blocked_variant_label = variant.label
-                    break
-            elapsed = (time.time() - dt0) * 1000
-            if blocked_exc is None:
-                # All variants passed this detector. Trace the result of the
-                # last (or only) variant — for the original-only case the
-                # trace shape is unchanged from pre-Phase-H behaviour.
-                result = last_result or {}
-                max_score = result.get("max_score")
-                n_windows = result.get("n_windows")
-                detail = f"{model_name}: clean"
-                if max_score is not None:
-                    detail += f" (max={max_score:.3f}"
-                    if n_windows and n_windows > 1:
-                        detail += f", {n_windows} windows"
-                    detail += ")"
-                detail += f" ({elapsed:.0f}ms)"
-                trace_entry = {
-                    "step": step, "layer": f"detection:{model_name}",
-                    "verdict": "passed",
-                    "detail": detail,
-                    "detection_model": model_name,
-                    "duration_ms": round(elapsed, 1),
-                }
-                if max_score is not None:
-                    trace_entry["max_score"] = round(max_score, 4)
-                if n_windows is not None:
-                    trace_entry["n_windows"] = n_windows
-                trace.append(trace_entry)
-                # B6 follow-up (review): use the detector's actual top label
-                # (BENIGN / SAFE / etc.) rather than hardcoding "SAFE".
-                # max_score remains the INJECTION-class signal per ADR-039.
-                detector_verdict = {
-                    "label": result.get("top_label") or "SAFE",
-                    "score": round(max_score, 4) if max_score is not None else None,
-                }
-            else:
-                e = blocked_exc
-                # B6: blocked exceptions carry max_score / n_windows / window_index.
-                max_score = getattr(e, "max_score", None)
-                n_windows = getattr(e, "n_windows", None)
-                window_index = getattr(e, "window_index", None)
-                variant_suffix = (
-                    f" variant={blocked_variant_label}"
-                    if blocked_variant_label and blocked_variant_label != "original"
-                    else ""
-                )
-                trace_entry = {
-                    "step": step, "layer": f"detection:{model_name}",
-                    "verdict": "blocked",
-                    "detail": f"{model_name}: {e} ({elapsed:.0f}ms){variant_suffix}",
-                    "detection_model": model_name,
-                    "duration_ms": round(elapsed, 1),
-                }
-                if max_score is not None:
-                    trace_entry["max_score"] = round(max_score, 4)
-                if n_windows is not None:
-                    trace_entry["n_windows"] = n_windows
-                if window_index is not None:
-                    trace_entry["window_index"] = window_index
-                trace.append(trace_entry)
-                total_ms = (time.time() - t0) * 1000
-                _emit_event(
-                    layer="detection", verdict="blocked",
-                    source_id=f"api:clean:{source}",
-                    detail=f"Blocked by {model_name}: {e}{variant_suffix}",
-                    duration_ms=round(total_ms, 1),
-                )
-                return JSONResponse(
-                    status_code=422,
-                    content={
-                        "blocked": True,
-                        "block_reason": f"Detector {model_name}: {e}",
-                        "blocked_at": f"detection:{model_name}",
-                        "trace": trace,
-                        "decoded_variants": decoded_variants_trace,
-                        "blocked_at_variant": blocked_variant_label,
-                        "content_length": len(content),
-                        "modified": modified,
-                    },
-                )
+            check_fn.__bulwark_name__ = f"detection:{model_name}"
+            detector_callables.append(check_fn)
 
-    # Step 2b: LLM judge (opt-in, runs after DeBERTa/PromptGuard so faster
-    # detectors short-circuit it). G-JUDGE-001..008.
-    # ADR-047: judge runs once per variant; first INJECTION verdict on any
-    # non-skipped variant blocks. Generative judge text (v.reason) never
-    # reaches the trace (NG-JUDGE-004 / ADR-037).
-    if config.judge_backend.enabled and cleaned:
-        from bulwark.detectors.llm_judge import classify
-        jcfg = config.judge_backend
+    chain_result = run_detector_chain(
+        variants=variants if cleaned else [],
+        detectors=detector_callables,
+        judge=judge_callable,
+        judge_fail_open=bool(jcfg.fail_open) if judge_enabled_runtime else True,
+    )
+
+    # Build per-detector trace entries from the helper's results.
+    # Detector-major iteration in the helper produces one DetectorResult
+    # per (detector, variant); we collapse to ONE trace entry per detector
+    # (block record if any, otherwise the last pass record), preserving
+    # the pre-refactor trace shape.
+    detector_indices = sorted({r.detector_index for r in chain_result.detector_results})
+    detector_block_record = None
+    for det_index in detector_indices:
         step += 1
-        trace_layer = "detection:llm_judge"
-        v = None
-        judge_blocked_variant: str | None = None
-        for variant in variants:
-            if variant.skipped or not variant.text:
-                continue
-            v = classify(jcfg, variant.text)
-            if v.verdict == "INJECTION" and v.confidence >= jcfg.threshold:
-                judge_blocked_variant = variant.label
-                break
-            # ERROR/UNPARSEABLE on any variant short-circuits with that
-            # verdict so fail-open / fail-closed semantics apply uniformly.
-            if v.verdict in ("ERROR", "UNPARSEABLE"):
-                judge_blocked_variant = variant.label
-                break
-            # SAFE on this variant — keep iterating to scan the rest.
-        # Fallback if every variant was skipped (e.g. empty content): run on
-        # the cleaned text as before so the existing SAFE-path stays stable.
-        if v is None:
-            v = classify(jcfg, cleaned)
-        if v.verdict == "INJECTION" and v.confidence >= jcfg.threshold:
-            # NG-JUDGE-004 / ADR-037: do NOT include v.reason in trace detail.
+        results_for_detector = [
+            r for r in chain_result.detector_results
+            if r.detector_index == det_index
+        ]
+        block_record = next((r for r in results_for_detector if not r.passed), None)
+        # Sum duration across all variants for this detector — operators
+        # see the full per-detector cost rather than just the last variant.
+        elapsed = sum(r.duration_ms for r in results_for_detector)
+        # Detector name from the callable's __bulwark_name__ (set above);
+        # fall back to "detection:<index>" if missing (defensive).
+        layer_name = (
+            results_for_detector[0].detector_name
+            or f"detection:{det_index}"
+        )
+        model_name = layer_name.replace("detection:", "", 1)
+        if block_record is None:
+            # Pass record of last variant — mirrors pre-refactor "trace
+            # the result of the last (or only) variant" behaviour.
+            last_pass = results_for_detector[-1]
+            res = last_pass.result or {}
+            max_score = res.get("max_score")
+            n_windows = res.get("n_windows")
+            detail = f"{model_name}: clean"
+            if max_score is not None:
+                detail += f" (max={max_score:.3f}"
+                if n_windows and n_windows > 1:
+                    detail += f", {n_windows} windows"
+                detail += ")"
+            detail += f" ({elapsed:.0f}ms)"
+            trace_entry = {
+                "step": step, "layer": layer_name,
+                "verdict": "passed",
+                "detail": detail,
+                "detection_model": model_name,
+                "duration_ms": round(elapsed, 1),
+            }
+            if max_score is not None:
+                trace_entry["max_score"] = round(max_score, 4)
+            if n_windows is not None:
+                trace_entry["n_windows"] = n_windows
+            trace.append(trace_entry)
+            detector_verdict = {
+                "label": res.get("top_label") or "SAFE",
+                "score": round(max_score, 4) if max_score is not None else None,
+            }
+        else:
+            detector_block_record = block_record
+            e = block_record.error
+            max_score = getattr(e, "max_score", None)
+            n_windows = getattr(e, "n_windows", None)
+            window_index = getattr(e, "window_index", None)
             variant_suffix = (
-                f" variant={judge_blocked_variant}"
-                if judge_blocked_variant and judge_blocked_variant != "original"
+                f" variant={block_record.variant_label}"
+                if block_record.variant_label
+                and block_record.variant_label != "original"
                 else ""
             )
-            trace.append({
-                "step": step, "layer": trace_layer, "verdict": "blocked",
-                "detail": f"LLM judge: INJECTION ({v.confidence:.2f}) ({v.latency_ms:.0f}ms){variant_suffix}",
-                "detection_model": "llm_judge",
-                "duration_ms": round(v.latency_ms, 1),
-            })
+            trace_entry = {
+                "step": step, "layer": layer_name,
+                "verdict": "blocked",
+                "detail": f"{model_name}: {e} ({elapsed:.0f}ms){variant_suffix}",
+                "detection_model": model_name,
+                "duration_ms": round(elapsed, 1),
+            }
+            if max_score is not None:
+                trace_entry["max_score"] = round(max_score, 4)
+            if n_windows is not None:
+                trace_entry["n_windows"] = n_windows
+            if window_index is not None:
+                trace_entry["window_index"] = window_index
+            trace.append(trace_entry)
+            # Detector blocks short-circuit — emit + return.
             total_ms = (time.time() - t0) * 1000
             _emit_event(
                 layer="detection", verdict="blocked",
                 source_id=f"api:clean:{source}",
-                detail=f"Blocked by llm_judge (confidence={v.confidence:.2f}){variant_suffix}",
+                detail=f"Blocked by {model_name}: {e}{variant_suffix}",
                 duration_ms=round(total_ms, 1),
             )
             return JSONResponse(
                 status_code=422,
                 content={
                     "blocked": True,
-                    "block_reason": f"Detector llm_judge: INJECTION ({v.confidence:.2f})",
-                    "blocked_at": "detection:llm_judge",
+                    "block_reason": f"Detector {model_name}: {e}",
+                    "blocked_at": layer_name,
                     "trace": trace,
                     "decoded_variants": decoded_variants_trace,
-                    "blocked_at_variant": judge_blocked_variant,
+                    "blocked_at_variant": block_record.variant_label,
                     "content_length": len(content),
                     "modified": modified,
                 },
             )
-        # ADR-037 / G-JUDGE-005: UNPARSEABLE follows the same path as ERROR.
-        # Strict mode (fail_open=False) blocks them; permissive mode lets
-        # them pass with a trace annotation. UNPARSEABLE never short-
-        # circuits as SAFE. Generative judge text (v.reason) is never
-        # included in trace details (NG-JUDGE-004).
-        if v.verdict in ("ERROR", "UNPARSEABLE"):
-            label = "unreachable" if v.verdict == "ERROR" else "unparseable response"
-            if not jcfg.fail_open:
+
+    # Build judge trace entries from the helper's judge_results. One trace
+    # entry per variant the judge saw — replaces the pre-refactor's single
+    # collapsed entry. This is the H.1 observability win: operators can
+    # see exactly which variants the judge ran on, including ERROR /
+    # UNPARSEABLE results that were previously hidden by the short-circuit.
+    if chain_result.judge_results:
+        for jr in chain_result.judge_results:
+            step += 1
+            trace_layer = "detection:llm_judge"
+            variant_suffix = (
+                f" variant={jr.variant_label}"
+                if jr.variant_label and jr.variant_label != "original"
+                else ""
+            )
+            if jr.blocked and jr.verdict == "INJECTION":
+                # NG-JUDGE-004 / ADR-037: do NOT include reason in trace detail.
                 trace.append({
                     "step": step, "layer": trace_layer, "verdict": "blocked",
-                    "detail": f"LLM judge {label} (fail-closed)",
+                    "detail": f"LLM judge: INJECTION ({jr.confidence:.2f}) ({jr.latency_ms:.0f}ms){variant_suffix}",
                     "detection_model": "llm_judge",
-                    "duration_ms": round(v.latency_ms, 1),
+                    "duration_ms": round(jr.latency_ms, 1),
                 })
                 total_ms = (time.time() - t0) * 1000
                 _emit_event(
                     layer="detection", verdict="blocked",
                     source_id=f"api:clean:{source}",
-                    detail=f"Blocked by llm_judge ({label}, fail-closed)",
+                    detail=f"Blocked by llm_judge (confidence={jr.confidence:.2f}){variant_suffix}",
+                    duration_ms=round(total_ms, 1),
+                )
+                return JSONResponse(
+                    status_code=422,
+                    content={
+                        "blocked": True,
+                        "block_reason": f"Detector llm_judge: INJECTION ({jr.confidence:.2f})",
+                        "blocked_at": "detection:llm_judge",
+                        "trace": trace,
+                        "decoded_variants": decoded_variants_trace,
+                        "blocked_at_variant": jr.variant_label,
+                        "content_length": len(content),
+                        "modified": modified,
+                    },
+                )
+            if jr.blocked and jr.verdict in ("ERROR", "UNPARSEABLE"):
+                # Fail-closed path.
+                label = "unreachable" if jr.verdict == "ERROR" else "unparseable response"
+                trace.append({
+                    "step": step, "layer": trace_layer, "verdict": "blocked",
+                    "detail": f"LLM judge {label} (fail-closed){variant_suffix}",
+                    "detection_model": "llm_judge",
+                    "duration_ms": round(jr.latency_ms, 1),
+                })
+                total_ms = (time.time() - t0) * 1000
+                _emit_event(
+                    layer="detection", verdict="blocked",
+                    source_id=f"api:clean:{source}",
+                    detail=f"Blocked by llm_judge ({label}, fail-closed){variant_suffix}",
                     duration_ms=round(total_ms, 1),
                 )
                 return JSONResponse(
@@ -391,27 +409,29 @@ async def api_clean(req: CleanRequest):
                         "blocked_at": "detection:llm_judge",
                         "trace": trace,
                         "decoded_variants": decoded_variants_trace,
-                        "blocked_at_variant": judge_blocked_variant,
+                        "blocked_at_variant": jr.variant_label,
                         "content_length": len(content),
                         "modified": modified,
                     },
                 )
-            # fail-open
-            trace.append({
-                "step": step, "layer": trace_layer, "verdict": "passed",
-                "detail": f"LLM judge {label} (fail-open) ({v.latency_ms:.0f}ms)",
-                "detection_model": "llm_judge",
-                "duration_ms": round(v.latency_ms, 1),
-            })
-        else:
-            # SAFE → pass through
-            trace.append({
-                "step": step, "layer": trace_layer, "verdict": "passed",
-                "detail": f"LLM judge: {v.verdict} ({v.confidence:.2f}) ({v.latency_ms:.0f}ms)",
-                "detection_model": "llm_judge",
-                "duration_ms": round(v.latency_ms, 1),
-            })
-            detector_verdict = {"label": v.verdict, "score": v.confidence}
+            if jr.verdict in ("ERROR", "UNPARSEABLE"):
+                # Fail-open path: log + record, no block.
+                label = "unreachable" if jr.verdict == "ERROR" else "unparseable response"
+                trace.append({
+                    "step": step, "layer": trace_layer, "verdict": "passed",
+                    "detail": f"LLM judge {label} (fail-open) ({jr.latency_ms:.0f}ms){variant_suffix}",
+                    "detection_model": "llm_judge",
+                    "duration_ms": round(jr.latency_ms, 1),
+                })
+            else:
+                # SAFE — record per-variant trace entry.
+                trace.append({
+                    "step": step, "layer": trace_layer, "verdict": "passed",
+                    "detail": f"LLM judge: {jr.verdict} ({jr.confidence:.2f}) ({jr.latency_ms:.0f}ms){variant_suffix}",
+                    "detection_model": "llm_judge",
+                    "duration_ms": round(jr.latency_ms, 1),
+                })
+                detector_verdict = {"label": jr.verdict, "score": jr.confidence}
 
     # Step 3: trust boundary wrap
     tagged = cleaned
