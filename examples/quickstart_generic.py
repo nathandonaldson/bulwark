@@ -10,7 +10,7 @@ Requirements: pip install httpx
 import httpx
 
 
-BULWARK = "http://localhost:3001"
+BULWARK = "http://localhost:3000"
 
 
 def clean(content: str, source: str = "external") -> str:

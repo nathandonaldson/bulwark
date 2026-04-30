@@ -16,7 +16,7 @@ async def clean_many(items: list[str]) -> list[dict]:
     async with httpx.AsyncClient() as client:
         async def one(text: str) -> dict:
             r = await client.post(
-                "http://localhost:3001/v1/clean",
+                "http://localhost:3000/v1/clean",
                 json={"content": text, "source": "batch"},
                 timeout=30,
             )
@@ -34,6 +34,7 @@ above.
 
 ## Throughput
 
-A single Bulwark worker serializes inference per-detector, so a single
-process is ~30 RPS on DeBERTa-only. Run multiple workers behind a load
-balancer for higher throughput; each worker holds its own DeBERTa instance.
+A single Bulwark worker serializes inference per-detector — single-process
+throughput is detector-bound, so benchmark on your hardware (CPU vs GPU,
+batch shape, model). Run multiple workers behind a load balancer for
+higher throughput; each worker holds its own DeBERTa instance.

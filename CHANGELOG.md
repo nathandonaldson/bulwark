@@ -1,5 +1,105 @@
 # Changelog
 
+## [2.5.10] - 2026-05-01
+
+### Documentation rewrite (Phase 2 of the 2026-04-30 doc audit)
+
+A documentation-only pass driven by the synthesis brief at
+`docs/superpowers/audits/2026-04-30-doc-audit/00-synthesis.md`. No
+production code touched (one Python docstring updated in
+`src/bulwark/shortcuts.py` to drop a stale "two-phase execution"
+reference; that's it). All 991 tests still pass — there are no spec
+edits in this commit.
+
+Restructural changes:
+
+- **Ports standardized on 3000** across `docs/dashboard.md`,
+  `docs/api-reference.md`, `docs/batch.md`, `docs/config.md`,
+  `docs/integrations/wintermute.md`, and every `examples/quickstart_*.py`.
+  3000 matches the published Docker image; 3001 stays explicitly
+  labeled as the source-tree dev port. New "Which port am I on?"
+  section in `docs/README.md`.
+- **`ROADMAP.md` "Shipped highlights" retired** in favour of a one-line
+  link to `CHANGELOG.md`. The "Future" subsection (Transparent proxy
+  mode, CaMeL, Community attack catalog growth, OpenClaw TS plugin) is
+  removed entirely — none had ADRs or commits, they were aspirations
+  not commitments.
+- **`docs/codex-security/bulwark-security-review.txt` archived** to
+  `docs/codex-security/archive/bulwark-security-review-v1.txt` with a
+  banner. The review's threat model describes the v1 two-phase /
+  `/v1/pipeline` / `make_analyze_fn` / `AnalysisGuard` architecture
+  that ADR-031 removed.
+- **Configuration block moved out of `docs/api-reference.md` into
+  `docs/config.md`.** The api-reference now carries a one-line link.
+- **README "Library use (Python)" extracted to `docs/python-library.md`**
+  with an entry-point comparison table (`bulwark.clean()` vs
+  `protect()` vs `Pipeline.from_config()` vs HTTP `/v1/clean`).
+- **`CLAUDE.md` ADR pointer block extended** with ADR-047 (encoding
+  decoders) and ADR-048 (shared chain helper).
+- **`CONTRIBUTING.md`** got a Dev setup section pulling test/version/CHANGELOG
+  rules from CLAUDE.md, plus the missing recent ADRs (038, 047, 048).
+
+Per-finding fixes (selected; the audit reports under
+`docs/superpowers/audits/2026-04-30-doc-audit/` carry the full list):
+
+- **README + detection.md DeBERTa load timing** corrected — DeBERTa
+  loads at FastAPI startup, not on the first `/v1/clean` request
+  (F-01-001, F-01-002).
+- **api-reference.md byte cap** corrected from "Up to 1 MB" to "Up to
+  262144 bytes (256 KiB)" matching ADR-042 + the env-var table (F-01).
+- **`/v1/clean` 200 shape** now documents `decoded_variants` and
+  `blocked_at_variant` (ADR-047) plus the per-detector trace fields
+  `detection_model`, `duration_ms`, `max_score`, `n_windows` (F-11,
+  F-M3).
+- **detection.md** got a new "Decode-rescan (ADR-047)", "Operator
+  opt-outs" (`BULWARK_ALLOW_NO_DETECTORS` / `BULWARK_ALLOW_SANITIZE_ONLY`),
+  and "Known non-guarantees" sections (F1, F8 from audit 03; the
+  chunk-window numbers are now correct at 510 + 64-token overlap).
+- **red-teaming.md** attack table now includes the missing
+  `bridge_exploitation` row (audit 03 F4 + F9), notes `split_evasion`
+  as on-demand, and the programmatic `ProductionRedTeam` example sets
+  `pipeline_url` so callers actually exercise the detector chain (F12).
+- **wintermute.md** failure-modes table now covers HTTP 503 + 413
+  (F-04-04). The `safe_call` example branches on all three error
+  codes.
+- **layers.md** corrects the `Pipeline.default()` claim, expands the
+  Sanitizer toggle list, fixes the NFKC default (off, opt-in), and
+  shows the canary token shape (F6, F17, F18, F19 from audit 03).
+- **async.md** repositioned around the async client (Bulwark itself is
+  sync request/response); the example client now branches on 422 +
+  413 + 503 instead of 422-only (F13).
+- **cli.md** drops the "all 77 attacks" hardcoded count, fixes the
+  `bulwark canary-check` example to use `canaries.json` (the file is
+  read with `json.loads`, never YAML), shows how to inject a
+  zero-width via `printf` instead of `echo`, and clarifies the
+  hyphenated entry-point script names (F-02, F-04, F-05, F-07, F-19, F-M1).
+- **dashboard.md** auth wording rewritten to match ADR-029/041
+  reads-vs-writes split (F-14); Standard Scan probe count phrasing
+  no longer pins a frozen-in-time number (F-06).
+- **OpenClaw skill** (`integrations/openclaw/skills/bulwark-sanitize/SKILL.md`)
+  adds rule 4: HTTP 503 with `error.code: no_detectors_loaded` is
+  Bulwark misconfigured, not transient.
+
+Stale numbers dropped or relinked: README + ROADMAP "960+ tests" →
+"comprehensive test suite enforced by `tests/test_spec_compliance.py`";
+"315 probes", "3,049 probes", "~3,000 probes", "77 attacks" all
+reworded to live-count phrasing (F-01-005, F-01-006, F-06, F4, F5 from
+audit 03, F8 from audit 05).
+
+Code bugs deferred to phase 3 (separate PR): C1 status pill blind to
+no-detectors / degraded-explicit; C2 events empty-state copy lies under
+no-detectors; C3 unwired `⌘K` button in `shell.jsx`; C4 stale "Bridge"
+filter + analyze/execute trace mappings in `page-test.jsx`; C5
+"configured LLM backend" string in `page-test.jsx`; C6 "or generate
+payloads" feature claim; C7 dead `analyze`/`bridge`/`execute` SVG icons
+in `primitives.jsx`; C8 falsepos tier card "probes" unit; C11 cli.py
+"All 77 attacks" hardcoded help text; C13 `data.jsx` vs `page-test.jsx`
+disagreement on `analysis_guard` mapping; C14 LAYERS.slice(0, 5) /
+"5-step" comment in `page-events.jsx`. Screenshots in `docs/images/*`
+also stale (F10 from audit 05) — re-shoot at the next dashboard-touching
+release.
+
+
 ## [2.5.9] - 2026-04-30
 
 ### Infrastructure (CI throughput — see ADR-049)

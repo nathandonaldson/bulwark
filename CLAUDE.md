@@ -36,6 +36,8 @@ Both DeBERTa and PromptGuard live in `integrations/promptguard.py` (the file nam
 `ADR-042`: `/v1/clean.content` and `/v1/guard.text` are byte-capped (default 256 KiB) via `BULWARK_MAX_CONTENT_SIZE`. Over-cap requests get HTTP 413 + `error.code = "content_too_large"`.
 `ADR-044`: `Pipeline.from_config(path)` loads the same detector chain the dashboard uses. The `Pipeline(detect=callable)` constructor was REMOVED in v2.5.0 — pass `detectors=[callable, ...]` instead.
 `ADR-046`: long-range split-evasion (≥~50 tokens of benign filler between trigger and instruction) is a documented non-guarantee — the dilution is a model-context limit, not a chunking artefact.
+`ADR-047`: `/v1/clean` decodes base64 + ROT13 substrings as detection variants; trust boundary still wraps the original cleaned text. `decode_base64` is opt-in (default off).
+`ADR-048`: `bulwark.detector_chain.run_detector_chain` is the single source of truth for chain execution; `Pipeline.run()` and `api_v1.api_clean` both delegate to it. Don't fork.
 
 ## Sister packages
 

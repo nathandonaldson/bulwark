@@ -29,7 +29,6 @@ Record significant decisions in `spec/decisions/` using the ADR template. Key de
 
 ```yaml
 function: bulwark.example
-version: "0.5.0"
 
 guarantees:
   - id: G-EXAMPLE-001
@@ -58,19 +57,31 @@ The meta-tests in `tests/test_spec_compliance.py` run automatically and enforce:
 - Configuration changes (config.py fields)
 - Bug fixes that don't change the public API
 
-## Testing
+## Dev setup
 
-Run the full test suite:
+```bash
+git clone https://github.com/nathandonaldson/bulwark.git
+cd bulwark
+pip install -e .[dev]
+```
+
+The full test suite:
 
 ```bash
 PYTHONPATH=src python3 -m pytest tests/ -v
 ```
 
-Run just the spec compliance tests:
+Spec-compliance tests only:
 
 ```bash
 PYTHONPATH=src python3 -m pytest tests/test_spec_compliance.py -v
 ```
+
+Every commit bumps `VERSION` (patch by default, minor on a major
+feature) and adds a `## [X.Y.Z]` entry at the top of `CHANGELOG.md` in
+the same commit. See `CLAUDE.md` "Versioning" for the full rule. The
+local source-tree dev port is 3001 (`PYTHONPATH=src python -m
+bulwark.dashboard --port 3001`); the published Docker image binds 3000.
 
 ## Architecture
 
@@ -84,9 +95,12 @@ for v2:
 - **ADR-031**: Pipeline simplification (v1 → v2 detection-only break)
 - **ADR-032**: Detector chunking (510-token windows + 64-token overlap)
 - **ADR-033**: LLM Judge as a third detector (detection-only)
+- **ADR-038**: Mandatory detector visibility on `/healthz`
 - **ADR-040**: Fail-closed `/v1/clean` when no detectors loaded
 - **ADR-041**: `/v1/clean` auth decoupled from judge state
 - **ADR-042**: Byte-count limit on content
 - **ADR-044**: Library/dashboard pipeline parity (`Pipeline.from_config()`)
 - **ADR-045**: End-to-end real-detector CI lane
 - **ADR-046**: Split-evasion test coverage
+- **ADR-047**: Encoding decoders (base64 / ROT13) as detection variants
+- **ADR-048**: Shared detector-chain helper (`run_detector_chain`)

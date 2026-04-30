@@ -7,9 +7,11 @@ Import and call.
     safe = bulwark.clean(email_body, source="email")
     safe_output = bulwark.guard(llm_response)
 
-**These provide input sanitization and output checking, not full architectural
-defense.** For two-phase execution, canary tokens, and batch isolation, use
-Pipeline directly.
+**These provide input sanitization and output checking only — sanitizer
++ trust boundary, no ML detection.** For the full detector chain in
+process (DeBERTa + optional PromptGuard / LLM judge), use
+``Pipeline.from_config('bulwark-config.yaml')`` (ADR-044). For the
+sidecar HTTP path, call ``POST /v1/clean``.
 
 This module must NEVER import from bulwark.integrations or any optional-dependency
 module. All imports must be from core Bulwark modules only.
@@ -64,9 +66,10 @@ def clean(
     This is the simplest Bulwark integration — one function, one return value.
     The returned string is safe to interpolate into any LLM prompt.
 
-    **This provides input sanitization + trust boundary tagging, not full
-    architectural defense.** For two-phase execution (where the LLM that reads
-    untrusted content cannot act), use ``Pipeline``.
+    **This provides input sanitization + trust boundary tagging only — no
+    ML detection.** For the full DeBERTa + optional PromptGuard / LLM-judge
+    chain in process, use ``Pipeline.from_config(path)`` (ADR-044). For the
+    sidecar HTTP path, call ``POST /v1/clean``.
 
     Args:
         content: The untrusted text (email body, user input, web scrape, etc.)

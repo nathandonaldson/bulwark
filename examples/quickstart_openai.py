@@ -12,7 +12,7 @@ from openai import OpenAI
 def safe_call(untrusted: str) -> str:
     # 1. Sanitize + classify + wrap via Bulwark sidecar.
     r = httpx.post(
-        "http://localhost:3001/v1/clean",
+        "http://localhost:3000/v1/clean",
         json={"content": untrusted, "source": "user"},
         timeout=30,
     )

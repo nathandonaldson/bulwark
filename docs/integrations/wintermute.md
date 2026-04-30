@@ -2,11 +2,16 @@
 
 Wintermute is a personal agent that handles real untrusted content — inbound
 email, shared documents, arbitrary web pages — before handing it to an LLM.
-Bulwark runs as a local Docker sidecar on `localhost:3001` and every bit of
+Bulwark runs as a local Docker sidecar on `localhost:3000` and every bit of
 external content flows through `POST /v1/clean` before the agent trusts it.
 
 This guide documents what Wintermute expects from Bulwark and how the two
 programs stay correct as Bulwark evolves.
+
+Port note: Wintermute pins to the Docker image port 3000. Source-tree
+dev (`python -m bulwark.dashboard --port 3001`) uses 3001; OpenClaw
+sidecar uses 8100. See [`docs/README.md` "Which port am I
+on?"](../README.md#which-port-am-i-on).
 
 ## Why Bulwark runs as a sidecar
 
@@ -35,17 +40,29 @@ LLM. Bulwark never invokes a generative LLM — that is the whole point of v2
 ```python
 import httpx
 
+class BulwarkBlocked(Exception): ...
+class BulwarkMisconfigured(Exception): ...
+class BulwarkTooLarge(Exception): ...
+
 def clean(content: str, source: str = "email") -> str:
-    """Pass content through Bulwark. Returns the wrapped safe string.
-    Raises ValueError on a 422 block."""
+    """Pass content through Bulwark. Returns the wrapped safe string."""
     r = httpx.post(
-        "http://localhost:3001/v1/clean",
+        "http://localhost:3000/v1/clean",
         json={"content": content, "source": source},
         timeout=30,
     )
     if r.status_code == 422:
         body = r.json()
-        raise ValueError(f"blocked at {body.get('blocked_at')}: {body.get('block_reason')}")
+        raise BulwarkBlocked(f"blocked at {body.get('blocked_at')}: {body.get('block_reason')}")
+    if r.status_code == 413:
+        err = r.json().get("error", {})
+        raise BulwarkTooLarge(err.get("message", "content_too_large"))
+    if r.status_code == 503:
+        err = r.json().get("error", {})
+        if err.get("code") == "no_detectors_loaded":
+            # Bulwark is up but its detectors aren't loaded — fail closed.
+            raise BulwarkMisconfigured("no_detectors_loaded (ADR-040)")
+        raise BulwarkMisconfigured(f"503: {err.get('message')}")
     r.raise_for_status()
     return r.json()["result"]
 ```
@@ -71,7 +88,7 @@ regex + canary check before showing it to a user or passing to a tool:
 ```python
 def guard(text: str) -> tuple[bool, str | None]:
     r = httpx.post(
-        "http://localhost:3001/v1/guard",
+        "http://localhost:3000/v1/guard",
         json={"text": text},
         timeout=10,
     )
@@ -91,7 +108,7 @@ If those strings appear in LLM output, `/v1/guard` flags exfiltration.
 Add a canary via the dashboard (Leak Detection page) or:
 
 ```bash
-curl -X POST http://localhost:3001/api/canaries \
+curl -X POST http://localhost:3000/api/canaries \
   -H 'Content-Type: application/json' \
   -d '{"label": "prod_admin_url", "shape": "url"}'
 ```
@@ -112,7 +129,10 @@ Set these in `bulwark-config.yaml` or via env:
 
 ## Response shape (v2)
 
-`/v1/clean` 200 response — what Wintermute sees on the happy path:
+`/v1/clean` 200 response — illustrative, not exhaustive. The live response
+also carries `detection_model`, `duration_ms`, `max_score`, `n_windows` per
+detection trace entry, plus `decoded_variants` and `blocked_at_variant` at
+the top level (ADR-047 / Phase H).
 
 ```json
 {
@@ -124,16 +144,21 @@ Set these in `bulwark-config.yaml` or via env:
   "result_length": 2087,
   "modified": true,
   "trace": [
-    {"step": 1, "layer": "sanitizer",           "verdict": "modified", "detail": "..."},
-    {"step": 2, "layer": "detection:protectai", "verdict": "passed",   "detail": "..."},
-    {"step": 3, "layer": "trust_boundary",      "verdict": "passed",   "detail": "..."}
+    {"step": 1, "layer": "sanitizer",                                          "verdict": "modified", "detail": "..."},
+    {"step": 2, "layer": "detection:protectai-deberta-v3-base-injection-v2",   "verdict": "passed",   "detail": "..."},
+    {"step": 3, "layer": "trust_boundary",                                     "verdict": "passed",   "detail": "..."}
   ],
-  "detector": {"label": "SAFE", "score": null}
+  "detector": {"label": "SAFE", "score": null},
+  "decoded_variants": [],
+  "blocked_at_variant": null,
+  "mode": "normal"
 }
 ```
 
-There is no `analysis` or `execution` field in v2 — those existed in the
-v1 two-phase executor that ADR-031 removed.
+`detection:<model>` layer names use each detector's registered model id
+— don't pin code to the literal string `"detection:protectai"`. There
+is no `analysis` or `execution` field in v2 — those existed in the v1
+two-phase executor that ADR-031 removed.
 
 ## Versioning
 
@@ -143,12 +168,14 @@ breaking response-shape changes need a major bump.
 
 ## Failure modes
 
-| Scenario                                | Wintermute should…                                  |
-|-----------------------------------------|-----------------------------------------------------|
-| Bulwark unreachable (sidecar down)      | Fail-closed: refuse to process the input. Don't fall back to raw content. |
-| `/v1/clean` returns 422                 | Surface to the user as "blocked", retain audit log. |
-| `/v1/clean` 200 with `modified: true`   | Normal — sanitizer stripped chars. Use `result`.    |
-| `/v1/guard` returns `safe: false`       | Block the LLM output. Audit. Do not trust.          |
+| Scenario                                                     | Wintermute should…                                  |
+|--------------------------------------------------------------|-----------------------------------------------------|
+| Bulwark unreachable (sidecar down)                           | Fail-closed: refuse to process the input. Don't fall back to raw content. |
+| `/v1/clean` returns 422                                      | Surface to the user as "blocked", retain audit log. |
+| `/v1/clean` 200 with `modified: true`                        | Normal — sanitizer stripped chars. Use `result`.    |
+| `/v1/clean` returns 413 (`content_too_large`, ADR-042)       | Payload exceeded the byte cap. Truncate or split, then retry — don't loop on the original. |
+| `/v1/clean` returns 503 (`no_detectors_loaded`, ADR-040)     | Bulwark is up but misconfigured — refuse to process. Don't retry as if it'll come up; fix the config. |
+| `/v1/guard` returns `safe: false`                            | Block the LLM output. Audit. Do not trust.          |
 
 ## Operational notes
 

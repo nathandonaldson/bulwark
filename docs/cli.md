@@ -2,13 +2,18 @@
 
 All commands require the `[cli]` extra: `pip install bulwark-shield[cli]`
 
+After install, the entry-point scripts are `bulwark`, `bulwark-bench`,
+and `bulwark-falsepos` (hyphens). The same commands also run via
+`python -m bulwark`, `python -m bulwark_bench`, and
+`python -m bulwark_falsepos` (underscores).
+
 ## bulwark test
 
 Run attack patterns against the default pipeline.
 
 ```bash
 bulwark test                         # 8 preset attacks
-bulwark test --full                  # All 77 attacks
+bulwark test --full                  # the full attack suite
 bulwark test -c steganography        # Filter by category
 bulwark test -c encoding -c steganography  # Multiple categories
 bulwark test -v                      # Verbose (per-attack details)
@@ -24,8 +29,12 @@ Sanitize untrusted text from stdin.
 
 ```bash
 echo "Hello<script>evil()</script>" | bulwark sanitize
-echo "text with\u200bhidden\u200bchars" | bulwark sanitize --no-html
+printf 'text with​hidden​chars' | bulwark sanitize
 ```
+
+Use `printf` (not `echo`) when you need shell-level interpretation of
+`\u…` escapes — default `echo` in zsh/bash leaves the literal backslash
+sequence in place.
 
 Options: `--max-length`, `--no-html`, `--no-css`, `--no-zero-width`
 
@@ -42,7 +51,7 @@ Options: `--source`, `--label`, `--format` (xml/markdown/delimiter)
 
 ## bulwark canary (subgroup)
 
-Manage canaries on a running dashboard via the [canary management API](api-reference.md#canary-management-adr-025). Requires the `[bench]` extra (the subgroup uses `httpx`): `pip install bulwark-shield[bench]`. If the dashboard has auth enabled, set `BULWARK_API_TOKEN` in the environment and the CLI will attach it.
+Manage canaries on a running dashboard via the [canary management API](api-reference.md#endpoints). Requires the `[bench]` extra (the subgroup uses `httpx`): `pip install bulwark-shield[bench]`. If the dashboard has auth enabled, set `BULWARK_API_TOKEN` in the environment and the CLI will attach it.
 
 ```bash
 # List configured canaries
@@ -69,24 +78,29 @@ Shapes: `aws`, `bearer`, `password`, `url`, `mongo`. Each emits a shape-matching
 
 Dashboard URL defaults to `http://localhost:3000`; override with `--url http://elsewhere`.
 
-## bulwark canary-generate (legacy)
+## bulwark canary-generate (legacy, pre-ADR-025)
 
-Pre-ADR-025 command — generates a YAML/JSON canary file for offline use (no dashboard required). Kept for scripted pipelines that pre-date the HTTP API.
+Pre-ADR-025 command — generates a JSON canary file for offline use (no
+dashboard required). Kept for scripted pipelines that pre-date the HTTP
+API.
 
 ```bash
 bulwark canary-generate user_data config api_keys
-bulwark canary-generate user_data --output canaries.yaml --prefix MY-APP
+bulwark canary-generate user_data --output canaries.json --prefix MY-APP
 ```
 
-## bulwark canary-check
+## bulwark canary-check (legacy, pre-ADR-025)
 
-Check for canary token leaks in stdin.
+Check for canary token leaks in stdin against a JSON token file emitted
+by `bulwark canary-generate`.
 
 ```bash
-echo "output text" | bulwark canary-check --tokens canaries.yaml
+echo "output text" | bulwark canary-check --tokens canaries.json
 ```
 
-Exit code 1 if tokens found. Useful in CI for post-run verification when the dashboard isn't in the loop.
+The `--tokens` file is read with `json.loads` — it must be JSON, not
+YAML. Exit code 1 if tokens found. Useful in CI for post-run
+verification when the dashboard isn't in the loop.
 
 ## bulwark_bench
 
@@ -96,12 +110,15 @@ Sibling CLI for **detector-config** bake-offs (ADR-034). Sweeps Garak probes acr
 # Compare detector configs against the standard tier:
 PYTHONPATH=src python3 -m bulwark_bench \
   --configs deberta-only,deberta+promptguard,deberta+llm-judge \
-  --tier standard \
   --judge-base-url http://192.168.1.78:1234/v1 \
   --judge-model prompt-injection-judge-8b
 ```
 
-Available presets: `deberta-only`, `deberta+promptguard`, `deberta+llm-judge`, `all`. DeBERTa is mandatory in v2 — every preset includes it. The judge presets require `--judge-model` (and `--judge-base-url` for openai_compatible mode).
+`--tier` defaults to `standard`. `--url` defaults to
+`http://localhost:3000`. Available presets: `deberta-only`,
+`deberta+promptguard`, `deberta+llm-judge`, `all`. DeBERTa is mandatory
+in v2 — every preset includes it. The judge presets require
+`--judge-model` (and `--judge-base-url` for openai_compatible mode).
 
 ## bulwark_falsepos
 

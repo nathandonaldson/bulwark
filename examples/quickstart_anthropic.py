@@ -7,12 +7,14 @@ result. Bulwark never invokes a generative LLM.
 Two ways to wire this:
 
 1. SDK proxy — `protect()` wraps the client and auto-sanitizes user
-   message content before it leaves your process. Detection-only, no
-   network call to Bulwark — uses the local sanitizer + trust boundary.
+   message content before it leaves your process. **Sanitize +
+   trust-boundary tag only — no ML detection.** No network call to
+   Bulwark; no DeBERTa/PromptGuard/judge ever runs.
 
 2. HTTP — call /v1/clean on untrusted input, then feed the cleaned
-   string to Anthropic. Detector chain (DeBERTa, optional PromptGuard,
-   optional LLM judge) runs server-side and may return 422.
+   string to Anthropic. Sanitizer + DeBERTa (and optional PromptGuard /
+   LLM judge) run in the sidecar — may return 422 if a classifier
+   blocks.
 
 Requirements: pip install anthropic bulwark-shield
 """
@@ -21,7 +23,7 @@ import httpx
 from bulwark.integrations.anthropic import protect
 
 
-# --- Pattern 1: SDK proxy (no Bulwark sidecar required) ---
+# --- Pattern 1: SDK proxy (no Bulwark sidecar required, no ML detection) ---
 
 client = protect(anthropic.Anthropic())  # auto-sanitizes user-role content
 response = client.messages.create(
@@ -32,11 +34,11 @@ response = client.messages.create(
 print(response.content[0].text)
 
 
-# --- Pattern 2: HTTP /v1/clean against the Bulwark sidecar ---
+# --- Pattern 2: HTTP /v1/clean against the Bulwark sidecar (full chain) ---
 
 def safe_call(untrusted: str) -> str:
     r = httpx.post(
-        "http://localhost:3001/v1/clean",
+        "http://localhost:3000/v1/clean",
         json={"content": untrusted, "source": "user"},
         timeout=30,
     )

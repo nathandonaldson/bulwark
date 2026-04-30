@@ -9,30 +9,47 @@ your own LLM, and calls `/v1/guard` on the LLM's output.
 ## Base URL
 
 ```
-http://localhost:3001
+http://localhost:3000
 ```
+
+The Docker image binds to port 3000 by default. Source-tree dev uses
+3001 (`python -m bulwark.dashboard --port 3001`); see
+[`docs/README.md` "Which port am I on?"](README.md#which-port-am-i-on).
 
 ## Endpoints
 
-| Method | Path                  | Purpose                                                |
-|--------|-----------------------|--------------------------------------------------------|
-| GET    | `/healthz`            | Liveness + version probe.                              |
-| POST   | `/v1/clean`           | Sanitize, detect, wrap. Returns safe content or 422.   |
-| POST   | `/v1/guard`           | Output check on caller's LLM output (regex + canary).  |
-| GET    | `/api/canaries`       | List canary tokens.                                    |
-| POST   | `/api/canaries`       | Create or rotate a canary.                             |
-| DELETE | `/api/canaries/{label}` | Delete a canary.                                     |
-| GET    | `/api/presets`        | Built-in attack-preset library (read-only).            |
-| GET    | `/api/redteam/tiers`  | Available scan tiers including `falsepos`.             |
-| POST   | `/api/redteam/run`    | Start a red-team or false-positive scan.               |
+| Method | Path                          | Purpose                                                |
+|--------|-------------------------------|--------------------------------------------------------|
+| GET    | `/healthz`                    | Liveness + version probe.                              |
+| POST   | `/v1/clean`                   | Sanitize, detect, wrap. Returns safe content or 422.   |
+| POST   | `/v1/guard`                   | Output check on caller's LLM output (regex + canary).  |
+| GET    | `/api/canaries`               | List canary tokens.                                    |
+| POST   | `/api/canaries`               | Create or rotate a canary.                             |
+| DELETE | `/api/canaries/{label}`       | Delete a canary.                                       |
+| GET    | `/api/presets`                | Built-in attack-preset library (read-only).            |
+| GET    | `/api/redteam/tiers`          | Available scan tiers including `falsepos`.             |
+| POST   | `/api/redteam/run`            | Start a red-team or false-positive scan.               |
+| GET    | `/api/redteam/reports`        | List saved red-team reports.                           |
+| GET    | `/api/redteam/reports/{filename}` | Download a saved report.                          |
+| POST   | `/api/redteam/retest`         | Retest the failures from an earlier report.            |
 
-Dashboard-internal endpoints (events, metrics, integrations) are documented
-in `tests/test_spec_compliance.py::INTERNAL_PATHS`. They are not a stable
-contract — use `spec/openapi.yaml` for anything external.
+`/api/redteam/run` siblings `/api/redteam/status` (poll) and
+`/api/redteam/stop` (cancel) exist but are dashboard-internal — use
+them from the UI but don't depend on them as a public contract.
+
+Other dashboard-internal endpoints (events, metrics, integrations) are
+documented in `tests/test_spec_compliance.py::INTERNAL_PATHS`. They are
+not a stable contract — use `spec/openapi.yaml` for anything external.
 
 ## POST /v1/clean
 
 Pipeline: **Sanitizer → DeBERTa (mandatory) → PromptGuard (optional) → LLM Judge (optional) → Trust Boundary**.
+
+Per ADR-047, `/v1/clean` decodes ROT13 substrings (always on) and base64
+substrings (opt-in via `BULWARK_DECODE_BASE64=1`) into detection
+variants. Each detector runs once per variant; the trust boundary still
+wraps the original cleaned text. See `decoded_variants` and
+`blocked_at_variant` in the response shape.
 
 ### Request
 
@@ -46,7 +63,7 @@ Pipeline: **Sanitizer → DeBERTa (mandatory) → PromptGuard (optional) → LLM
 
 | Field         | Type   | Default       | Notes                                          |
 |---------------|--------|---------------|------------------------------------------------|
-| `content`     | string | (required)    | Up to 1 MB. The untrusted payload.             |
+| `content`     | string | (required)    | Up to 262144 bytes (256 KiB) of UTF-8. Tunable via `BULWARK_MAX_CONTENT_SIZE`. Over-cap → 413. |
 | `source`      | string | `"external"`  | Tag name fragment in the trust-boundary wrap.  |
 | `label`       | string | null          | Optional override for the tag name.            |
 | `max_length`  | int    | null          | Truncate after sanitizing.                     |
@@ -65,19 +82,23 @@ Pipeline: **Sanitizer → DeBERTa (mandatory) → PromptGuard (optional) → LLM
   "modified": false,
   "trace": [
     {"step": 1, "layer": "sanitizer", "verdict": "passed", "detail": "..."},
-    {"step": 2, "layer": "detection:protectai", "verdict": "passed", "detail": "..."},
+    {"step": 2, "layer": "detection:protectai", "verdict": "passed", "detail": "...", "detection_model": "protectai", "duration_ms": 28.5, "max_score": 0.0021},
     {"step": 3, "layer": "trust_boundary", "verdict": "passed", "detail": "..."}
   ],
   "detector": {"label": "SAFE", "score": null},
-  "mode": "normal"
+  "mode": "normal",
+  "decoded_variants": [],
+  "blocked_at_variant": null
 }
 ```
 
-The `mode` field is `"normal"` on a default deploy. When the dashboard is
-running with zero detectors loaded **and** the operator has set
-`BULWARK_ALLOW_NO_DETECTORS=1` to opt into a sanitizer-only posture, the
-field returns `"degraded-explicit"` and every request is logged at WARNING
-(see ADR-040).
+| Field                | Notes                                                                                               |
+|----------------------|-----------------------------------------------------------------------------------------------------|
+| `decoded_variants`   | List of variants the chain ran over (e.g. `[{"kind": "rot13", "text": "..."}]`). Empty when no decoding fired. ADR-047. |
+| `blocked_at_variant` | Index into `decoded_variants` if a variant blocked, else `null`.                                    |
+| `mode`               | `"normal"` on a default deploy. `"degraded-explicit"` when running with zero detectors loaded **and** `BULWARK_ALLOW_NO_DETECTORS=1` is set; every request in that mode is logged at WARNING (ADR-040). |
+
+Per-detector trace entries also carry `detection_model`, `duration_ms`, `max_score`, and `n_windows` — useful for operator drill-downs.
 
 ### Response (422)
 
@@ -144,74 +165,29 @@ When `canary_tokens` is null, server-configured canaries from
 
 ## Configuration
 
-Bulwark reads config from `bulwark-config.yaml` at startup; environment
-variables override file values.
-
-### Environment variables
-
-| Variable                       | Effect                                                                                  |
-|--------------------------------|-----------------------------------------------------------------------------------------|
-| `BULWARK_API_TOKEN`            | Bearer auth on mutating + protected endpoints (incl. `/v1/clean`, ADR-041).             |
-| `BULWARK_WEBHOOK_URL`          | External webhook for BLOCKED events.                                                    |
-| `BULWARK_ALLOWED_HOSTS`        | Comma-separated hostname allowlist for SSRF guard.                                      |
-| `BULWARK_MAX_CONTENT_SIZE`     | Byte cap on `/v1/clean.content` and `/v1/guard.text` (default 262144 = 256 KiB, ADR-042). |
-| `BULWARK_ALLOW_NO_DETECTORS`   | `1` opts into sanitizer-only mode when zero detectors load. Returns 200 with `mode: degraded-explicit`. Default: 503 (ADR-040). |
-| `BULWARK_ALLOW_SANITIZE_ONLY`  | `1` lets `/healthz` report `ok` (with `mode: degraded-explicit`) when no detectors are loaded (ADR-038).  |
-| `BULWARK_DECODE_BASE64`        | `1` enables base64 decode-rescan in `/v1/clean` — base64 spans are decoded and re-fed through the detector chain (ADR-047). ROT13 rescan is always on. Default off; trades a small FP uptick for base64-encoded injection coverage. |
-
-The canonical list lives in `spec/contracts/env_config.yaml`.
-
-### Detector configuration
-
-Detectors live under the dashboard's integrations + `judge_backend` blocks.
-There is no `llm_backend` config in v2 — Bulwark never invokes a generative LLM.
-
-```yaml
-# bulwark-config.yaml
-sanitizer_enabled: true
-trust_boundary_enabled: true
-canary_enabled: true
-strip_emoji_smuggling: true
-strip_bidi: true
-normalize_unicode: false
-
-webhook_url: ""
-
-# DeBERTa is mandatory; PromptGuard is opt-in via /api/integrations.
-integrations:
-  protectai:
-    enabled: true
-  promptguard:
-    enabled: false
-
-# LLM judge — opt-in third detector. Off by default. See ADR-033.
-judge_backend:
-  enabled: false
-  mode: openai_compatible      # or "anthropic"
-  base_url: ""
-  model: ""
-  threshold: 0.85
-  fail_open: true
-  timeout_s: 30
-```
+See [docs/config.md](config.md) for the full env-var table, YAML file
+shape, and detector configuration block. The canonical env-var contract
+lives in [`spec/contracts/env_config.yaml`](../spec/contracts/env_config.yaml).
 
 ## Auth
 
-When `BULWARK_API_TOKEN` is set, all non-public endpoints require a Bearer
+When `BULWARK_API_TOKEN` is set, every `/api/*` call (reads + mutations)
+and every `/v1/clean` call from non-loopback callers requires a Bearer
 header or session cookie:
 
 ```
 Authorization: Bearer <token>
 ```
 
-When the token is unset, mutating methods (POST/PUT/DELETE/PATCH) require the
-client to be on the loopback interface — see ADR-029.
+When the token is unset, `/api/*` reads stay open to any caller; only
+mutating methods (POST/PUT/DELETE/PATCH) require a loopback client (ADR-029).
+`/v1/clean` from non-loopback is gated by token presence alone (ADR-041).
 
 ## Errors
 
 - **400** — Invalid request body for canary management.
 - **401** — Missing/invalid Bearer token (incl. `/v1/clean` from non-loopback when token is set, ADR-041).
-- **403** — Token unset, remote client tried to mutate.
+- **403** — Token unset, remote client tried to mutate. Body shape is `{"error": "Mutating endpoints require BULWARK_API_TOKEN..."}` (string error, not the structured envelope).
 - **404** — No matching resource (canary label, redteam report).
 - **413** — `content_too_large`: `/v1/clean.content` or `/v1/guard.text` exceeded the byte cap (ADR-042).
 - **422** — Validation error OR detector blocked the request.

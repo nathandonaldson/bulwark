@@ -5,6 +5,10 @@ and from environment variables that override file values.
 
 ## Environment variables
 
+The variables below default to *unset* (never `0` — `env_truthy` reads
+unset as false). Set them to `1` to opt in. The canonical list lives in
+[`spec/contracts/env_config.yaml`](../spec/contracts/env_config.yaml).
+
 ```bash
 # Auth — set this when exposing the dashboard outside loopback.
 # Once set, /v1/clean from non-loopback callers requires Bearer auth
@@ -16,6 +20,7 @@ BULWARK_WEBHOOK_URL=https://hooks.slack.com/services/...
 
 # SSRF allowlist — comma-separated hostnames that should be permitted
 # as webhook + judge endpoints despite living in the private IP space.
+# (G-ENV-009 / ADR-015.)
 BULWARK_ALLOWED_HOSTS=internal-router.example
 
 # Byte cap on /v1/clean.content and /v1/guard.text (ADR-042).
@@ -23,25 +28,32 @@ BULWARK_ALLOWED_HOSTS=internal-router.example
 BULWARK_MAX_CONTENT_SIZE=262144
 
 # Opt into sanitizer-only mode when zero ML detectors are loaded.
-# Default behaviour is HTTP 503 from /v1/clean (ADR-040). With this set,
-# /v1/clean returns 200 and the response carries mode: "degraded-explicit".
-BULWARK_ALLOW_NO_DETECTORS=0
+# Default: unset → /v1/clean returns HTTP 503 (ADR-040). Set to 1 and
+# /v1/clean returns 200 with mode: "degraded-explicit" instead.
+BULWARK_ALLOW_NO_DETECTORS=1
 
-# Opt into a "degraded-explicit" /healthz when no detectors load (ADR-038).
-# Default behaviour is /healthz reporting status=degraded.
-BULWARK_ALLOW_SANITIZE_ONLY=0
+# Opt into a healthy /healthz when no detectors load (ADR-038).
+# Default: unset → /healthz reports status: "degraded". Set to 1 and
+# /healthz reports status: "ok" with the same detector list. /healthz
+# itself never carries a `mode` field — that lives only on /v1/clean.
+BULWARK_ALLOW_SANITIZE_ONLY=1
 
 # Enable base64 decode-rescan in /v1/clean (ADR-047). When set to 1,
 # base64 spans inside the input are decoded and re-fed through the
 # detector chain, catching base64-encoded injection payloads. ROT13
-# rescan is always on (zero-FP cost). Default off — trades a small
-# false-positive uptick for coverage.
-BULWARK_DECODE_BASE64=0
+# rescan is always on (zero-FP cost). Default unset — set to 1 only
+# when base64-encoded injections are in your threat model; the rescan
+# trades a small false-positive uptick for that coverage.
+BULWARK_DECODE_BASE64=1
 ```
 
-The canonical list lives in `spec/contracts/env_config.yaml`. There is no
-`BULWARK_LLM_*` env var in v2 — Bulwark never invokes a generative LLM
-(ADR-031).
+The dashboard runtime additionally honours `BULWARK_DASHBOARD_PORT` (the
+port the FastAPI app binds, default 3000), `BULWARK_FALSEPOS_CORPUS`
+(override path for the false-positive corpus), and `BULWARK_PROJECT_DIR`
+(working directory for the dashboard's project-scoped writes).
+
+There is no `BULWARK_LLM_*` env var in v2 — Bulwark never invokes a
+generative LLM (ADR-031).
 
 ## bulwark-config.yaml
 
@@ -57,6 +69,7 @@ encoding_resistant: true
 strip_emoji_smuggling: true
 strip_bidi: true
 normalize_unicode: false
+decode_base64: false              # ADR-047 — opt-in base64 rescan; ROT13 always on
 
 # --- Output checks (used by /v1/guard) ---
 guard_patterns:
@@ -99,7 +112,7 @@ services:
   bulwark:
     image: nathandonaldson/bulwark:latest
     ports:
-      - "3001:3000"
+      - "3000:3000"
     env_file: .env
     volumes:
       - ./bulwark-config.yaml:/app/bulwark-config.yaml
@@ -116,7 +129,7 @@ BULWARK_WEBHOOK_URL=...
 ## Reading the live config
 
 ```bash
-curl http://localhost:3001/api/config | jq
+curl http://localhost:3000/api/config | jq
 ```
 
 `PUT /api/config` accepts a partial body with the same shape. The dashboard

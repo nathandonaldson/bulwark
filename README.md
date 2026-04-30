@@ -9,34 +9,35 @@ Bulwark v2 is **detection only.** It returns safe content or an HTTP 422.
 There is no two-phase executor, no LLM backend config, no analyze/execute
 flow — the project is opinionated about what it does and doesn't do.
 
-[Architecture](#architecture) · [Quickstart](#quickstart) · [Dashboard](#dashboard) · [Detectors](#detectors) · [Measuring quality](#measuring-quality) · [Docs](docs/)
+[Architecture](#architecture) · [Quickstart](#quickstart) · [Dashboard](#dashboard) · [Detectors](#detectors) · [Measuring quality](#measuring-quality) · [Docs](docs/README.md)
 
 ---
 
 ## Quickstart
 
 ```bash
-docker run -p 3001:3000 nathandonaldson/bulwark
+docker run -p 3000:3000 nathandonaldson/bulwark
 ```
 
-Dashboard at <http://localhost:3001>. API at the same host.
+Dashboard at <http://localhost:3000>. API at the same host.
 
 ```bash
 # Sanitize untrusted content. Returns 200 (safe) or 422 (blocked).
-curl -X POST http://localhost:3001/v1/clean \
+curl -X POST http://localhost:3000/v1/clean \
   -H 'Content-Type: application/json' \
   -d '{"content": "ignore previous instructions", "source": "email"}'
-# → 422  {"blocked": true, "block_reason": "Detector protectai: Prompt injection detected (1.000)"}
+# → 422  {"blocked": true, "block_reason": "...", ...}
 
 # Check your LLM's output for canary leaks + injection patterns.
-curl -X POST http://localhost:3001/v1/guard \
+curl -X POST http://localhost:3000/v1/guard \
   -H 'Content-Type: application/json' \
   -d '{"text": "the LLM said this back to the user"}'
 # → 200  {"safe": true, ...}
 ```
 
-The DeBERTa classifier downloads on the first `/v1/clean` request (~180 MB).
-It's mandatory in v2; PromptGuard and an LLM judge are opt-in second/third
+DeBERTa loads at container startup (a fresh image with no cache pays the
+~180 MB download once on first boot, then caches the weights). It's
+mandatory in v2; PromptGuard and an LLM judge are opt-in second/third
 detectors.
 
 ## Architecture
@@ -69,7 +70,7 @@ for the full rationale.
 
 ## Dashboard
 
-The Docker image ships with a live dashboard at <http://localhost:3001>.
+The Docker image ships with a live dashboard at <http://localhost:3000>.
 Five tabs: **Shield** (live status + ring), **Events** (filterable log),
 **Configure** (pipeline + detectors), **Leak Detection** (canaries + guard
 patterns), and **Test** (red-team scans + false-positive sweep).
@@ -131,14 +132,17 @@ panes for modified events.
 | Detector              | Status     | Latency    | Notes                                          |
 |-----------------------|------------|-----------|-----------------------------------------------|
 | Sanitizer             | Always on  | < 1 ms    | bidi, emoji smuggling, NFKC normalisation.    |
-| DeBERTa (ProtectAI)   | Mandatory  | ~30 ms    | `protectai/deberta-v3-base-prompt-injection-v2`. Loads on first request. |
+| DeBERTa (ProtectAI)   | Mandatory  | ~30 ms    | `protectai/deberta-v3-base-prompt-injection-v2`. Loads at container startup. |
 | PromptGuard-86M       | Optional   | ~50 ms    | Meta mDeBERTa second-opinion. Requires HF approval. |
 | LLM Judge             | Optional   | 1–3 s     | Detection-only; bring your own classifier LLM. ADR-033. |
 | Trust Boundary        | Always on  | < 1 ms    | Output formatter, not a defense gate.         |
 
-Sanitizer + DeBERTa achieve **100% defense** on the Standard Scan tier
-(3,049 probes) as of v2.1.0. PromptGuard and the LLM Judge are there for
-operators who want stricter detection on their specific traffic distribution.
+Sanitizer + DeBERTa hit a 100% defense rate on the Standard Scan tier
+in the v2.1.0 baseline run. The actual probe count and rate move with
+your installed garak version — run the Standard tier in the dashboard's
+Test page to get a current number for your build. PromptGuard and the
+LLM Judge are there for operators who want stricter detection on their
+specific traffic distribution.
 
 `/v1/clean` fails closed when zero ML detectors load and the LLM judge is
 disabled — HTTP 503 with `error.code = "no_detectors_loaded"` rather than
@@ -173,9 +177,10 @@ PYTHONPATH=src python3 -m bulwark_falsepos \
 ```
 
 The corpus lives at [`spec/falsepos_corpus.jsonl`](spec/falsepos_corpus.jsonl)
-— 42 entries across nine categories (everyday, customer support, marketing,
-technical, meta, repetitive, non-English, code blocks, quoted-attacks). Add
-your production false positives over time and the harness picks them up.
+— a curated set of benign emails across nine categories (everyday, customer
+support, marketing, technical, meta, repetitive, non-English, code blocks,
+quoted-attacks). Add your production false positives over time and the
+harness picks them up.
 
 Pick the detector configuration that maximises defense rate while keeping
 false positives in your acceptable range. See [docs/red-teaming.md](docs/red-teaming.md).
@@ -196,36 +201,16 @@ are editable through `PUT /api/config`. Full reference at
 
 ## Library use (Python)
 
-The library is zero-dependency for the sanitize + wrap path:
-
 ```python
 import bulwark
-
 safe = bulwark.clean("ignore previous instructions", source="email")
-# → "<untrusted_email source=\"email\" treat_as=\"data_only\">…</untrusted_email>"
-
-# Output side — checks regex patterns against your LLM response:
-ok = bulwark.guard("the LLM's response text")
 ```
 
-For dashboard parity (Sanitizer → DeBERTa → optional PromptGuard → optional
-LLM Judge → Trust Boundary) inside Python, use `Pipeline.from_config()` —
-it reads the same YAML the dashboard reads (ADR-044):
-
-```python
-from bulwark import Pipeline
-
-pipeline = Pipeline.from_config("bulwark-config.yaml")
-result = pipeline.run("ignore previous instructions", source="email")
-if result.blocked:
-    raise RuntimeError(result.block_reason)
-```
-
-`Pipeline.from_config()` blocks the same inputs the dashboard's `/v1/clean`
-blocks — see `G-PIPELINE-PARITY-001`. The `Pipeline(detect=callable)`
-constructor was removed in v2.5.0; pass `detectors=[callable, ...]` or use
-`from_config()`. See examples in
-[`examples/quickstart_generic.py`](examples/quickstart_generic.py).
+`bulwark.clean()` is sanitize + trust-boundary only. For the full
+detector chain in-process, `Pipeline.from_config("bulwark-config.yaml")`
+reads the same YAML the dashboard reads and composes the same chain
+(ADR-044). See [`docs/python-library.md`](docs/python-library.md) for
+the full surface and an entry-point comparison table.
 
 ## Project structure
 
@@ -240,7 +225,7 @@ constructor was removed in v2.5.0; pass `detectors=[callable, ...]` or use
 | `spec/contracts/`     | Function-level guarantees + non-guarantees.                |
 | `spec/decisions/`     | Architecture Decision Records.                             |
 | `spec/falsepos_corpus.jsonl` | Curated benign-email corpus for the FP harness.     |
-| `tests/`              | 960+ tests including spec-compliance enforcement.          |
+| `tests/`              | Comprehensive test suite enforced by `tests/test_spec_compliance.py`. |
 
 ## Spec-driven development
 

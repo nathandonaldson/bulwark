@@ -1,7 +1,9 @@
 # Dashboard
 
-The Bulwark dashboard runs at `http://localhost:3001` and ships in the same
-Docker image as the HTTP API. Five tabs.
+The Bulwark dashboard runs at `http://localhost:3000` (Docker default;
+source-tree dev uses 3001 — see [`docs/README.md` "Which port am I
+on?"](README.md#which-port-am-i-on)) and ships in the same Docker image
+as the HTTP API. Five tabs.
 
 ## Shield
 
@@ -20,7 +22,7 @@ events).
 
 ## Configure
 
-Pipeline visualisation with five stages, top to bottom:
+Pipeline visualisation, top to bottom:
 
 1. **Sanitizer** — strip hidden chars, steganography, emoji smuggling
 2. **DeBERTa (mandatory)** — `protectai/deberta-v3-base-prompt-injection-v2`
@@ -28,11 +30,12 @@ Pipeline visualisation with five stages, top to bottom:
 4. **LLM Judge (optional)** — opt-in third detector, off by default (ADR-033)
 5. **Trust Boundary** — output formatter (XML / markdown / delimiter)
 
-Click any stage to open its settings pane on the right. The Sanitizer pane
-toggles emoji-smuggling / bidi-override / NFKC sub-options. Detector panes
-show model name, latency, size, and an Enable button (PromptGuard / LLM
-Judge only — DeBERTa is mandatory). The LLM Judge pane carries a
-high-latency warning since enabling it adds 1–3 s per request.
+Click any stage to open its settings pane on the right. The Sanitizer
+pane toggles emoji-smuggling / bidi-override / NFKC / encoding-resistant
+/ base64 decode-rescan sub-options. Detector panes show model name,
+latency, size, and an Enable button (PromptGuard / LLM Judge only —
+DeBERTa is mandatory). The LLM Judge pane carries a high-latency warning
+since enabling it adds 1–3 s per request.
 
 ## Leak Detection
 
@@ -55,7 +58,10 @@ step. Pick from the curated attack-preset library (sourced from
 Bottom: red-team scans. Four tier cards:
 
 - **Smoke Test** — 10 probes across core families, verifies the pipeline.
-- **Standard Scan** — every active probe (~3,000), comprehensive defense check.
+- **Standard Scan** — every active probe pulled from your installed
+  garak version, comprehensive defense check. The probe count is
+  computed at runtime from `garak.probes.<family>` introspection and
+  shown on the tier card.
 - **Full Sweep** — every probe including extended payload variants, slowest.
 - **False Positives** — sends the curated benign corpus from
   `spec/falsepos_corpus.jsonl` through `/v1/clean` and inverts the metric so
@@ -67,10 +73,11 @@ Past Reports lists every saved scan with a download (JSON) and Retest button
 
 ## Auth
 
-Set `BULWARK_API_TOKEN` to require Bearer auth on mutating endpoints
-(POST/PUT/DELETE) and on the dashboard's `/api/*` reads. With the token unset,
-mutations require a loopback client (ADR-029) — public dashboards must always
-set the token.
+With `BULWARK_API_TOKEN` set, every `/api/*` call (reads + mutations)
+and every `/v1/clean` from non-loopback callers requires Bearer auth
+(ADR-041). With the token unset, reads stay open to any caller and only
+mutating methods (POST/PUT/DELETE/PATCH) require a loopback client
+(ADR-029). Public dashboards must always set the token.
 
 ## Source of truth
 
