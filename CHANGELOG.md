@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.5.6] - 2026-04-30
+
+### Fixed (Phase H test hotfix)
+
+- **Relax `test_encoded_injection_blocked_by_real_protectai` assertion.** The original v2.5.4 assertion required the block to fire on the *decoded* variant (`rot13` or `base64@...`). Empirically (CI run on commit `c8157cf`), real ProtectAI DeBERTa is robust enough to flag the encoded form directly on the `original` variant — so `blocked_at_variant` is `"original"`, not the decoded label. That's a successful defense, not a regression. The test now accepts either path: block on `original` OR on the decoded variant. The decoded-variant generation is still asserted (so the decode-rescan code path is exercised even when DeBERTa pre-empts it). Test hotfix only — no behaviour change. G-CLEAN-DECODE-ROT13-001 / G-CLEAN-DECODE-BASE64-001 unchanged; their semantics describe what MUST be tried, not which variant MUST trip.
+
+978 tests pass.
+
 ## [2.5.5] - 2026-04-30
 
 ### Fixed (Phase H follow-up)
