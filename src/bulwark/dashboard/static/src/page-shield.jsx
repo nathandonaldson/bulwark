@@ -18,8 +18,18 @@ function HeroStatus({ store, size = 'lg' }) {
   const totalLayers = LAYERS.length;
   const recentBlocked = store.events.filter(e => e.verdict === 'blocked' && Date.now() - e.ts < 30 * 60 * 1000);
   const hasIncident = hasRecentIncident(store.events);
+  // Inherit the unified status pill so layer cards / hero copy never disagree
+  // with the pill in the top nav (audit-05 F2/F13/F16). When the pipeline is
+  // fail-closed (ADR-040) or sanitize-only (ADR-038) the hero suppresses the
+  // "all good" copy and surfaces the same label the pill is showing.
+  const pill = computeStatusPill(store);
+  const pipelineDegraded = pill.kind === 'bad' || pill.label === 'Sanitize-only mode';
 
   if (hasIncident) {
+    const incidentDotKind = pill.kind === 'bad' ? 'bad' : (pipelineDegraded ? 'warn' : 'green');
+    const incidentSubline = pipelineDegraded
+      ? `${pill.label} · ${recentBlocked.length} threat${recentBlocked.length === 1 ? '' : 's'} neutralized in last 30m`
+      : `${activeLayers} of ${totalLayers} layers active · ${recentBlocked.length} threat${recentBlocked.length === 1 ? '' : 's'} neutralized in last 30m`;
     return (
       <div>
         <div style={{display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap'}}>
@@ -28,8 +38,8 @@ function HeroStatus({ store, size = 'lg' }) {
             fontWeight: 600, letterSpacing: '-0.03em', color: 'var(--text)',
           }}>Protected</div>
           <div style={{color: 'var(--text-dim)', fontSize: 14, display: 'flex', alignItems: 'center', gap: 10}}>
-            <Dot kind="green" size={8}/>
-            <span>{activeLayers} of {totalLayers} layers active · {recentBlocked.length} threat{recentBlocked.length === 1 ? '' : 's'} neutralized in last 30m</span>
+            <Dot kind={incidentDotKind} size={8}/>
+            <span>{incidentSubline}</span>
           </div>
         </div>
         <div role="alert" style={{
@@ -51,15 +61,27 @@ function HeroStatus({ store, size = 'lg' }) {
     );
   }
 
+  // Headline word reflects the pill: bad → "Unprotected", warn-degraded →
+  // "Sanitize-only", everything else → "Protected".
+  const headline = pill.kind === 'bad' ? 'Unprotected'
+    : (pill.label === 'Sanitize-only mode' ? 'Sanitize-only' : 'Protected');
+  const headlineColor = pill.kind === 'bad' ? 'var(--red)'
+    : (pipelineDegraded ? 'var(--amber)' : 'var(--text)');
+  const dotKind = pill.kind === 'bad' ? 'bad' : (pipelineDegraded ? 'warn' : 'green');
+
   return (
     <div style={{display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap'}}>
       <div className="display hero-metric" style={{
         fontSize: size === 'lg' ? 72 : 56, lineHeight: 0.95,
-        fontWeight: 600, letterSpacing: '-0.03em', color: 'var(--text)',
-      }}>Protected</div>
+        fontWeight: 600, letterSpacing: '-0.03em', color: headlineColor,
+      }}>{headline}</div>
       <div style={{color: 'var(--text-dim)', fontSize: 14, display: 'flex', alignItems: 'center', gap: 10}}>
-        <Dot kind="green" size={8}/>
-        <span>{activeLayers} of {totalLayers} layers active · no threats in 24h</span>
+        <Dot kind={dotKind} size={8}/>
+        <span>
+          {pipelineDegraded
+            ? (pill.detail || pill.label)
+            : `${activeLayers} of ${totalLayers} layers active · no threats in 24h`}
+        </span>
       </div>
     </div>
   );
@@ -167,7 +189,14 @@ function LayerRow({ layer, store, onClick }) {
       setTimeout(() => setPulse(false), 900);
     }
   }), [layer.id]);
-  const on = store.layerConfig[layer.id];
+  // Detection layer cosmetics inherit the unified status pill: when /v1/clean
+  // is fail-closed (ADR-040) the detection card shows a red dot even though
+  // layerConfig.detection is true on paper. Same source of truth as the top
+  // nav pill and the Events empty state.
+  const pill = computeStatusPill(store);
+  const detectionUnreachable = layer.id === 'detection' && pill.kind === 'bad';
+  const on = store.layerConfig[layer.id] && !detectionUnreachable;
+  const dotKind = detectionUnreachable ? 'bad' : (on ? 'ok' : 'off');
   const count = store.events.filter(e => e.layer === layer.id && Date.now() - e.ts < 24*3600*1000).length;
   return (
     <button onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
@@ -177,7 +206,7 @@ function LayerRow({ layer, store, onClick }) {
       opacity: on ? 1 : 0.5, transition: 'all 0.2s', cursor: 'pointer',
       borderColor: hover ? 'var(--border-2)' : undefined,
     }}>
-      <Dot kind={on ? 'ok' : 'off'} pulse={on}/>
+      <Dot kind={dotKind} pulse={on}/>
       <div>
         <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
           <LayerIcon id={layer.id} />

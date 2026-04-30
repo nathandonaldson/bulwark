@@ -135,6 +135,7 @@ function PageEvents({ store }) {
               hasAnyEvents={store.events.length > 0}
               anyFilterActive={isAnyFilterActive(filter, layerFilter, search)}
               onClearFilters={clearFilters}
+              status={computeStatusPill(store)}
             />
           )}
           {filtered.slice(0, 120).map(e => (
@@ -150,25 +151,53 @@ function PageEvents({ store }) {
   );
 }
 
-// Empty-state panel. Two variants per STATES.md §4 / G-UI-EMPTY-001,002.
+// Empty-state panel. Branches per STATES.md §4 / G-UI-EMPTY-001,002 and
+// inherits the status-pill state machine so the no-events copy tells the
+// truth when /v1/clean is in fail-closed (ADR-040) or sanitize-only
+// (ADR-038) mode instead of cheerfully claiming "Your pipeline is running".
 // - `no-events`:      fresh install, no filter active → nudge the user to Run a test
 // - `filter-miss`:    events exist but current filter matches none → Clear filters
-function EventsEmptyState({ hasAnyEvents, anyFilterActive, onClearFilters }) {
+function EventsEmptyState({ hasAnyEvents, anyFilterActive, onClearFilters, status }) {
   const state = (!hasAnyEvents && !anyFilterActive) ? 'no-events' : 'filter-miss';
+  const pillKind = status && status.kind;
   return (
     <div data-empty-state={state} style={{padding: '60px 20px', textAlign: 'center'}}>
       <div style={{fontSize: 32, marginBottom: 8, opacity: 0.4}}>◌</div>
       {state === 'no-events' ? (
-        <>
-          <div style={{fontSize: 14, fontWeight: 600, marginBottom: 4}}>No events yet</div>
-          <div className="dim" style={{fontSize: 12.5, marginBottom: 16}}>
-            Your pipeline is running. Requests to <span className="mono">/v1/clean</span> will appear here.
-          </div>
-          <button className="btn btn-primary"
-            onClick={() => window.dispatchEvent(new CustomEvent('bulwark:goto', {detail: {page: 'test'}}))}>
-            Run a test
-          </button>
-        </>
+        pillKind === 'bad' ? (
+          <>
+            <div style={{fontSize: 14, fontWeight: 600, marginBottom: 4}}>{status.label}</div>
+            <div className="dim" style={{fontSize: 12.5, marginBottom: 16}}>
+              {status.detail || <>No detectors loaded. <span className="mono">/v1/clean</span> is returning 503 — see ADR-040 / Configure page.</>}
+            </div>
+            <button className="btn btn-primary"
+              onClick={() => window.dispatchEvent(new CustomEvent('bulwark:goto', {detail: {page: 'configure'}}))}>
+              Configure detectors
+            </button>
+          </>
+        ) : pillKind === 'warn' && status.label === 'Sanitize-only mode' ? (
+          <>
+            <div style={{fontSize: 14, fontWeight: 600, marginBottom: 4}}>Sanitize-only mode</div>
+            <div className="dim" style={{fontSize: 12.5, marginBottom: 16}}>
+              {status.detail || <>BULWARK_ALLOW_NO_DETECTORS=1 — <span className="mono">/v1/clean</span> runs sanitizer only. Sanitizer events still appear here.</>}
+            </div>
+            <button className="btn btn-primary"
+              onClick={() => window.dispatchEvent(new CustomEvent('bulwark:goto', {detail: {page: 'test'}}))}>
+              Run a test
+            </button>
+          </>
+        ) : (
+          <>
+            <div style={{fontSize: 14, fontWeight: 600, marginBottom: 4}}>No events yet</div>
+            <div className="dim" style={{fontSize: 12.5, marginBottom: 16}}>
+              Your pipeline is running. Requests to <span className="mono">/v1/clean</span> will appear here.
+            </div>
+            <button className="btn btn-primary"
+              onClick={() => window.dispatchEvent(new CustomEvent('bulwark:goto', {detail: {page: 'test'}}))}>
+              Run a test
+            </button>
+          </>
+        )
       ) : (
         <>
           <div style={{fontSize: 14, fontWeight: 600, marginBottom: 4}}>No events match this filter</div>

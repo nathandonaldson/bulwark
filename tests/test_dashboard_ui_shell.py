@@ -78,6 +78,12 @@ def _store(**overrides):
 
 
 class TestComputeStatusPill:
+    """v2.5.12 (audit-05 R2 / F2/F13/F16): computeStatusPill is now a state
+    machine returning {kind, label, detail?}. The state machine reads
+    detectorStatus, integrations.promptguard, judge.enabled, and serviceMode
+    (echoed from /v1/clean) so the dashboard's top-level signal honours the
+    ADR-040 (fail-closed) + ADR-038 (degraded-explicit) modes."""
+
     def test_all_on_ready_returns_ok(self):
         """G-UI-STATUS-001: all layers on + detector ready → ok."""
         result = _run_pill(_store())
@@ -90,10 +96,32 @@ class TestComputeStatusPill:
         result = _run_pill(s)
         assert result == {"kind": "warn", "label": "3 of 4 layers active"}
 
-    def test_detector_error_returns_bad(self):
-        """G-UI-STATUS-003: detector status=error → bad + 'Detector unreachable'."""
+    def test_detector_error_with_no_alternates_returns_no_detectors_loaded(self):
+        """ADR-040 / audit-05 F2: detector error + no PromptGuard + no judge →
+        bad + 'No detectors loaded' (the fail-closed state /v1/clean is
+        returning 503 for). The state machine surfaces the actual condition
+        rather than the v2.5.11 'Detector unreachable' which understated it."""
         s = _store()
         s["detectorStatus"] = {"protectai": {"status": "error"}}
+        result = _run_pill(s)
+        assert result["kind"] == "bad"
+        assert result["label"] == "No detectors loaded"
+        assert "detail" in result
+
+    def test_detector_error_with_promptguard_active_returns_unreachable(self):
+        """G-UI-STATUS-003 (refined): detector error but PromptGuard is up →
+        bad + 'Detector unreachable' (some detection is still running)."""
+        s = _store()
+        s["detectorStatus"] = {"protectai": {"status": "error"}}
+        s["integrations"] = {"promptguard": "active"}
+        result = _run_pill(s)
+        assert result == {"kind": "bad", "label": "Detector unreachable"}
+
+    def test_detector_error_with_judge_enabled_returns_unreachable(self):
+        """ADR-041: judge state alone keeps the pill out of fail-closed."""
+        s = _store()
+        s["detectorStatus"] = {"protectai": {"status": "error"}}
+        s["judge"] = {"enabled": True}
         result = _run_pill(s)
         assert result == {"kind": "bad", "label": "Detector unreachable"}
 
@@ -103,6 +131,17 @@ class TestComputeStatusPill:
         s["detectorStatus"] = {"protectai": {"status": "loading"}}
         result = _run_pill(s)
         assert result == {"kind": "warn", "label": "Loading detector…"}
+
+    def test_degraded_explicit_mode_returns_sanitize_only(self):
+        """ADR-038 / audit-05 F2: when /v1/clean echoes mode='degraded-explicit'
+        (operator opted into BULWARK_ALLOW_NO_DETECTORS=1) the pill surfaces
+        'Sanitize-only mode' so the user knows detection is intentionally off."""
+        s = _store()
+        s["serviceMode"] = "degraded-explicit"
+        result = _run_pill(s)
+        assert result["kind"] == "warn"
+        assert result["label"] == "Sanitize-only mode"
+        assert "detail" in result
 
 
 # ---------------------------------------------------------------------------

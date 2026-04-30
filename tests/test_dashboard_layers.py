@@ -86,16 +86,23 @@ class TestLayerStatus:
     def test_disabled_layer_shows_off_indicator(self):
         """G-DASH-LAYERS-002: Disabled layers show grey dot / off indicator.
 
-        Post-ADR-020: Shield's LayerRow renders a Dot with kind=on?'ok':'off' and
-        reduces opacity to 0.5 when the layer is off. Primitives.Dot uses
-        var(--text-faint) for kind='off'.
+        v2.5.12 (audit-05 R2): LayerRow's dot kind is now derived from the
+        unified status pill (computeStatusPill) so the detection card flips to
+        'bad' when /v1/clean is fail-closed. The off→ok semantics are still
+        intact for non-detection layers; we verify the (off ↔ !on) and
+        (ok ↔ on, non-bad) branches in the derived `dotKind` expression.
         """
         from pathlib import Path
         src = Path(__file__).parent.parent / "src" / "bulwark" / "dashboard" / "static" / "src"
         page_shield = (src / "page-shield.jsx").read_text()
         primitives = (src / "primitives.jsx").read_text()
-        # LayerRow dims and off-dots disabled layers:
-        assert "kind={on ? 'ok' : 'off'}" in page_shield
+        # LayerRow derives dotKind from the unified status pill, preserving
+        # the off-when-disabled / ok-when-enabled mapping for normal layers
+        # and adding a 'bad' branch when the detection layer is unreachable.
+        assert "const dotKind =" in page_shield
+        assert "'off'" in page_shield
+        assert "'ok'" in page_shield
+        # And still dims disabled rows:
         assert "opacity: on ? 1 : 0.5" in page_shield
         # Dot primitive maps 'off' to var(--text-faint) (grey):
         assert "off: 'var(--text-faint)'" in primitives

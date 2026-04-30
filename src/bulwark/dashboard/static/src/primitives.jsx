@@ -110,4 +110,41 @@ function LayerIcon({ id, size = 16 }) {
   );
 }
 
-Object.assign(window, { Sparkline, Toggle, Dot, SectionTitle, Verdict, LayerIcon });
+// Form-field primitive — label-on-top + bordered input/select/textarea.
+// Replaced 11 hand-rolled label+input blocks across LLMJudgePane and
+// CanaryPane (page-configure.jsx + page-leak-detection.jsx). Side effect:
+// silently fixes an undefined-token typo (the call sites referenced
+// "--text" with a stray "-1" suffix that's not in :root; this primitive
+// uses the real --text token).
+//
+// Usage:
+//   <Field label="Model" value={x} onChange={fn} placeholder="…" mono />
+//   <Field label="Mode" type="select" value={x} onChange={fn}>
+//     <option value="a">A</option>
+//   </Field>
+//   <Field label="Block threshold" type="number" min="0" max="1" step="0.05" />
+function Field({ label, hint, type = 'text', mono, children, ...inputProps }) {
+  const inputStyle = {
+    padding: '6px 8px',
+    background: 'var(--bg-2)',
+    border: '1px solid var(--border)',
+    borderRadius: 6,
+    color: 'var(--text)',
+    fontSize: 12,
+    ...(mono ? { fontFamily: 'var(--font-mono)' } : {}),
+  };
+  let control;
+  if (type === 'select') {
+    control = <select style={inputStyle} {...inputProps}>{children}</select>;
+  } else {
+    control = <input type={type} style={inputStyle} {...inputProps} />;
+  }
+  return (
+    <label style={{display: 'flex', flexDirection: 'column', gap: 4}}>
+      <span className="dim" style={{fontSize: 11}}>{label}{hint}</span>
+      {control}
+    </label>
+  );
+}
+
+Object.assign(window, { Sparkline, Toggle, Dot, SectionTitle, Verdict, LayerIcon, Field });

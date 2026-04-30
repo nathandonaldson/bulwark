@@ -148,30 +148,32 @@ function CanaryPane({ store }) {
         <form onSubmit={addCanary} style={{padding: 14, border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg-1)'}}>
           <div className="label" style={{marginBottom: 10}}>Add canary</div>
           <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10}}>
-            <label style={{display: 'flex', flexDirection: 'column', gap: 4}}>
-              <span className="dim" style={{fontSize: 11}}>Label</span>
-              <input type="text" value={label} onChange={(e) => setLabel(e.target.value)}
-                placeholder="e.g. prod_admin_url" maxLength={64}
-                style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12}}/>
-            </label>
-            <label style={{display: 'flex', flexDirection: 'column', gap: 4}}>
-              <span className="dim" style={{fontSize: 11}}>
-                Source <button type="button" onClick={() => setUseLiteral(v => !v)}
+            <Field label="Label"
+              value={label} onChange={(e) => setLabel(e.target.value)}
+              placeholder="e.g. prod_admin_url" maxLength={64} />
+            {useLiteral ? (
+              <Field
+                label="Source"
+                hint={<button type="button" onClick={() => setUseLiteral(v => !v)}
                   style={{marginLeft: 6, background: 'transparent', border: 0, color: 'var(--accent-ink)', cursor: 'pointer', fontSize: 11, textDecoration: 'underline'}}>
-                  {useLiteral ? 'use generator' : 'paste literal'}
-                </button>
-              </span>
-              {useLiteral ? (
-                <input type="text" value={token} onChange={(e) => setToken(e.target.value)}
-                  placeholder="Paste a canary string (≥ 8 chars)"
-                  style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12}}/>
-              ) : (
-                <select value={shape} onChange={(e) => setShape(e.target.value)}
-                  style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12}}>
-                  {Object.keys(shapeHints).map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              )}
-            </label>
+                  use generator
+                </button>}
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="Paste a canary string (≥ 8 chars)" />
+            ) : (
+              <Field
+                label="Source"
+                type="select"
+                hint={<button type="button" onClick={() => setUseLiteral(v => !v)}
+                  style={{marginLeft: 6, background: 'transparent', border: 0, color: 'var(--accent-ink)', cursor: 'pointer', fontSize: 11, textDecoration: 'underline'}}>
+                  paste literal
+                </button>}
+                value={shape}
+                onChange={(e) => setShape(e.target.value)}>
+                {Object.keys(shapeHints).map(s => <option key={s} value={s}>{s}</option>)}
+              </Field>
+            )}
           </div>
           {!useLiteral && (
             <div className="dim" style={{fontSize: 11, marginBottom: 10}}>

@@ -363,41 +363,32 @@ function LLMJudgePane({ store, stage }) {
         </div>
 
         <div style={{display: 'grid', gridTemplateColumns: '1fr', gap: 10, marginBottom: 14}}>
-          <label style={{display: 'flex', flexDirection: 'column', gap: 4}}>
-            <span className="dim" style={{fontSize: 11}}>Mode</span>
-            <select value={draft.mode} onChange={e => setDraft({...draft, mode: e.target.value})}
-              style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12}}>
-              <option value="openai_compatible">OpenAI-compatible (LM Studio, Ollama, vLLM, OpenAI)</option>
-              <option value="anthropic">Anthropic Claude</option>
-            </select>
-          </label>
+          <Field label="Mode" type="select"
+            value={draft.mode}
+            onChange={e => setDraft({...draft, mode: e.target.value})}>
+            <option value="openai_compatible">OpenAI-compatible (LM Studio, Ollama, vLLM, OpenAI)</option>
+            <option value="anthropic">Anthropic Claude</option>
+          </Field>
           {draft.mode === 'openai_compatible' && (
-            <label style={{display: 'flex', flexDirection: 'column', gap: 4}}>
-              <span className="dim" style={{fontSize: 11}}>Base URL</span>
-              <input type="text" value={draft.base_url} onChange={e => setDraft({...draft, base_url: e.target.value})}
-                placeholder="http://192.168.1.78:1234/v1"
-                style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12, fontFamily: 'var(--font-mono)'}}/>
-            </label>
+            <Field label="Base URL" mono
+              value={draft.base_url}
+              onChange={e => setDraft({...draft, base_url: e.target.value})}
+              placeholder="http://192.168.1.78:1234/v1" />
           )}
-          <label style={{display: 'flex', flexDirection: 'column', gap: 4}}>
-            <span className="dim" style={{fontSize: 11}}>Model</span>
-            <input type="text" value={draft.model} onChange={e => setDraft({...draft, model: e.target.value})}
-              placeholder={draft.mode === 'anthropic' ? 'claude-sonnet-4-5' : 'prompt-injection-judge-8b'}
-              style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12, fontFamily: 'var(--font-mono)'}}/>
-          </label>
-          <label style={{display: 'flex', flexDirection: 'column', gap: 4}}>
-            <span className="dim" style={{fontSize: 11}}>API key {j.api_key && <span className="mono" style={{marginLeft: 6}}>({j.api_key})</span>}</span>
-            <input type="password" value={draft.api_key} onChange={e => setDraft({...draft, api_key: e.target.value})}
-              placeholder={draft.mode === 'anthropic' ? 'sk-ant-...' : '(optional for local endpoints)'}
-              style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12, fontFamily: 'var(--font-mono)'}}/>
-          </label>
+          <Field label="Model" mono
+            value={draft.model}
+            onChange={e => setDraft({...draft, model: e.target.value})}
+            placeholder={draft.mode === 'anthropic' ? 'claude-sonnet-4-5' : 'prompt-injection-judge-8b'} />
+          <Field label="API key" mono type="password"
+            hint={j.api_key ? <span className="mono" style={{marginLeft: 6}}>({j.api_key})</span> : null}
+            value={draft.api_key}
+            onChange={e => setDraft({...draft, api_key: e.target.value})}
+            placeholder={draft.mode === 'anthropic' ? 'sk-ant-...' : '(optional for local endpoints)'} />
           <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10}}>
-            <label style={{display: 'flex', flexDirection: 'column', gap: 4}}>
-              <span className="dim" style={{fontSize: 11}}>Block threshold</span>
-              <input type="number" min="0" max="1" step="0.05" value={draft.threshold}
-                onChange={e => setDraft({...draft, threshold: e.target.value})}
-                style={{padding: '6px 8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-1)', fontSize: 12}}/>
-            </label>
+            <Field label="Block threshold" type="number"
+              min="0" max="1" step="0.05"
+              value={draft.threshold}
+              onChange={e => setDraft({...draft, threshold: e.target.value})} />
             <label style={{display: 'flex', alignItems: 'center', gap: 8, paddingTop: 18}}>
               <input type="checkbox" checked={!!draft.fail_open}
                 onChange={e => setDraft({...draft, fail_open: e.target.checked})}/>

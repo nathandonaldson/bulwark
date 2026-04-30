@@ -1,11 +1,41 @@
 // App shell — top-nav tabs, status pill, brand.
 // Sidebar variant removed per ADR-020.
 
-// Pure status-pill logic. v2 (ADR-031): no LLM, so status tracks detector
-// readiness + user-controllable layer toggles. Contract: G-UI-STATUS-001..005.
+// Pure status-pill state machine. v2 (ADR-031): Bulwark never calls an LLM,
+// so status tracks detector availability + judge state + the `mode` field
+// returned by /v1/clean (ADR-038/040 degraded-explicit). The Events empty
+// state and Shield layer cards read from the same helper so the dashboard's
+// top-level signal stays consistent across pages.
+//
+// Returns { kind: 'ok'|'warn'|'bad', label: string, detail?: string }.
+// Contract: G-UI-STATUS-001..005 (legacy) + ADR-040 / ADR-038 surfacing.
 function computeStatusPill(store) {
-  const { layerConfig, detectorStatus } = store;
+  const { layerConfig, detectorStatus, integrations, judge, serviceMode } = store;
   const det = (detectorStatus && detectorStatus.protectai) || { status: 'loading' };
+  const promptguardActive = (integrations && integrations.promptguard) === 'active';
+  const judgeEnabled = !!(judge && judge.enabled);
+
+  // ADR-038 — operator opted into BULWARK_ALLOW_NO_DETECTORS=1; /v1/clean
+  // returned mode:"degraded-explicit". Sanitizer-only is intentional, but the
+  // user should know they're not getting detection.
+  if (serviceMode === 'degraded-explicit') {
+    return {
+      kind: 'warn',
+      label: 'Sanitize-only mode',
+      detail: 'BULWARK_ALLOW_NO_DETECTORS=1 — /v1/clean runs sanitizer only.',
+    };
+  }
+
+  // ADR-040 — fail-closed: zero ML detectors AND judge disabled means
+  // /v1/clean is returning HTTP 503 to every caller. Surface this loudly
+  // instead of cheerfully claiming "All layers active".
+  if (det.status === 'error' && !promptguardActive && !judgeEnabled) {
+    return {
+      kind: 'bad',
+      label: 'No detectors loaded',
+      detail: '/v1/clean is returning 503 — see ADR-040 / Configure page.',
+    };
+  }
 
   if (det.status === 'loading') return { kind: 'warn', label: 'Loading detector…' };
   if (det.status === 'error')   return { kind: 'bad',  label: 'Detector unreachable' };

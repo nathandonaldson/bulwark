@@ -121,6 +121,11 @@ const BulwarkStore = (() => {
     },
     redteamTiers: null,
     redteamReports: [],
+    // ADR-038 / ADR-040 — `/v1/clean` echoes a `mode` field when an operator
+    // opts into BULWARK_ALLOW_NO_DETECTORS=1 (mode: "degraded-explicit"). We
+    // surface it on the status pill and in the Events empty-state copy so
+    // the dashboard tells the truth about what /v1/clean is actually doing.
+    serviceMode: null,
   };
 
   const subs = new Set();
@@ -414,6 +419,15 @@ const BulwarkStore = (() => {
           body: JSON.stringify({ content, source }),
         });
         const body = await res.json().catch(() => ({}));
+        // ADR-038 / ADR-040 — surface the response mode on the store so the
+        // status pill state machine can honour degraded-explicit without
+        // every page having to thread the field through props.
+        if (body && typeof body === 'object' && body.mode !== undefined) {
+          if (body.mode !== state.serviceMode) {
+            state.serviceMode = body.mode || null;
+            emit();
+          }
+        }
         return { httpStatus: res.status, ...body };
       } catch (e) {
         return { httpStatus: 0, blocked: false, error: String(e && e.message || e), trace: [] };

@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.5.14] - 2026-05-01
+
+### Behaviour change (dashboard UI honesty — closes audit-05 F2/F13/F16)
+
+- **Unified status-pill state machine.** `computeStatusPill` (now in `shell.jsx`, used by `page-events.jsx` empty state and `page-shield.jsx` layer cards) now keys on detector availability + judge state + `/v1/clean` `mode` field instead of just the layerConfig toggle counts. Pre-v2.5.14 behaviour: dashboard cheerfully reported "All layers active" while `/v1/clean` was 503-ing every request (no detectors loaded). New behaviour: `{kind: 'bad', label: 'No detectors loaded'}` when ADR-040 fail-closed conditions are met; `{kind: 'warn', label: 'Sanitize-only mode'}` when an operator opts into ADR-038 degraded-explicit. Empty-state copy and layer-card cosmetics inherit from the same helper.
+
+### Refactor (silent CSS-token bug fix)
+
+- **New `<Field>` primitive in `primitives.jsx`.** Refactored 11 instances of form-field markup across `LLMJudgePane` and `CanaryPane` to use the new primitive. Side effect: silently fixes 11 references to an undefined `--text-1` token (the real token is `--text` — the `-1` suffix was never defined in `:root`).
+
+### Performance (ADR-020 deferred follow-up)
+
+- **Switched index.html to production React UMD.** `react.development.js` → `react.production.min.js`, same for `react-dom`. ~600 KB smaller bundle, ~30% script-execution speedup at zero JSX change cost. ADR-020 noted this as a follow-up.
+
+994 tests pass.
+
 ## [2.5.13] - 2026-05-01
 
 ### Refactor (sister-package merge — see ADR-050)
