@@ -226,12 +226,16 @@ async def api_clean(req: CleanRequest):
 
         judge_callable = _judge_call
 
-    # Wrap each registered detector check with a `__bulwark_name__`
-    # attribute so the helper can attribute trace entries by model name.
+    # Each registered detector check carries a `__bulwark_name__`
+    # attribute set at registration time (see `app.py`'s
+    # `_register_detection_check`) so the helper can attribute trace
+    # entries by model name. Defensive fallback if the attribute is
+    # somehow missing on a check the dashboard registered another way.
     detector_callables: list = []
     if _detection_checks and cleaned:
         for model_name, check_fn in _detection_checks.items():
-            check_fn.__bulwark_name__ = f"detection:{model_name}"
+            if not getattr(check_fn, "__bulwark_name__", None):
+                check_fn.__bulwark_name__ = f"detection:{model_name}"
             detector_callables.append(check_fn)
 
     chain_result = run_detector_chain(

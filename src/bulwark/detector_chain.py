@@ -90,18 +90,14 @@ class ChainResult:
     blocked_at_variant: Optional[str] = None
     blocked_detector_name: Optional[str] = None
     blocked_reason: Optional[str] = None
-    blocked_detector_index: Optional[int] = None
     # The actual SuspiciousPatternError that fired (so the caller can
     # extract `max_score` / `n_windows` / `window_index` for its trace).
     blocked_error: Optional[SuspiciousPatternError] = None
-    # Which JudgeResult triggered the block, if the judge was the cause
-    # (None when an ML detector blocked first).
-    blocked_judge: Optional[JudgeResult] = None
     detector_results: list[DetectorResult] = field(default_factory=list)
     judge_results: list[JudgeResult] = field(default_factory=list)
 
 
-def _detector_name(detector: Callable[..., Any], index: int) -> Optional[str]:
+def _detector_name(detector: Callable[..., Any]) -> Optional[str]:
     """Best-effort detector label. Returns the `__bulwark_name__` attr or None."""
     name = getattr(detector, "__bulwark_name__", None)
     if isinstance(name, str) and name:
@@ -151,7 +147,7 @@ def run_detector_chain(
     # semantic where detector order = priority order). To preserve that,
     # iterate detector-major.
     for index, detector in enumerate(detectors_list):
-        name = _detector_name(detector, index)
+        name = _detector_name(detector)
         for variant in non_skipped:
             t0 = time.time()
             try:
@@ -167,7 +163,6 @@ def run_detector_chain(
                 result.blocked = True
                 result.blocked_at_variant = variant.label
                 result.blocked_detector_name = name
-                result.blocked_detector_index = index
                 result.blocked_reason = str(exc)
                 result.blocked_error = exc
                 return result
@@ -193,31 +188,27 @@ def run_detector_chain(
         latency_ms = float(getattr(verdict_obj, "latency_ms", 0.0) or 0.0)
 
         if verdict == "INJECTION":
-            jr = JudgeResult(
+            result.judge_results.append(JudgeResult(
                 variant_label=variant.label, verdict=verdict,
                 confidence=confidence, latency_ms=latency_ms, blocked=True,
-            )
-            result.judge_results.append(jr)
+            ))
             result.blocked = True
             result.blocked_at_variant = variant.label
             result.blocked_detector_name = "detection:llm_judge"
             result.blocked_reason = f"LLM judge: INJECTION ({confidence:.2f})"
-            result.blocked_judge = jr
             return result
 
         if verdict in ("ERROR", "UNPARSEABLE"):
             if not judge_fail_open:
-                jr = JudgeResult(
+                result.judge_results.append(JudgeResult(
                     variant_label=variant.label, verdict=verdict,
                     confidence=confidence, latency_ms=latency_ms, blocked=True,
-                )
-                result.judge_results.append(jr)
+                ))
                 result.blocked = True
                 result.blocked_at_variant = variant.label
                 result.blocked_detector_name = "detection:llm_judge"
                 label = "unreachable" if verdict == "ERROR" else "unparseable response"
                 result.blocked_reason = f"LLM judge {label} (fail-closed)"
-                result.blocked_judge = jr
                 return result
             # Fail-open: log, record, KEEP GOING.
             # G-CLEAN-DECODE-JUDGE-ALL-VARIANTS-001 — ERROR on one variant
