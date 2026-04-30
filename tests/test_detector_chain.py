@@ -260,7 +260,18 @@ class TestDetectorOrdering:
     """G-CLEAN-DETECTOR-CHAIN-PARITY-001 — detectors run in chain order on each variant."""
 
     def test_detectors_run_in_supplied_order(self):
-        """The chain MUST iterate detectors in supplied order on each variant."""
+        """G-CLEAN-DETECTOR-CHAIN-PARITY-001 — detector-major iteration.
+
+        Detector order = priority order. The chain runs detector[0]
+        across every variant first, then detector[1], etc. This
+        matches the pre-Phase-H-followup behaviour of both call sites
+        (the dashboard's outer loop is `for model_name in
+        _detection_checks` and the library's is
+        `for index, detector in enumerate(self.detectors)`).
+
+        Why detector-major: cheaper / higher-signal detectors short-
+        circuit the chain before slower / weaker ones get a chance.
+        """
         call_log: list[str] = []
 
         def make_detector(name: str):
@@ -276,5 +287,5 @@ class TestDetectorOrdering:
             _variant("rot13", "b", depth=1),
         ]
         run_detector_chain(variants=variants, detectors=[d1, d2])
-        # All detectors run on original first, then on rot13.
-        assert call_log == ["d1:a", "d2:a", "d1:b", "d2:b"]
+        # detector-major order: d1 across every variant, then d2.
+        assert call_log == ["d1:a", "d1:b", "d2:a", "d2:b"]
