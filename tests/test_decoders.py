@@ -169,10 +169,24 @@ class TestCandidateCap:
         ]
         text = " | ".join(spans)
         out = decode_rescan_variants(text, decode_base64=True)
-        b64_variants = [v for v in out if v.label.startswith("base64@")]
-        # Cap at 16 — non-skipped variants must not exceed the cap, and any extras
-        # surface as skipped:candidate_cap so the trace records the truncation.
-        non_skipped = [v for v in b64_variants if not v.skipped]
-        assert len(non_skipped) <= 16, (
-            f"candidate cap not enforced: {len(non_skipped)} non-skipped variants"
+        # The cap is on base64 *decode* operations, not on every variant whose
+        # label mentions a base64 span. A label like "base64@10:42/rot13" is a
+        # ROT13 variant of an already-decoded base64 — that's not a fresh
+        # decode and doesn't count against the cap. Filter to leaf base64
+        # decodes only (label is exactly "base64@..." with no further "/" suffix).
+        leaf_b64 = [
+            v for v in out
+            if v.label.startswith("base64@") and "/" not in v.label
+        ]
+        non_skipped_leaf = [v for v in leaf_b64 if not v.skipped]
+        assert len(non_skipped_leaf) <= 16, (
+            f"candidate cap not enforced: {len(non_skipped_leaf)} non-skipped "
+            f"leaf base64 variants (cap is 16)"
         )
+        # And the cap should have triggered at least one candidate_cap skip
+        # entry so operators can audit truncation in the trace.
+        cap_skips = [
+            v for v in out
+            if v.skipped and v.skip_reason == "candidate_cap"
+        ]
+        assert cap_skips, "expected at least one variant skipped with reason=candidate_cap"
