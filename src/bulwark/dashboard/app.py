@@ -532,7 +532,11 @@ async def _auto_load_detection_models():
                 loop = asyncio.get_running_loop()
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                     detector = await loop.run_in_executor(pool, lambda n=name: load_detector(n))
-                _detection_checks[name] = create_check(detector)
+                check_fn = create_check(detector)
+                # Tag the callable so detector_chain can attribute trace
+                # entries by model name without per-request mutation.
+                check_fn.__bulwark_name__ = f"detection:{name}"
+                _detection_checks[name] = check_fn
                 _detector_failures.pop(name, None)
                 print(f"  Auto-loaded detection model: {name}")
             except Exception as e:
@@ -572,6 +576,9 @@ async def activate_integration(name: str):
             detector = await loop.run_in_executor(pool, lambda: load_detector(model_key))
 
         check_fn = create_check(detector)
+        # Tag the callable so detector_chain can attribute trace entries
+        # by model name without per-request mutation.
+        check_fn.__bulwark_name__ = f"detection:{name}"
         _detection_checks[name] = check_fn
         _detector_failures.pop(name, None)
 

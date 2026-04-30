@@ -86,35 +86,50 @@ class Pipeline:
 
         # ADR-047 / Phase H: build decoded variants once; each detector runs
         # over every non-skipped variant. Block on first hit on any variant.
-        from bulwark.decoders import decode_rescan_variants
-        variants = decode_rescan_variants(
-            cleaned, decode_base64=self.decode_base64,
-        ) if cleaned else []
+        # ADR-048 (G-CLEAN-DETECTOR-CHAIN-PARITY-001): delegate the
+        # variant fan-out to bulwark.detector_chain so the dashboard's
+        # /v1/clean handler and this library Pipeline use the same
+        # chain-execution semantic. The judge — when present in
+        # `self.detectors` as a callable from `_build_judge_check` — is
+        # treated as a regular SuspiciousPatternError-raising detector;
+        # its fail-open vs fail-closed semantics are baked into that
+        # adapter (raise on INJECTION or fail-closed ERROR, return None
+        # on SAFE or fail-open ERROR).
+        from bulwark.decoders import DecodedVariant, decode_rescan_variants
+        from bulwark.detector_chain import run_detector_chain
 
-        # Detector chain (G-PIPELINE-PARITY-001). Each detector is a
-        # callable that raises SuspiciousPatternError to block. Order is
-        # the order the chain was constructed — for from_config() this is
-        # protectai → promptguard → judge, matching the dashboard.
-        for index, detector in enumerate(self.detectors):
+        if cleaned:
+            variants = decode_rescan_variants(
+                cleaned, decode_base64=self.decode_base64,
+            )
+        else:
+            # Empty content: synthesize a single original variant so the
+            # detector chain still runs (preserves pre-Phase-H behaviour
+            # where empty input was sent through the chain unchanged).
+            variants = [DecodedVariant(label="original", text=cleaned, depth=0)]
+
+        chain_result = run_detector_chain(
+            variants=variants,
+            detectors=self.detectors,
+        )
+
+        # Build per-detector trace entries. Detector-major iteration in
+        # the helper means we get one DetectorResult per (detector,
+        # variant) pair — collapse to one trace entry per detector by
+        # taking the first block (if any) or the last pass.
+        detector_indices = sorted({r.detector_index for r in chain_result.detector_results})
+        for det_index in detector_indices:
             step += 1
-            layer_name = _detector_layer_name(detector, index)
-            blocked_exc: Optional[Exception] = None
-            blocked_variant_label: Optional[str] = None
-            for variant in variants or [None]:
-                # variants is empty when content is empty — fall back to
-                # running the detector on the cleaned text as before.
-                target = variant.text if variant is not None else cleaned
-                if variant is not None and (variant.skipped or not variant.text):
-                    continue
-                try:
-                    detector(target)
-                except Exception as exc:
-                    blocked_exc = exc
-                    blocked_variant_label = (
-                        variant.label if variant is not None else "original"
-                    )
-                    break
-            if blocked_exc is None:
+            results_for_detector = [
+                r for r in chain_result.detector_results
+                if r.detector_index == det_index
+            ]
+            block_record = next((r for r in results_for_detector if not r.passed), None)
+            layer_name = (
+                results_for_detector[0].detector_name
+                or _detector_layer_name(self.detectors[det_index], det_index)
+            )
+            if block_record is None:
                 trace.append({
                     "step": step,
                     "layer": layer_name,
@@ -123,23 +138,26 @@ class Pipeline:
                 })
             else:
                 variant_suffix = (
-                    f" variant={blocked_variant_label}"
-                    if blocked_variant_label and blocked_variant_label != "original"
+                    f" variant={block_record.variant_label}"
+                    if block_record.variant_label
+                    and block_record.variant_label != "original"
                     else ""
                 )
                 trace.append({
                     "step": step,
                     "layer": layer_name,
                     "verdict": "blocked",
-                    "detail": f"{blocked_exc}{variant_suffix}",
+                    "detail": f"{block_record.error}{variant_suffix}",
                 })
-                return PipelineResult(
-                    result="",
-                    blocked=True,
-                    block_reason=f"Detector blocked: {blocked_exc}",
-                    neutralized=neutralized,
-                    trace=trace,
-                )
+
+        if chain_result.blocked:
+            return PipelineResult(
+                result="",
+                blocked=True,
+                block_reason=f"Detector blocked: {chain_result.blocked_error}",
+                neutralized=neutralized,
+                trace=trace,
+            )
 
         tagged = cleaned
         if self.trust_boundary is not None:
