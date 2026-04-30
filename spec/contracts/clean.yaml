@@ -76,8 +76,10 @@ guarantees:
       SuspiciousPatternError on the rotated variant, the request is blocked
       with HTTP 422. Always on; not gated by configuration. The trust
       boundary wraps the original cleaned text — the decoded variant exists
-      only for detection. See ADR-047.
-    related: [ADR-047, ADR-031]
+      only for detection. See ADR-047. Implementation delegates to
+      bulwark.detector_chain.run_detector_chain, the unified helper
+      introduced by ADR-048.
+    related: [ADR-047, ADR-031, ADR-048]
     test_path: tests/test_decoders.py, tests/test_clean_decode.py
   - id: G-CLEAN-DECODE-BASE64-001
     summary: >
@@ -90,9 +92,41 @@ guarantees:
       decoding. Per-request candidate cap of 16. If any detector raises
       on any variant, the request is blocked with HTTP 422. The trust
       boundary still wraps the original cleaned text — decoded variants
-      never appear in the response body. See ADR-047.
-    related: [ADR-047]
+      never appear in the response body. See ADR-047. Implementation
+      delegates to bulwark.detector_chain.run_detector_chain, the unified
+      helper introduced by ADR-048.
+    related: [ADR-047, ADR-048]
     test_path: tests/test_decoders.py, tests/test_clean_decode.py
+  - id: G-CLEAN-DETECTOR-CHAIN-PARITY-001
+    summary: >
+      The library Pipeline.run() and the dashboard /v1/clean route MUST
+      produce the same block decision for the same input. They MUST
+      delegate detection to a single shared module
+      (bulwark.detector_chain). This is the implementation guarantee
+      that backs G-PIPELINE-PARITY-001: a single helper invocation, not
+      two duplicated loops, ensures identical INJECTION / ERROR /
+      UNPARSEABLE handling across both call sites. Future drift is
+      mechanically harder because there is one place to change. See
+      ADR-048.
+    related: [ADR-048, ADR-044]
+    test_path: tests/test_detector_chain.py, tests/test_clean_decode.py
+  - id: G-CLEAN-DECODE-JUDGE-ALL-VARIANTS-001
+    summary: >
+      When the LLM judge is enabled, the judge MUST run on EVERY
+      non-skipped decoded variant (original, rot13, base64@... when
+      enabled, depth-2 combinations) before /v1/clean returns 200.
+      Judge ERROR or UNPARSEABLE on a single variant in fail-open mode
+      (judge_backend.fail_open=True) MUST be logged and recorded in the
+      trace but MUST NOT short-circuit the chain — remaining variants
+      are still scanned by the judge. The chain blocks on the first
+      INJECTION verdict on any variant from any detector or judge, or
+      on the first ERROR / UNPARSEABLE verdict when
+      judge_backend.fail_open=False. Closes the H.2 defense gap where an
+      attacker could engineer the original variant to make the judge
+      choke and hide the real injection in an encoded variant. See
+      ADR-048.
+    related: [ADR-048, ADR-047, ADR-033]
+    test_path: tests/test_detector_chain.py, tests/test_clean_decode.py
 
 non_guarantees:
   - id: NG-CLEAN-001
@@ -177,3 +211,29 @@ non_guarantees:
       (image data, JWT) round-trips unchanged through /v1/clean even when
       decode_base64 is True. ADR-047.
     related: [ADR-047]
+  - id: NG-CLEAN-DECODE-JUDGE-COST-001
+    summary: >
+      When judge_backend.enabled=True AND judge_backend.fail_open=True,
+      /v1/clean now incurs N judge round-trips per request, where N is
+      the number of non-skipped decoded variants (typically 1–~20,
+      bounded by the candidate cap of 16 plus original + rot13). This
+      is the operational cost of G-CLEAN-DECODE-JUDGE-ALL-VARIANTS-001
+      / ADR-048: the judge runs on EVERY variant so an attacker can't
+      hide an injection in an encoded variant by engineering the
+      original to make the judge choke. For metered judge endpoints
+      (per-token-priced backends like OpenAI / Anthropic), this is
+      real money. Operators should monitor judge call volume and,
+      if the increase is unacceptable, keep decode_base64=False (the
+      default) to bound N to ~2 (original + rot13) — or set
+      fail_open=False to revert to short-circuit-on-error semantics
+      (with the trade-off that legitimate traffic blocks when the
+      judge is transiently down). See ADR-048 §"Negative — judge
+      cost when fail_open=True".
+    reason: >
+      Closing the H.2 defense gap (judge bypass via engineered original
+      variant) requires running the judge on every variant. Bounding
+      cost by short-circuiting on the first ERROR re-opens the gap.
+      The honest disclosure is that fail-open mode now costs N judge
+      calls per request; operators on metered endpoints can opt for
+      fail-closed or limit decode fan-out to control the bill.
+    related: [ADR-048]
