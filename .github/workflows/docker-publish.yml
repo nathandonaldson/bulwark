@@ -12,23 +12,22 @@ env:
   IMAGE_NAME: nathandonaldson/bulwark
 
 jobs:
-  build:
+  # amd64 build runs natively on ubuntu-latest. On PRs it does the smoke test
+  # only; on tag-push / workflow_dispatch it additionally pushes amd64 by digest
+  # for the manifest job to stitch.
+  build-amd64:
     runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
 
     steps:
       - uses: actions/checkout@v6
-
-      - name: Set up QEMU (for cross-arch builds)
-        uses: docker/setup-qemu-action@v4
-        with:
-          platforms: arm64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
       # Build amd64-only first and load into the local daemon so the smoke
-      # test below runs at native runner speed. A later step does the real
-      # multi-arch push.
+      # test below runs at native runner speed.
       - name: Build (amd64 for smoke test)
         uses: docker/build-push-action@v7
         with:
@@ -36,8 +35,8 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: bulwark:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,mode=max,scope=amd64
 
       - name: Smoke test — container starts and serves API
         run: |
@@ -89,33 +88,83 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # Push by digest only — the manifest job stitches the per-arch digests
+      # together under a single tag. Per-arch images are not individually tagged
+      # on Docker Hub, only digest-addressable.
+      - name: Push amd64 by digest
+        id: push
+        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,mode=max,scope=amd64
+
+  # arm64 build runs natively on ubuntu-24.04-arm (free for public repos as of
+  # 2025-01). Skipped on PR runs to save runner-minutes; only fires on tag push
+  # or manual dispatch.
+  build-arm64:
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push arm64 by digest
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/arm64
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,mode=max,scope=arm64
+
+  # Stitch the per-arch digests under one tag (versioned + latest on tag push,
+  # latest only on dispatch).
+  manifest:
+    needs: [build-amd64, build-arm64]
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Extract version from tag
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      # Multi-arch build + push. Re-uses the GHA cache from the amd64 build,
-      # so the amd64 layers come out of cache and only arm64 builds fresh.
-      - name: Build and push (multi-arch — versioned + latest)
+      - name: Create manifest (versioned + latest, on tag)
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
-            ${{ env.IMAGE_NAME }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }} \
+            -t ${{ env.IMAGE_NAME }}:latest \
+            ${{ env.IMAGE_NAME }}@${{ needs.build-amd64.outputs.digest }} \
+            ${{ env.IMAGE_NAME }}@${{ needs.build-arm64.outputs.digest }}
 
-      - name: Build and push (multi-arch — latest only, manual dispatch)
+      - name: Create manifest (latest only, on dispatch)
         if: github.event_name == 'workflow_dispatch'
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ env.IMAGE_NAME }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.IMAGE_NAME }}:latest \
+            ${{ env.IMAGE_NAME }}@${{ needs.build-amd64.outputs.digest }} \
+            ${{ env.IMAGE_NAME }}@${{ needs.build-arm64.outputs.digest }}

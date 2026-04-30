@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.5.9] - 2026-04-30
+
+### Infrastructure (CI throughput — see ADR-049)
+
+- **Native arm64 runner for `docker-publish`.** The multi-arch tag-push build was rebuilt around three jobs: `build-amd64` on `ubuntu-latest`, `build-arm64` on `ubuntu-24.04-arm` (free for public repos since Jan 2025), and a `manifest` job that stitches the per-arch digests under `:VERSION` + `:latest` via `docker buildx imagetools create`. Previously a single job built both arches in one step on `ubuntu-latest` with the arm64 leg under QEMU emulation, which made tag-push runs take 60–90 min (v2.5.8 was ~85 min, the four prior tag pushes ranged 61–88 min, almost entirely emulated arm64 overhead with torch/transformers wheels). Native parallel arm64 collapses tag-push wall time to an estimated ~15 min. PR builds are unchanged (`build-arm64` and `manifest` are gated by job-level `if` to skip on PR runs, conserving runner-minutes), still ~13 min, smoke test still amd64-only.
+- **Per-arch GHA cache scopes** (`scope=amd64`, `scope=arm64`) so PR amd64 cache hits don't compete with tag-push arm64 cache, and a flake on one arch doesn't poison the other.
+- **No image content change.** The `Dockerfile`, smoke-test invariants (G-PRESETS-007, ADR-038, ADR-040), tag stripping (`refs/tags/v` → bare semver), and operator-facing image surface are all preserved verbatim.
+- **Validation:** the next tag push (this v2.5.9) is the regression test. If `ubuntu-24.04-arm` queue depth at tag time is unusually high, the arm64 leg may still be slow — that's a runner-availability issue, not a workflow-design issue.
+
+991 tests pass (unchanged). No production code touched. New ADR-049.
+
+
 ## [2.5.8] - 2026-04-29
 
 ### Polish (Phase H.1 + H.2 follow-up — code-quality reviewer items)
