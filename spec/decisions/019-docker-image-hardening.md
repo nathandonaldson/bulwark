@@ -1,6 +1,6 @@
 # ADR-019: Docker image hardening strategy
 
-**Status:** Proposed
+**Status:** Accepted (A+B; C deferred)
 **Date:** 2026-04-17
 **Branch:** `docker-hardening`
 

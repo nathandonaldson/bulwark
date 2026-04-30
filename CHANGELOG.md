@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.5.11] - 2026-05-01
+
+### Cleanup (Tier 1 free wins from 2026-05-01 simplification audit)
+
+- **Deleted `tests/benchmark.py`** — broken zombie file. Imported the deleted `bulwark.executor` module; not collected by pytest. ADR-044 explicitly noted it was not part of the test suite. -494 LOC.
+- **Deleted `src/bulwark_bench/pricing.py`** — 95 LOC of dead code per ADR-034 ("kept for reference but unused").
+- **Removed `Layer.EXECUTOR` enum value** in `src/bulwark/events.py` — zero consumers across `src/` and `tests/`.
+- **Stripped v1-era docstring rot** from `src/bulwark/__init__.py` — references to `make_analyze_fn` / `make_execute_fn` / `make_pipeline` (all deleted before v2).
+- **Deleted `tests/attacks/`** — empty directory with only `__init__.py`.
+- **ADR-019 status flip** — Proposed → Accepted (A+B; C deferred). Options A and B (multi-stage Dockerfile, non-root, healthcheck, version pins, CVE scan) shipped pre-v2.5 and are enforced by `tests/test_docker_hardening.py`.
+
+991 tests pass (unchanged).
+
 ## [2.5.10] - 2026-05-01
 
 ### Documentation rewrite (Phase 2 of the 2026-04-30 doc audit)

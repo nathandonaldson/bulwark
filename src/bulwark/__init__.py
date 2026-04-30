@@ -3,7 +3,7 @@
 LLM provider integrations are available as separate submodules
 (they require their respective SDKs):
 
-    from bulwark.integrations.anthropic import make_analyze_fn, make_execute_fn, make_pipeline
+    from bulwark.integrations.anthropic import protect
 """
 from __future__ import annotations
 

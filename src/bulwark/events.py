@@ -19,7 +19,6 @@ class Layer(Enum):
     TRUST_BOUNDARY = "trust_boundary"
     ANALYSIS_GUARD = "analysis_guard"
     CANARY = "canary"
-    EXECUTOR = "executor"
     ISOLATOR = "isolator"
 
 
