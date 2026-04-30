@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.5.7] - 2026-04-30
+
+### Behaviour change (Codex efficacy hardening Phase H follow-up — Tasks 9 + 10, see ADR-048)
+
+- **LLM judge now runs on EVERY decoded variant — even when fail_open=True.** Previously the dashboard's `/v1/clean` handler short-circuited the judge loop on the first variant where the judge returned `ERROR` or `UNPARSEABLE`. An attacker could engineer the `original` variant to make the judge choke (oversize input, malformed structure, prompt injection in the input that breaks the judge's parser, transient HTTP error) and hide the real injection in an encoded variant — the judge would never see it. This was a real defense gap (`H.2`) on top of a parity drift (`G-PIPELINE-PARITY-001`): the library `Pipeline.run()` already kept iterating in this case, so identical inputs hitting both paths could produce different block decisions. v2.5.7 closes both: the new shared helper `bulwark.detector_chain.run_detector_chain` is the single source of truth for chain execution, and judge `ERROR` / `UNPARSEABLE` in fail-open mode is now logged + recorded per variant but does NOT short-circuit. The chain still blocks on the first `INJECTION` (any variant, any detector or judge) and on the first ERROR / UNPARSEABLE when `fail_open=False` (existing fail-closed semantic preserved). New guarantee `G-CLEAN-DECODE-JUDGE-ALL-VARIANTS-001`.
+- **Operator note for metered judge endpoints** (`NG-CLEAN-DECODE-JUDGE-COST-001`): with `judge_backend.enabled=True` AND `judge_backend.fail_open=True`, every request now incurs N judge round-trips per request, where N is the number of non-skipped decoded variants (typically 1–~20, bounded by the per-request candidate cap of 16 plus original + rot13). For per-token-priced judge backends (OpenAI, Anthropic), this is real money. Operators should monitor judge call volume after upgrading and, if the increase is unacceptable, keep `decode_base64=False` (the default) to bound N to ~2 (original + rot13), or set `fail_open=False` to revert to short-circuit-on-error semantics (with the trade-off that legitimate traffic blocks when the judge is transiently down). The pre-v2.5.7 short-circuit semantic is no longer available in fail-open mode — closing the H.2 gap requires running the judge on every variant.
+
+### Refactor (supporting infrastructure for the behaviour change)
+
+- **New `bulwark.detector_chain` module** with `run_detector_chain(...)` plus three dataclasses (`DetectorResult`, `JudgeResult`, `ChainResult`). Pure logic — zero FastAPI / dashboard imports. Both call sites delegate to it: `Pipeline.run()` and `api_v1.api_clean` shrank from ~80-100 lines of duplicated variant fan-out each to a single helper invocation plus trace-shape adaptation. New guarantee `G-CLEAN-DETECTOR-CHAIN-PARITY-001` documents the parity contract: same input ⇒ same block decision, enforced by a single shared module. Existing `G-CLEAN-DECODE-ROT13-001` and `G-CLEAN-DECODE-BASE64-001` updated to reference the unified helper (ADR-048 in addition to ADR-047).
+- **Per-variant judge trace entries** in `/v1/clean` responses. The dashboard's pre-v2.5.7 trace collapsed all judge results into a single entry; v2.5.7 produces one trace entry per variant the judge saw. Operators now see `ERROR` / `UNPARSEABLE` results that were previously hidden by the short-circuit, enabling reliable observation of which variants tripped the judge.
+- **ADR-048** documents the drift discovery, the H.2 defense gap, the decision to factor into a shared module, the cost analysis, and why this is a separate ADR from ADR-047 (different concerns: ADR-047 = decode-rescan architecture; ADR-048 = chain-execution semantic).
+
+### Tests
+
+991 tests pass (was 978 baseline; +13 — 11 unit tests in new `tests/test_detector_chain.py` covering the helper directly, plus 2 integration tests in `tests/test_clean_decode.py`: the H.2 regression test `test_judge_error_on_original_does_not_skip_encoded_variants` and the parity test `test_library_and_dashboard_block_identically_on_fake_chain`). Phase E `tests/test_pipeline_parity.py` still passes — the new helper is the implementation strategy that upholds `G-PIPELINE-PARITY-001`. `tests/test_spec_compliance.py` green: every new G + NG ID has a test docstring referencing it.
+
+
 ## [2.5.6] - 2026-04-30
 
 ### Fixed (Phase H test hotfix)
