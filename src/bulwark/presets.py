@@ -16,7 +16,7 @@ import yaml
 
 
 _ALLOWED_FAMILIES: frozenset[str] = frozenset(
-    {"sanitizer", "boundary", "bridge", "detection", "canary"}
+    {"sanitizer", "boundary", "detection", "canary"}
 )
 
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.5.16] - 2026-05-01
+
+### Refactor (Tier 3 v1-vocabulary final sweep from 2026-05-01 simplification audit)
+
+- **Renamed `_bridge_exploitation_attacks` → `_boundary_escape_attacks`** in `src/bulwark/attacks.py`. The patterns still test general boundary-escape shapes (kept post-ADR-031 for that reason); only the name was a v1 leftover. `AttackCategory.BRIDGE_EXPLOITATION` → `AttackCategory.BOUNDARY_ESCAPE` (value `"boundary_escape"`); attack `name` slugs preserved (they're public identifiers other code references). `tests/test_attacks.py` and `docs/red-teaming.md` follow.
+- **Retired `family: bridge` in `spec/presets.yaml`.** The 2 presets that used it were re-classified to reflect what they actually test post-ADR-031: `b64` (Base64 canary exfil) → `family: canary`; `bridge` (Bridge instruction inject) → `family: boundary`. The preset id `bridge` is preserved (stable identifier per ADR-021). `_ALLOWED_FAMILIES` in `src/bulwark/presets.py` updated to `{sanitizer, boundary, detection, canary}`. Contract `spec/contracts/presets.yaml` G-PRESETS-004 follows.
+- **Scrubbed v1 vocabulary from page-test.jsx** (audit-05 F1/F4/F11): "configured LLM backend" prose replaced with the actual v2 chain description (sanitizer → DeBERTa / PromptGuard / optional LLM judge → trust boundary); "Bridge" filter button removed and replaced with `Detection` / `Canary` buttons matching the v2 layer set; `analyze` / `execute` / `executor` / `guard` keys removed from `_normalizeTraceLayer` (they map to layers that don't exist post-ADR-031); `analysis_guard → canary` mapping aligned with `data.jsx`'s canonical version. SectionTitle "or generate payloads" eyebrow trimmed (no payload-generation UI).
+- **Deleted dead-code SVG icons** in `primitives.jsx::LayerIcon`: `analyze`, `bridge`, `execute` entries (zero render sites post-ADR-031).
+- **Fixed `LAYERS.slice(0, 5)` no-op** in `page-events.jsx` (audit-05 F7) — `LAYERS` has 4 entries so the cap was meaningless. Comment "synthesize a 5-step pipeline view" was v1 vocabulary; replaced with a per-layer view over the canonical 4-layer list. `tests/test_dashboard_ui_events.py::test_trace_fallback_when_metadata_missing` updated to match.
+
+976 tests pass (2 skipped, 10 deselected; e2e_slow excluded by default).
+
 ## [2.5.15] - 2026-05-01
 
 ### Cleanup (Tier 2 A5/A6 + Tier 4 housekeeping from 2026-05-01 simplification audit)

@@ -182,11 +182,19 @@ class TestRowExpansion:
         assert m, "Blocked row must have a Replay-in-Test button dispatching bulwark:goto"
 
     def test_trace_fallback_when_metadata_missing(self):
-        """G-UI-EXPAND-003: _defaultTrace falls back to first 5 LAYERS."""
+        """G-UI-EXPAND-003: _defaultTrace falls back to a per-layer pipeline view.
+
+        v2.5.16: was `LAYERS.slice(0, 5)` (no-op cap on a 4-entry list, comment
+        was v1 "5-step" vocabulary); now `LAYERS.map(...)` over the canonical
+        4-layer list (sanitizer, detection, boundary, canary)."""
         src = PAGE_EVENTS.read_text()
         m = re.search(r"function _defaultTrace\(event\) \{.*?\}", src, flags=re.DOTALL)
         assert m, "_defaultTrace not found"
-        assert "LAYERS.slice(0, 5)" in m.group(0)
+        body = m.group(0)
+        assert "LAYERS.map" in body, "_defaultTrace should iterate LAYERS via .map(...)"
+        assert "LAYERS.slice(0, 5)" not in body, (
+            "v1 'first 5 layers' slice should be removed (LAYERS has 4 entries)"
+        )
 
 
 class TestNonGuarantees:
