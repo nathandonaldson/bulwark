@@ -121,7 +121,59 @@ paths:
             `{"error": {"code": "content_too_large", "message": "..."}}`.
             See G-HTTP-CLEAN-CONTENT-BYTES-001 / ADR-042.
         "422":
-          description: Injection detected or validation error. Content blocked.
+          description: |
+            Injection detected, decoder budget exhausted, or validation error.
+            Content blocked. The `blocked_at` field identifies the layer that
+            triggered the block — one of `"decoders"` (base64 decode-rescan
+            candidate cap exceeded; ADR-052), `"detection:protectai"`,
+            `"detection:promptguard"`, `"detection:llm_judge"`, or any
+            `detection:<model>` string for a custom-registered detector. The
+            `block_reason` field carries a human-readable explanation
+            (e.g. `"Decoder blocked: base64 candidate cap exceeded"`).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [blocked, block_reason, blocked_at]
+                properties:
+                  blocked:
+                    type: boolean
+                    enum: [true]
+                  block_reason:
+                    type: string
+                    description: Human-readable explanation of the block.
+                  blocked_at:
+                    type: string
+                    description: |
+                      Layer that triggered the block. `"decoders"` indicates
+                      the base64 decode-rescan candidate cap was exhausted
+                      (ADR-052 / G-CLEAN-DECODE-CANDIDATE-CAP-FAIL-CLOSED-001).
+                      Detector blocks use the `detection:<model>` form.
+                    examples:
+                      - decoders
+                      - "detection:protectai"
+                      - "detection:promptguard"
+                      - "detection:llm_judge"
+                  blocked_at_variant:
+                    type: string
+                    nullable: true
+                    description: |
+                      Label of the decoded variant that triggered the block,
+                      or null when the block was attributed to the original
+                      text or to the decoder layer itself (decoders blocks
+                      always set this to null).
+                  trace:
+                    type: array
+                    items:
+                      type: object
+                  decoded_variants:
+                    type: array
+                    items:
+                      type: object
+                  content_length:
+                    type: integer
+                  modified:
+                    type: boolean
         "503":
           description: |
             No detectors loaded and operator has not opted into sanitize-

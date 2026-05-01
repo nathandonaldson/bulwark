@@ -108,6 +108,28 @@ class Pipeline:
             # where empty input was sent through the chain unchanged).
             variants = [DecodedVariant(label="original", text=cleaned, depth=0)]
 
+        # ADR-052 / G-CLEAN-DECODE-CANDIDATE-CAP-FAIL-CLOSED-001: fail closed
+        # when the base64 decode-rescan candidate cap is exhausted. Mirrors
+        # the dashboard /v1/clean handler (G-CLEAN-DETECTOR-CHAIN-PARITY-001
+        # / ADR-048). The cap is a CPU-budget guard, not a security boundary;
+        # silently dropping over-cap candidates would let an attacker push a
+        # malicious base64 span past the 16th slot and bypass detection.
+        if any(v.skipped and v.skip_reason == "candidate_cap" for v in variants):
+            step += 1
+            trace.append({
+                "step": step,
+                "layer": "decoders",
+                "verdict": "blocked",
+                "detail": "Base64 candidate cap exceeded during decode-rescan",
+            })
+            return PipelineResult(
+                result="",
+                blocked=True,
+                block_reason="Decoder blocked: base64 candidate cap exceeded",
+                neutralized=neutralized,
+                trace=trace,
+            )
+
         chain_result = run_detector_chain(
             variants=variants,
             detectors=self.detectors,
