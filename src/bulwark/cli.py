@@ -8,7 +8,7 @@ try:
     import click
 except ImportError:
     raise ImportError(
-        "CLI requires click. Install with: pip install bulwark-shield[cli]"
+        "CLI requires click. Install from a source checkout: `pip install -e \".[cli]\"`"
     )
 
 from bulwark.sanitizer import Sanitizer
@@ -381,7 +381,7 @@ def _canary_client(url: str):
         import httpx
     except ImportError:
         raise click.ClickException(
-            "canary commands need httpx. Install with: pip install bulwark-shield[bench]"
+            "canary commands need httpx. Install from a source checkout: `pip install -e \".[bench]\"`"
         )
     import os
     headers = {}

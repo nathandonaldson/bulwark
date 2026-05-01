@@ -10,7 +10,7 @@ probes against a Bulwark-defended pipeline. Two modes:
 
 Results flow into the dashboard event stream via the existing emitter system.
 
-Garak is an optional dependency: `pip install bulwark-shield[testing]`
+Garak is an optional dependency: install from a source checkout via `pip install -e ".[testing]"`
 
 Usage:
     from bulwark.integrations.garak import GarakAdapter, import_garak_results
