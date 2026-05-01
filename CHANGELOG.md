@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.5.17] - 2026-05-01
+
+### Distribution-channel cleanup (see ADR-051)
+
+- **Dropped PyPI as a distribution surface.** The package was never successfully published — `bulwark-shield` returns 404 on PyPI, and the `publish.yml` workflow ran 4 times in April 2026 (all failed) before being changed to manual-dispatch and never invoked since. Meanwhile, README, `docs/python-library.md`, `docs/cli.md`, and 4 of the 5 `examples/quickstart_*.py` files told users to `pip install bulwark-shield[...]` — instructions that didn't work. Docker (`nathandonaldson/bulwark:latest`) is the actual distribution channel.
+- **Deleted `.github/workflows/publish.yml`** (28 lines).
+- **Trimmed `pyproject.toml`** — dropped PyPI-display `classifiers` and any PyPI-only URL fields. Kept the `[project]` metadata needed for local `pip install -e .` from a checkout.
+- **Replaced install instructions** in README + docs + example docstrings with either Docker (recommended) or source (`git clone` + `pip install -e ".[extras]"`) variants. The `bulwark`, `bulwark-bench`, `bulwark-falsepos` console scripts continue to work after a source install.
+- **Migration path**: existing operators using Docker are unaffected. Anyone who would have done `pip install bulwark-shield` (no historical user — there were none) now does `git clone https://github.com/nathandonaldson/bulwark.git && cd bulwark && pip install -e .` instead. The `protect()` SDK proxy and `Pipeline.from_config()` library entry points still work after a source install.
+
+976 tests pass.
+
 ## [2.5.16] - 2026-05-01
 
 ### Refactor (Tier 3 v1-vocabulary final sweep from 2026-05-01 simplification audit)

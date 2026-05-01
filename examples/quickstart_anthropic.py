@@ -16,7 +16,7 @@ Two ways to wire this:
    LLM judge) run in the sidecar — may return 422 if a classifier
    blocks.
 
-Requirements: pip install anthropic bulwark-shield
+Requirements: install Bulwark from source (`git clone https://github.com/nathandonaldson/bulwark.git && cd bulwark && pip install -e ".[anthropic]"`) — see ADR-051. The `[anthropic]` extra pulls in the Anthropic SDK.
 """
 import anthropic
 import httpx

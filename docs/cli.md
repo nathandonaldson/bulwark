@@ -1,6 +1,14 @@
 # CLI Reference
 
-All commands require the `[cli]` extra: `pip install bulwark-shield[cli]`
+Bulwark is distributed as a Docker image (`nathandonaldson/bulwark`); the CLI ships in the same source tree. To run the CLI on a host, install from a checkout:
+
+```bash
+git clone https://github.com/nathandonaldson/bulwark.git
+cd bulwark
+pip install -e ".[cli]"
+```
+
+(See ADR-051: Docker is canonical; the package is not published to PyPI.)
 
 After install, the entry-point scripts are `bulwark`, `bulwark-bench`,
 and `bulwark-falsepos` (hyphens). The same commands also run via
@@ -51,7 +59,7 @@ Options: `--source`, `--label`, `--format` (xml/markdown/delimiter)
 
 ## bulwark canary (subgroup)
 
-Manage canaries on a running dashboard via the [canary management API](api-reference.md#endpoints). Requires the `[bench]` extra (the subgroup uses `httpx`): `pip install bulwark-shield[bench]`. If the dashboard has auth enabled, set `BULWARK_API_TOKEN` in the environment and the CLI will attach it.
+Manage canaries on a running dashboard via the [canary management API](api-reference.md#endpoints). Requires the `[bench]` extra (the subgroup uses `httpx`); install from source: `git clone https://github.com/nathandonaldson/bulwark.git && cd bulwark && pip install -e ".[bench]"`. If the dashboard has auth enabled, set `BULWARK_API_TOKEN` in the environment and the CLI will attach it.
 
 ```bash
 # List configured canaries
