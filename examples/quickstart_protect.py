@@ -9,7 +9,7 @@ only sanitizer + trust boundary. For full v2 detection, use
 quickstart_anthropic.py (HTTP /v1/clean) or Pipeline.from_config()
 (in-process). No Bulwark sidecar required for this script.
 
-Requires: pip install bulwark-shield[anthropic]
+Requires: install from source — `git clone https://github.com/nathandonaldson/bulwark.git && cd bulwark && pip install -e ".[anthropic]"` (see ADR-051).
 """
 import anthropic
 from bulwark.integrations.anthropic import protect

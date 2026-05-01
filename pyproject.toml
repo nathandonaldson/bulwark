@@ -29,22 +29,15 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 keywords = ["ai", "security", "prompt-injection", "llm", "agent"]
-classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Topic :: Security",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
-]
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.39.0"]
 cli = ["click>=8.0"]
 dashboard = ["fastapi>=0.100.0", "uvicorn>=0.20.0", "pydantic>=2.0", "pyyaml>=6.0", "httpx>=0.24.0", "anthropic>=0.39.0"]
 # bulwark-bench talks to a running dashboard over HTTP; httpx is its only
-# extra runtime dep. Declared separately so `pip install bulwark-shield[bench]`
-# works without pulling in the full dashboard stack.
+# extra runtime dep. Declared separately so a source install with
+# `pip install -e ".[bench]"` works without pulling in the full
+# dashboard stack. (PyPI distribution dropped in v2.5.17 / ADR-051.)
 bench = ["httpx>=0.24.0", "pyyaml>=6.0"]
 testing = ["garak>=0.9,<1.0"]
 all = ["anthropic>=0.39.0", "click>=8.0", "fastapi>=0.100.0", "uvicorn>=0.20.0", "pydantic>=2.0", "pyyaml>=6.0", "httpx>=0.24.0", "garak>=0.9,<1.0"]

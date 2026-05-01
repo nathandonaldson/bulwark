@@ -1,8 +1,12 @@
 # Python library
 
-Bulwark ships as a library (`pip install bulwark-shield`) and as a Docker
-sidecar. The library is zero-dependency for the sanitize + wrap path; the
-detector chain pulls in `transformers` + `torch` and is optional.
+Bulwark ships as a Docker sidecar (`nathandonaldson/bulwark`) and, for
+Python embedding, as an importable library installed from a source
+checkout (`git clone https://github.com/nathandonaldson/bulwark.git && cd bulwark && pip install -e .`).
+The library is zero-dependency for the sanitize + wrap path; the
+detector chain pulls in `transformers` + `torch` and is optional. (See
+ADR-051: PyPI is not a distribution channel — Docker is canonical, and
+source-installs cover library use.)
 
 ## One-call sanitize + wrap
 
