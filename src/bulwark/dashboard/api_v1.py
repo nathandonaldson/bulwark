@@ -198,6 +198,42 @@ async def api_clean(req: CleanRequest):
         for v in variants
     ]
 
+    # ADR-052 / G-CLEAN-DECODE-CANDIDATE-CAP-FAIL-CLOSED-001: fail closed
+    # when the base64 decode-rescan candidate cap is exhausted. The cap
+    # (`_CANDIDATE_CAP` in `bulwark.decoders`) is a CPU-budget protection;
+    # silently dropping work past the limit lets an attacker push their
+    # malicious base64 candidate past the 16th slot and bypass detection.
+    # Extends ADR-040's "fail closed when detection is impossible" semantic
+    # to "fail closed when detection budget is exhausted".
+    if any(v.skipped and v.skip_reason == "candidate_cap" for v in variants):
+        step += 1
+        trace.append({
+            "step": step,
+            "layer": "decoders",
+            "verdict": "blocked",
+            "detail": "Base64 candidate cap exceeded during decode-rescan",
+        })
+        total_ms = (time.time() - t0) * 1000
+        _emit_event(
+            layer="detection", verdict="blocked",
+            source_id=f"api:clean:{source}",
+            detail="Blocked by decoder: base64 candidate cap exceeded",
+            duration_ms=round(total_ms, 1),
+        )
+        return JSONResponse(
+            status_code=422,
+            content={
+                "blocked": True,
+                "block_reason": "Decoder blocked: base64 candidate cap exceeded",
+                "blocked_at": "decoders",
+                "trace": trace,
+                "decoded_variants": decoded_variants_trace,
+                "blocked_at_variant": None,
+                "content_length": len(content),
+                "modified": modified,
+            },
+        )
+
     # Step 2 + 2b: detectors + LLM judge — delegated to bulwark.detector_chain
     # (G-CLEAN-DETECTOR-CHAIN-PARITY-001 / ADR-048). The shared helper runs
     # all detectors first (cheaper short-circuits the slower judge), then

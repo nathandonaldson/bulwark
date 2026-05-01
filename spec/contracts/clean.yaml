@@ -127,6 +127,21 @@ guarantees:
       ADR-048.
     related: [ADR-048, ADR-047, ADR-033]
     test_path: tests/test_detector_chain.py, tests/test_clean_decode.py
+  - id: G-CLEAN-DECODE-CANDIDATE-CAP-FAIL-CLOSED-001
+    summary: >
+      When base64 decode-rescan exhausts the per-request candidate cap
+      (`_CANDIDATE_CAP` in `bulwark.decoders`), `/v1/clean` and
+      `Pipeline.run()` fail closed: HTTP 422 with `blocked_at = "decoders"`
+      and block_reason "Decoder blocked: base64 candidate cap exceeded".
+      Skipped variants past the cap MUST NOT be silently passed through.
+      The candidate cap exists as a CPU-budget protection (DoS), not as a
+      security boundary. Pre-v2.5.18 behavior: over-cap variants were
+      marked skipped and detector loops bypassed them, which an attacker
+      could exploit by prepending 16 harmless base64 spans before a
+      malicious encoded payload (validated by an OpenAI Codex Cloud
+      finding, ADR-052).
+    related: [ADR-052, ADR-040, ADR-047, ADR-048]
+    test_path: tests/test_clean_decode.py, tests/test_pipeline_decode_cap.py
 
 non_guarantees:
   - id: NG-CLEAN-001

@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.5.18] - 2026-05-01
+
+### Security fix (closes Codex Cloud finding `2e18f268a58c8191af3f4d6dfa05c385` — see ADR-052)
+
+- **Fail closed when base64 decode-rescan candidate cap is exhausted.** ADR-047's per-request candidate cap (`_CANDIDATE_CAP = 16` in `bulwark.decoders`) was a CPU-budget protection that silently dropped work past the limit. An OpenAI Codex Cloud security scan validated a high-severity bypass against commit `c8157cf` (v2.5.4): an attacker who prepended 16 harmless base64 spans to a malicious base64-encoded prompt injection caused the malicious 17th candidate to be marked `skipped=True, skip_reason='candidate_cap'` and skipped by every detector loop in both the library Pipeline and the dashboard `/v1/clean`. The trust boundary still wrapped the original encoded payload, so the downstream LLM received the injection.
+- Now: when ANY variant in the decoded fan-out has `skip_reason='candidate_cap'`, the request blocks before the detector chain runs. `/v1/clean` returns HTTP 422 with `blocked_at="decoders"` and `block_reason="Decoder blocked: base64 candidate cap exceeded"`; `Pipeline.run()` returns `PipelineResult(blocked=True, block_reason=...)` for parity (ADR-044/048).
+- Architectural pattern: extends ADR-040's "fail closed when detection is impossible" to "fail closed when detection budget is exhausted".
+- New guarantee `G-CLEAN-DECODE-CANDIDATE-CAP-FAIL-CLOSED-001` documented in `spec/contracts/clean.yaml`. New tests `tests/test_clean_decode.py::TestCandidateCapFailClosed` and `tests/test_pipeline_decode_cap.py`.
+- **False-positive risk**: legitimate emails with >16 base64-shaped substrings (long forwarded chains, base64-heavy technical docs) will now block. Operators who hit this can raise `_CANDIDATE_CAP` (currently still 16; not exposed via env var). The cap is only active when `decode_base64=True` (opt-in, default off).
+
+978 tests pass (2 skipped, 10 e2e_slow excluded by default).
+
 ## [2.5.17] - 2026-05-01
 
 ### Distribution-channel cleanup (see ADR-051)
